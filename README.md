@@ -83,7 +83,7 @@ This repository is written for:
 ## Environment
 
 Local authoring is on macOS (Apple Silicon). The Metashape pipeline runs on a
-single AWS `g6.4xlarge` EC2 instance (NVIDIA L4) under Windows; this repo is
+single AWS `g6.4xlarge` EC2 instance (NVIDIA L4) under Linux; this repo is
 the analysis-side companion, not the GPU-side runtime. Python is uv-managed
 against the pinned `.python-version`.
 
