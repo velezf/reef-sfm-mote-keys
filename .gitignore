@@ -1,0 +1,40 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.python-version.local
+.uv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Raw data cache — gitignored per workflow doc, .gitkeep sentinel only
+data/raw/*
+!data/raw/.gitkeep
+
+# Processed intermediates — large, regenerable
+data/processed/*
+!data/processed/.gitkeep
+
+# Metashape project files and dense products live on EC2, not in the repo.
+# These globs are defensive in case anything is rsynced down.
+*.psx
+*.psz
+*.files/
+*.zip
+*.las
+*.laz
+*.ply
+*.obj
+*.tif
+*.tiff
+
+# Figures — keep .gitkeep, accept committed PNG/SVG outputs explicitly
+figures/scratch/
+figures/*.psd
+
+# macOS / editor cruft
+.DS_Store
+.vscode/
+.idea/
+*.swp
