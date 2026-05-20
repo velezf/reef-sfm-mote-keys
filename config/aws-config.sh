@@ -86,7 +86,7 @@ export SECURITY_GROUP_NAME="${PROJECT_TAG}-sg"
 # If you work from multiple locations, re-run 01-create-network.sh after
 # editing this value; it's idempotent and will replace the rule.
 # CRITICAL: never use 0.0.0.0/0 — exposes SSH/DCV to the entire internet.
-export MY_IP_CIDR=""  # MUST be set before running 01-create-network.sh
+export MY_IP_CIDR="192.231.146.225/32"  # MUST be set before running 01-create-network.sh
 
 # Elastic IP allocation ID (filled in by 01-create-network.sh).
 # Stored in docs/aws-resources.md after creation.
