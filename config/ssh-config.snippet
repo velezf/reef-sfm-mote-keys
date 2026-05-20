@@ -1,0 +1,38 @@
+# reef-sfm-mote-keys — SSH config snippet for MacBook ~/.ssh/config
+#
+# After 04-launch-instance.sh runs successfully, copy this block into your
+# ~/.ssh/config (creating that file if it doesn't exist). Replace the
+# placeholder HostName with the public IP printed at the end of the launch
+# script (also persisted in docs/aws-resources.md as `eip_public_ip`).
+#
+# Once installed, `ssh reef-ec2` is all you need.
+#
+# Quick install:
+#   IP=$(grep eip_public_ip docs/aws-resources.md | sed -E 's/.*`([^`]+)`.*/\1/')
+#   sed "s/REPLACE_WITH_EIP/${IP}/" config/ssh-config.snippet >> ~/.ssh/config
+#   chmod 600 ~/.ssh/config
+
+Host reef-ec2
+    HostName REPLACE_WITH_EIP
+    User ubuntu
+    IdentityFile ~/.ssh/reef-sfm-mote-keys-keypair.pem
+    IdentitiesOnly yes
+    # Keep the connection alive across long-running remote work (Metashape
+    # dense-cloud runs can take 6-15 hours; you don't want SSH to drop
+    # mid-run and leave dangling processes).
+    ServerAliveInterval 60
+    ServerAliveCountMax 10
+    # The host key changes if AWS replaces the underlying physical host.
+    # We accept-on-first-use and re-accept silently. Not great for high
+    # security, fine for a personal portfolio project.
+    StrictHostKeyChecking accept-new
+    # Forward the local SSH agent so any further SSH (e.g. from the EC2
+    # instance to github.com) can use your local keys. This is the path
+    # Chat 3 uses to clone your repo onto the instance.
+    ForwardAgent yes
+    # NICE DCV / Amazon DCV port forward, so the browser-based DCV client
+    # can reach localhost:8443 instead of needing the EC2 inbound rule
+    # open to the world. With this, you can leave DCV bound to localhost
+    # on the instance side for extra defence-in-depth.
+    # Comment this out if you connect to DCV directly on the public EIP.
+    # LocalForward 8443 127.0.0.1:8443
