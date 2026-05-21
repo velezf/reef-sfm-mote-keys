@@ -81,7 +81,7 @@ of repository creation — subsequent chats will be appended as they are run.
 
 ## Chat 2 — AWS EC2 setup
 
-*To be added when run.*
+⏳ In progress — awaiting AWS vCPU quota approval | 2026-05-21 |
 
 ---
 
