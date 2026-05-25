@@ -55,7 +55,6 @@ log_info "Creating multi-volume snapshot..."
 snapshot_json="$(aws ec2 create-snapshots \
     --instance-specification "InstanceId=${instance_id}" \
     --description "Baseline pre-Chat-3: instance launched, data volume mounted, no Metashape" \
-    --copy-tags-from-source volume \
     --tag-specifications "ResourceType=snapshot,Tags=[
         {Key=Project,Value=${PROJECT_TAG}},
         {Key=Name,Value=${SNAPSHOT_TAG_BASELINE}},
