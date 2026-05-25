@@ -80,7 +80,7 @@ of repository creation — subsequent chats will be appended as they are run.
 ---
 
 ## Chat 2 — AWS EC2 setup
-
+| 2 | AWS infrastructure | ✅ Complete | 2026-05-25 |
 ⏳ In progress — awaiting AWS vCPU quota approval | 2026-05-21 |
 
 ---
