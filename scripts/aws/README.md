@@ -9,13 +9,13 @@ Edit `config/aws-config.sh` — set `MY_IP_CIDR` to your current public IP in CI
 Then, from the repo root:
 
 ```bash
-./scripts/aws/00-prereqs.sh           # verify aws CLI, credentials, DLAMI lookup
-./scripts/aws/01-create-network.sh    # key pair, SG, EIP, secondary ENI
-./scripts/aws/02-create-storage.sh    # 1 TB data EBS volume (standalone)
-./scripts/aws/03-create-launch-template.sh   # launch template, AMI pinned
-./scripts/aws/04-launch-instance.sh   # launch + attach EIP / ENI / data vol
-./scripts/aws/05-first-boot-setup.sh  # mount data vol, set hostname (over SSH)
-./scripts/aws/06-create-baseline-snapshot.sh   # snapshot pre-Chat-3
+./scripts/aws/setup/00-prereqs.sh           # verify aws CLI, credentials, DLAMI lookup
+./scripts/aws/setup/01-create-network.sh    # key pair, SG, EIP, secondary ENI
+./scripts/aws/setup/02-create-storage.sh    # 1 TB data EBS volume (standalone)
+./scripts/aws/setup/03-create-launch-template.sh   # launch template, AMI pinned
+./scripts/aws/setup/04-launch-instance.sh   # launch + attach EIP / ENI / data vol
+./scripts/aws/setup/05-first-boot-setup.sh  # mount data vol, set hostname (over SSH)
+./scripts/aws/setup/06-create-baseline-snapshot.sh   # snapshot pre-Chat-3
 ```
 
 Total time: ~10–15 minutes; mostly waiting on instance-status checks.
