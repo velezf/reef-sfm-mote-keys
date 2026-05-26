@@ -247,30 +247,30 @@ The scripts are numbered and intended to be run in order, from the repo root:
 
 ```bash
 # 0. Verify prerequisites and discover the current DLAMI
-./scripts/aws/00-prereqs.sh
+./scripts/aws/setup/00-prereqs.sh
 
 # 1. Networking: key pair, SG, EIP, secondary ENI
 #    Make sure MY_IP_CIDR is set in config/aws-config.sh first.
-./scripts/aws/01-create-network.sh
+./scripts/aws/setup/01-create-network.sh
 
 # 2. Standalone EBS data volume
-./scripts/aws/02-create-storage.sh
+./scripts/aws/setup/02-create-storage.sh
 
 # 3. Launch template (pins the current DLAMI)
-./scripts/aws/03-create-launch-template.sh
+./scripts/aws/setup/03-create-launch-template.sh
 
 # 4. Launch the instance, attach EIP / ENI / data volume
-./scripts/aws/04-launch-instance.sh
+./scripts/aws/setup/04-launch-instance.sh
 
 # Set up ~/.ssh/config from the snippet:
 IP=$(grep eip_public_ip docs/aws-resources.md | sed -E 's/.*`([^`]+)`.*/\1/')
 sed "s/REPLACE_WITH_EIP/${IP}/" config/ssh-config.snippet >> ~/.ssh/config
 
 # 5. First-boot setup (runs ON the instance over SSH)
-./scripts/aws/05-first-boot-setup.sh
+./scripts/aws/setup/05-first-boot-setup.sh
 
 # 6. Baseline snapshot of boot + data volumes
-./scripts/aws/06-create-baseline-snapshot.sh
+./scripts/aws/setup/06-create-baseline-snapshot.sh
 ```
 
 Each script is idempotent: re-running it after a successful run is a no-op or a reconciliation of drift (e.g. SG rules if `MY_IP_CIDR` changed).

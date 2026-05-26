@@ -20,8 +20,8 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 export PROJECT_ROOT
 # shellcheck source=../../config/aws-config.sh
 source "${PROJECT_ROOT}/config/aws-config.sh"
-# shellcheck source=./lib.sh
-source "${SCRIPT_DIR}/lib.sh"
+# shellcheck source=../lib.sh
+source "${SCRIPT_DIR}/../lib.sh"
 
 log_step "Step 5: First-boot setup (driven over SSH)"
 
