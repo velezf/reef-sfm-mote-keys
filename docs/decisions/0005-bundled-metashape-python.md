@@ -62,17 +62,35 @@ those artifacts back in via the venv interpreter.
   that needs to drive Metashape directly), the comments tell the
   next operator how to set it up.
 
+## Correction — Metashape 2.3.1 invocation pattern
+
+After installing Metashape Pro 2.3.1 on the EC2 instance (2026-05-26),
+it became clear that the bundled Python at
+`/opt/metashape-pro/python/bin/python3.12` does NOT have the Metashape
+module in its site-packages. The `import Metashape` pattern only works
+when Python is invoked from within Metashape's own process.
+
+The correct invocation for all processing scripts in Chat 5 is:
+
+    metashape.sh -r script.py [args]
+
+This spawns Metashape with the script running inside its process, where
+`import Metashape` works as documented. There is no way to `import
+Metashape` from an external Python interpreter in 2.3.1.
+
+Consequence for the two-interpreter model: the Metashape interpreter
+is `metashape.sh -r`, not `/opt/metashape-pro/python/bin/python3.12`.
+The file-on-disk handoff pattern is unchanged. The project venv still
+handles everything outside of Metashape processing.
+
 ## Notebook narrative
 
-> SfM processing in Chat 5 runs against the Python interpreter that
-> ships inside the Metashape Pro 2.3.1 distribution
-> (`/opt/metashape-pro/python/bin/python3`), not the project's uv
-> venv. The Metashape Python module is tightly coupled to the
-> Metashape binary it ships with, and importing it from an external
-> Python is fragile across upgrades. The project venv handles
-> everything else — intake validation (Chat 4), the provenance/QC/
-> reconciliation package (Chat 6), and all notebooks. The two
-> interpreters communicate via files on disk: Metashape writes the
-> processing report and output products; the provenance layer reads
-> them back in. This is the same artifact-on-disk handoff pattern
-> the provenance manifest is designed around.
+SfM processing in Chat 5 runs via `metashape.sh -r script.py`, which
+executes Python scripts inside Metashape's own process where the
+`Metashape` module is available as a built-in. In Metashape Pro 2.3.1
+the module is not importable from any external Python interpreter —
+the bundled Python environment ships scientific tooling (IPython,
+PySide2, Jupyter) but not the Metashape API itself. The project venv
+handles everything outside of Metashape processing. The two interpreters
+communicate via files on disk: Metashape writes the processing report
+and output products; the provenance layer reads them back in.

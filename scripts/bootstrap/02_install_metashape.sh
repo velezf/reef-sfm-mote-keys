@@ -77,11 +77,26 @@ else
   sudo chmod +x "${METASHAPE_INSTALL_DIR}/metashape.sh"
 fi
 
-# --- 5. Symlink for easy CLI access ------------------------------------------
-if [[ ! -L /usr/local/bin/metashape ]]; then
-  log "Creating symlink /usr/local/bin/metashape -> ${METASHAPE_INSTALL_DIR}/metashape.sh"
-  sudo ln -sf "${METASHAPE_INSTALL_DIR}/metashape.sh" /usr/local/bin/metashape
+# --- 5. Wrapper script for CLI access ----------------------------------------
+# A symlink doesn't work because metashape.sh derives paths from $0.
+# When invoked through a symlink in /usr/local/bin, $0 resolves to the
+# symlink path and dirname gives /usr/local/bin instead of
+# /opt/metashape-pro, breaking the library path setup.
+# A wrapper script that exec's the real path sidesteps this entirely.
+if [[ ! -f /usr/local/bin/metashape ]]; then
+  log "Creating wrapper script /usr/local/bin/metashape"
+  sudo tee /usr/local/bin/metashape > /dev/null << 'WRAPPER'
+#!/bin/bash
+exec /opt/metashape-pro/metashape.sh "$@"
+WRAPPER
+  sudo chmod +x /usr/local/bin/metashape
 fi
+
+# --- 5a. Fix tarball permissions ---------------------------------------------
+# The Metashape tarball extracts with rwx------ on most files, making them
+# inaccessible to the ubuntu user. Open up read and execute bits.
+log "Fixing tarball permissions on ${METASHAPE_INSTALL_DIR}..."
+sudo chmod -R g+rX,o+rX "${METASHAPE_INSTALL_DIR}"
 
 # --- 6. Make the bundled Python module importable from our project venv ------
 # Metashape's Python module lives under /opt/metashape-pro/python/lib. The
@@ -103,5 +118,4 @@ log ""
 log "Installation complete. NOT activating the trial — that's 04_activate_trial.sh."
 log ""
 log "Verifying installation (headless --version check)..."
-# --version works without a display; do NOT call any GUI mode here
-"${METASHAPE_INSTALL_DIR}/metashape.sh" --version
+/usr/local/bin/metashape --version

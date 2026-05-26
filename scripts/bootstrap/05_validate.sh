@@ -81,38 +81,36 @@ else
   fail "${METASHAPE_BIN} not found or not executable"
 fi
 
-# -- 4. Metashape Python module (bundled interpreter) -------------------------
+# -- 4. Metashape Python API via -r -------------------------------------------
 echo ""
-echo "[4/10] Metashape Python module imports"
-MS_PY=$(ls /opt/metashape-pro/python/bin/python3 2>/dev/null | head -1 || true)
-if [[ -n "${MS_PY}" && -x "${MS_PY}" ]]; then
-  if api_ver=$("${MS_PY}" -c "import Metashape; print(Metashape.app.version)" 2>&1); then
-    pass "Metashape Python API: ${api_ver}"
-  else
-    fail "Metashape Python module import failed: ${api_ver}"
-  fi
+echo "[4/10] Metashape Python API imports"
+cat > /tmp/ms_validate.py << 'PYEOF'
+import Metashape
+print(Metashape.app.version)
+PYEOF
+if api_ver=$(/opt/metashape-pro/metashape.sh -r /tmp/ms_validate.py 2>/dev/null | grep -E '^[0-9]+\.[0-9]+'); then
+  pass "Metashape Python API: ${api_ver}"
 else
-  fail "Bundled Metashape Python not found at /opt/metashape-pro/python/bin/python3"
+  fail "Metashape Python API import failed via metashape.sh -r"
 fi
 
-# -- 5. Metashape sees the GPU -----------------------------------------------
+# -- 5. Metashape enumerates GPU devices --------------------------------------
 echo ""
 echo "[5/10] Metashape enumerates GPU devices"
-if [[ -n "${MS_PY:-}" && -x "${MS_PY}" ]]; then
-  gpu_list=$("${MS_PY}" -c "
+cat > /tmp/ms_gpu.py << 'PYEOF'
 import Metashape
 devices = Metashape.app.enumGPUDevices()
 if not devices:
     raise SystemExit('NO_GPUS')
 for d in devices:
     print(d.get('name','?'), '-', d.get('vendor','?'))
-" 2>&1) || true
-  if [[ "${gpu_list}" == *"NO_GPUS"* || -z "${gpu_list}" ]]; then
-    fail "Metashape enumGPUDevices() returned empty — GPU not visible to Metashape"
-  else
-    info "Metashape sees: ${gpu_list}"
-    pass "Metashape enumerates at least one GPU"
-  fi
+PYEOF
+gpu_list=$(/opt/metashape-pro/metashape.sh -r /tmp/ms_gpu.py 2>/dev/null | grep -v "^No\|^Agisoft\|^Platform\|^CPU\|^RAM\|^Found")
+if [[ -z "${gpu_list}" ]]; then
+  fail "Metashape enumGPUDevices() returned empty"
+else
+  info "Metashape sees: ${gpu_list}"
+  pass "Metashape enumerates at least one GPU"
 fi
 
 # -- 6. Project venv ----------------------------------------------------------
