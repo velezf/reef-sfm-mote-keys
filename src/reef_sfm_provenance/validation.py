@@ -460,10 +460,17 @@ def _check_file_count(records: list[ImageRecord]) -> Finding:
 
 
 def _check_hash_uniqueness(records: list[ImageRecord]) -> Finding:
+    """SHA-256 uniqueness check against the validator's own inventory.
+
+    build_inventory computes SHA-256 for every file (reusing acquisition-side
+    hashes when available, computing on the fly otherwise), so this rule is
+    dispositive on every run — not contingent on an external manifest.
+    """
     hashes = [r.sha256 for r in records if r.sha256]
     if not hashes:
         return Finding("hash_uniqueness", "unverified",
-                       "No hashes available to check (acquisition skipped)")
+                       "No SHA-256 hashes in inventory records "
+                       "(defensive: should not occur in normal operation)")
     seen: dict[str, list[str]] = {}
     for r in records:
         if not r.sha256:
@@ -476,7 +483,8 @@ def _check_hash_uniqueness(records: list[ImageRecord]) -> Finding:
             f"{len(dups)} hash collision(s) detected; {sum(len(v) for v in dups.values())} files affected",
             details={"duplicates": {h: names for h, names in list(dups.items())[:10]}},
         )
-    return Finding("hash_uniqueness", "ok", f"{len(hashes)} unique SHA-256 values")
+    return Finding("hash_uniqueness", "ok",
+                   f"All {len(hashes)} files have unique SHA-256 hashes")
 
 
 def _check_gps_consistency(records: list[ImageRecord]) -> Finding:

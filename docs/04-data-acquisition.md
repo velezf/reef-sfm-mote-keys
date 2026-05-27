@@ -157,6 +157,14 @@ string (`'U.S. Geological Survey, Mote Marine Laboratory'`); this was incorrect 
 and was corrected in a subsequent commit.  The rule now validates presence-and-well-formedness
 only, consistent with the profile-driven validator architecture described in ADR-0011.
 
+**hash_uniqueness self-sufficiency:** The `hash_uniqueness` dataset rule was previously
+coupled to an external acquisition-side hash manifest (`_provenance.json`).  In the Chat 4
+IDS-CSV-driven recovery acquisition path, no external hash manifest was written, so the rule
+reported `unverified`.  `build_inventory` now computes SHA-256 for every file during its own
+inventory pass (reusing acquisition-side hashes when available, computing on the fly
+otherwise), making `hash_uniqueness` a dispositive check on every run, consistent with
+ADR-0011's validator-self-sufficiency direction.
+
 **filename_pattern [RC]# fix:** 1,564 of 3,271 files use `C#` as the swath designator
 (column-direction passes of the double-lawnmower pattern; see Toth et al. 2025 ESM
 Step 1).  The original regex required `R#` only.  The pattern now accepts `[RC]#`; the

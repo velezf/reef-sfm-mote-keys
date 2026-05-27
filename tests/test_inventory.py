@@ -150,8 +150,8 @@ def test_inventory_extracts_basic_exif(tmp_path: Path):
     # XMP not written; should be None and not raise
     assert rec.xmp_attribution_url is None
     assert rec.iptc_credit is None
-    # SHA-256 wasn't supplied via the acquisition path
-    assert rec.sha256 is None
+    # SHA-256 is computed by build_inventory itself when not pre-supplied
+    assert rec.sha256 is not None and len(rec.sha256) == 64
     assert rec.read_errors == []
 
 

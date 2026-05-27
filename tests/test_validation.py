@@ -229,6 +229,17 @@ def test_too_few_files_warns(good_dataset):
     assert findings["file_count"].severity == "warn"
 
 
+def test_hash_uniqueness_ok(good_record_factory):
+    """Three files with distinct hashes → ok, count reported."""
+    records = [
+        good_record_factory(name=f"20220715_EDR_T1_R1_{i:06d}.tif", sha256=f"{i:064x}")
+        for i in range(3)
+    ]
+    findings = {f.code: f for f in validate_dataset(records)}
+    assert findings["hash_uniqueness"].is_pass
+    assert "3" in findings["hash_uniqueness"].message
+
+
 def test_duplicate_hashes_fail(good_dataset):
     # Force two files to share a hash
     poisoned = list(good_dataset)
@@ -236,6 +247,16 @@ def test_duplicate_hashes_fail(good_dataset):
     findings = {f.code: f for f in validate_dataset(poisoned)}
     assert findings["hash_uniqueness"].is_fail
     assert "1 hash collision" in findings["hash_uniqueness"].message
+
+
+def test_hash_uniqueness_unverified_when_no_hashes(good_record_factory):
+    """Defensive: all sha256=None → unverified (should not occur post inventory fix)."""
+    records = [
+        good_record_factory(name=f"20220715_EDR_T1_R1_{i:06d}.tif", sha256=None)
+        for i in range(3)
+    ]
+    findings = {f.code: f for f in validate_dataset(records)}
+    assert findings["hash_uniqueness"].severity == "unverified"
 
 
 def test_mixed_cameras_warn(good_dataset):

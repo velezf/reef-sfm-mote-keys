@@ -24,6 +24,7 @@ part of the point of the provenance package.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import logging
 import shutil
@@ -295,6 +296,15 @@ def _xmp_fragment(rec: dict[str, Any] | None) -> dict[str, str | None]:
 # ---------------------------------------------------------------------------
 
 
+def _hash_file(path: Path, chunk: int = 1 << 20) -> str:
+    """SHA-256 of a file, streaming in 1 MiB chunks."""
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(chunk), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 def iter_image_paths(site_dir: Path, *, extensions: tuple[str, ...] = (".tif", ".tiff")) -> Iterator[Path]:
     for p in sorted(site_dir.iterdir()):
         if p.is_file() and p.suffix.lower() in extensions:
@@ -312,7 +322,9 @@ def build_inventory(
     """Catalog every image in `site_dir`.
 
     `hashes_by_name` lets us reuse SHA-256 values from the acquisition
-    provenance instead of re-hashing every file.
+    provenance instead of re-hashing every file.  When a file is not in
+    `hashes_by_name`, its SHA-256 is computed on the fly so that the
+    `hash_uniqueness` dataset rule always has data to work with.
 
     `ids_records` is a {filename_lower: IdsRecord} dict from `load_ids_csv`.
     When supplied, CSV-primary fields (image_id, dtoriginal, cammake, …) are
@@ -353,7 +365,7 @@ def build_inventory(
                 name=path.name,
                 relpath=str(rel),
                 size_bytes=path.stat().st_size,
-                sha256=hashes_by_name.get(path.name),
+                sha256=hashes_by_name.get(path.name) or _hash_file(path),
                 width=pillow_frag["width"],
                 height=pillow_frag["height"],
                 exif_make=pillow_frag["exif_make"],
