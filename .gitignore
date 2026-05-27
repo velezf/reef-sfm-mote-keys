@@ -45,3 +45,9 @@ figures/*.psd
 # aren't secret but aren't useful to anyone else, and pollute git diffs.
 docs/aws-resources.md
 config/aws-config.sh
+
+# Bulk contact sheets — only representative samples are tracked
+data/figures/contact_sheets/*/contact_sheet_*.jpg
+!data/figures/contact_sheets/*/contact_sheet_001.jpg
+!data/figures/contact_sheets/*/contact_sheet_046.jpg
+!data/figures/contact_sheets/*/contact_sheet_091.jpg
