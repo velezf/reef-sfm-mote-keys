@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 
 from reef_sfm_provenance.validation import (
+    TOTH_FILENAME_RE,
     aggregate_per_image,
     overall_severity,
     validate_dataset,
@@ -27,7 +28,7 @@ def test_good_record_passes_every_rule(good_record):
     findings = validate_image(good_record)
     codes = {f.code for f in findings}
     assert codes == {
-        "csv_join", "software_lineage",
+        "csv_join", "software_lineage", "filename_pattern",
         "camera_consistency", "dimensions", "exif_artist",
         "exif_copyright", "datetime_original", "gps_present",
         "xmp_attribution_url", "iptc_credit",
@@ -169,6 +170,7 @@ def test_dataset_passes_with_good_inputs(good_dataset):
     assert codes["gps_consistency"].is_pass
     assert codes["size_outliers"].is_pass
     assert codes["csv_coverage"].is_pass
+    assert codes["subsite_cross_reference"].is_pass
 
 
 def test_empty_dataset_fails():
@@ -246,18 +248,111 @@ def test_gps_out_of_bbox_fails(good_dataset):
 def test_aggregate_counts_correctly(good_record_factory):
     findings = []
     for i in range(10):
-        findings.extend(validate_image(good_record_factory(name=f"good_{i}.tif")))
-    bad = good_record_factory(name="bad.tif", exif_artist=None, csv_artist=None)
+        findings.extend(validate_image(good_record_factory(name=f"20220715_EDR_T1_R1_{i:06d}.tif")))
+    bad = good_record_factory(name=f"20220715_EDR_T1_R1_{10:06d}.tif", exif_artist=None, csv_artist=None)
     findings.extend(validate_image(bad))
     rollup = aggregate_per_image(findings)
     assert rollup["exif_artist"]["ok"] == 10
     assert rollup["exif_artist"]["fail"] == 1
 
 
+# ---------------------------------------------------------------------------
+# Filename pattern rule
+# ---------------------------------------------------------------------------
+
+
+def test_filename_pattern_valid_toth_name(good_record_factory):
+    rec = good_record_factory(name="20220715_EDR_T1_R1_000001.tif")
+    findings = {f.code: f for f in validate_image(rec)}
+    assert findings["filename_pattern"].is_pass
+    assert findings["filename_pattern"].details["transect"] == "T1"
+    assert findings["filename_pattern"].details["site"] == "EDR"
+
+
+def test_filename_pattern_non_toth_name_fails(good_record_factory):
+    rec = good_record_factory(name="IMG_0001.tif")
+    findings = {f.code: f for f in validate_image(rec)}
+    assert findings["filename_pattern"].is_fail
+
+
+def test_filename_pattern_re_matches_variants():
+    # T1, T3, T8; R1, R6; 6-digit seq
+    assert TOTH_FILENAME_RE.match("20230711_EDR_T8_R6_000300.tif")
+    assert TOTH_FILENAME_RE.match("20220715_EDR_T1_R1_000001.TIF")  # uppercase ext
+    assert TOTH_FILENAME_RE.match("20230715_EDR_T3_R2_000100.tif")
+    assert not TOTH_FILENAME_RE.match("IMG_0001.tif")
+    assert not TOTH_FILENAME_RE.match("20220715_EDR_T1_R1_0001.tif")  # only 4 digits in seq
+
+
+# ---------------------------------------------------------------------------
+# Subsite cross-reference rule
+# ---------------------------------------------------------------------------
+
+
+def test_subsite_cross_reference_single_transect_passes(good_dataset):
+    # good_dataset: all T1, all same UUID
+    findings = {f.code: f for f in validate_dataset(good_dataset)}
+    assert findings["subsite_cross_reference"].is_pass
+    assert findings["subsite_cross_reference"].details["transects"]["T1"]["uuid_count"] == 1
+
+
+def test_subsite_cross_reference_multi_transect_passes(good_record_factory):
+    """Different T# groups each with their own UUID is expected for a multi-subsite site."""
+    records = [
+        good_record_factory(
+            name=f"20220715_EDR_T1_R1_{i:06d}.tif",
+            sha256=f"t1{i:062d}",
+            csv_uuid="uuid-t1-aaa",
+        )
+        for i in range(100)
+    ] + [
+        good_record_factory(
+            name=f"20220715_EDR_T3_R1_{i:06d}.tif",
+            sha256=f"t3{i:062d}",
+            csv_uuid="uuid-t3-bbb",
+        )
+        for i in range(100)
+    ]
+    findings = {f.code: f for f in validate_dataset(records)}
+    assert findings["subsite_cross_reference"].is_pass
+    tbl = findings["subsite_cross_reference"].details["transects"]
+    assert tbl["T1"]["uuid_count"] == 1
+    assert tbl["T3"]["uuid_count"] == 1
+
+
+def test_subsite_cross_reference_mixed_uuid_fails(good_record_factory):
+    """T1 images with two different UUIDs → images from two dive events got merged."""
+    records = [
+        good_record_factory(
+            name=f"20220715_EDR_T1_R1_{i:06d}.tif",
+            sha256=f"a{i:063d}",
+            csv_uuid="uuid-event-aaa" if i < 50 else "uuid-event-bbb",
+        )
+        for i in range(100)
+    ]
+    findings = {f.code: f for f in validate_dataset(records)}
+    assert findings["subsite_cross_reference"].is_fail
+    assert "T1" in findings["subsite_cross_reference"].message
+
+
+def test_subsite_cross_reference_no_uuid_unverified(good_record_factory):
+    """When IDS CSV wasn't loaded, uuid is None → cross-reference is unverified."""
+    records = [
+        good_record_factory(
+            name=f"20220715_EDR_T1_R1_{i:06d}.tif",
+            sha256=f"{i:064x}",
+            csv_uuid=None,
+        )
+        for i in range(10)
+    ]
+    findings = {f.code: f for f in validate_dataset(records)}
+    assert findings["subsite_cross_reference"].severity == "unverified"
+
+
 def test_overall_severity_is_max(good_record_factory):
-    rec_good = good_record_factory(name="good.tif")
-    rec_warn = good_record_factory(name="warn.tif", csv_dtoriginal_utc="2010-01-01T00:00:00+00:00")
-    rec_fail = good_record_factory(name="fail.tif", exif_artist=None, csv_artist=None)
+    rec_good = good_record_factory(name="20220715_EDR_T1_R1_000001.tif")
+    rec_warn = good_record_factory(name="20220715_EDR_T1_R1_000002.tif", csv_dtoriginal_utc="2010-01-01T00:00:00+00:00")
+    rec_fail = good_record_factory(name="20220715_EDR_T1_R1_000003.tif", exif_artist=None, csv_artist=None)
     findings = (
         validate_image(rec_good)
         + validate_image(rec_warn)

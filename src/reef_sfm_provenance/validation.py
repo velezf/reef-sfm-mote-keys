@@ -27,6 +27,7 @@ import logging
 import math
 import re
 import statistics
+from collections import defaultdict
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
@@ -96,6 +97,14 @@ BBOX_SOUTH, BBOX_NORTH = 24.4517, 24.6216
 # allows both.
 EXPECTED_DIMS = {(4000, 3000), (3000, 4000)}
 
+# Toth et al. 2025 filename convention: YYYYMMDD_SITE_T#_R#_NNNNNN.tif
+# T# = transect/subsite identifier (T1, T3, T8 for EDR)
+# R# = run/replicate number within the transect
+# NNNNNN = 6-digit sequential image number
+TOTH_FILENAME_RE = re.compile(
+    r"^(\d{8})_([A-Za-z0-9]+)_(T\d+)_(R\d+)_(\d{6})\.(tif)$",
+    re.IGNORECASE,
+)
 
 # Minimum images per transect per Combs 2021: ~50-150 per 10x2m transect.
 # At 10-12 transects per offshore site, EasternDryRocks should land
@@ -165,6 +174,26 @@ def _check_software_lineage(rec: ImageRecord) -> Finding:
                    "file may not be from the published methodology pipeline",
                    scope=rec.name, details={"software": sw})
 
+
+def _check_filename_pattern(rec: ImageRecord) -> Finding:
+    """Filename must match Toth et al. YYYYMMDD_SITE_T#_R#_NNNNNN.tif convention."""
+    m = TOTH_FILENAME_RE.match(rec.name)
+    if m:
+        transect, run = m.group(3), m.group(4)
+        return Finding(
+            "filename_pattern", "ok",
+            f"Matches Toth convention (transect={transect}, run={run})",
+            scope=rec.name,
+            details={
+                "date": m.group(1), "site": m.group(2),
+                "transect": transect, "run": run, "seq": m.group(5),
+            },
+        )
+    return Finding(
+        "filename_pattern", "fail",
+        f"Filename {rec.name!r} does not match YYYYMMDD_SITE_T#_R#_NNNNNN.tif",
+        scope=rec.name,
+    )
 
 
 def _check_camera(rec: ImageRecord) -> Finding:
@@ -340,6 +369,7 @@ def validate_image(rec: ImageRecord) -> list[Finding]:
         return findings
     findings.append(_check_csv_join(rec))
     findings.append(_check_software_lineage(rec))
+    findings.append(_check_filename_pattern(rec))
     findings.append(_check_camera(rec))
     findings.append(_check_dimensions(rec))
     findings.append(_check_exif_artist(rec))
@@ -504,6 +534,69 @@ def _check_csv_coverage(records: list[ImageRecord]) -> Finding:
                    details={"matched": matched, "total": total, "pct": round(pct, 1)})
 
 
+def _check_subsite_cross_reference(records: list[ImageRecord]) -> Finding:
+    """Cross-reference on-disk transect (T#) groups with CSV dive-event UUIDs.
+
+    Each transect should map to exactly one UUID.  Multiple UUIDs within a T#
+    group means images from different dive events were merged — a real error
+    that would corrupt Metashape alignment (ADR-0009).
+    """
+    transect_uuids: dict[str, set[str]] = defaultdict(set)
+    transect_counts: dict[str, int] = defaultdict(int)
+    no_match_count = 0
+
+    for rec in records:
+        m = TOTH_FILENAME_RE.match(rec.name)
+        if not m:
+            no_match_count += 1
+            continue
+        transect = m.group(3)
+        transect_counts[transect] += 1
+        if rec.csv_uuid:
+            transect_uuids[transect].add(rec.csv_uuid)
+
+    if not transect_counts:
+        return Finding(
+            "subsite_cross_reference", "unverified",
+            "No filenames matched Toth convention; cross-reference not possible",
+            details={"no_filename_match_count": no_match_count},
+        )
+
+    total_uuid_entries = sum(len(v) for v in transect_uuids.values())
+    if total_uuid_entries == 0:
+        return Finding(
+            "subsite_cross_reference", "unverified",
+            "No CSV UUIDs available (IDS CSV not loaded); cross-reference skipped",
+            details={
+                "no_filename_match_count": no_match_count,
+                "transects": {t: {"count": transect_counts[t], "uuids": []}
+                              for t in sorted(transect_counts)},
+            },
+        )
+
+    table: dict[str, dict] = {}
+    multi_uuid_transects: list[str] = []
+    for transect in sorted(transect_counts):
+        uuids = sorted(transect_uuids.get(transect, set()))
+        table[transect] = {"count": transect_counts[transect], "uuids": uuids, "uuid_count": len(uuids)}
+        if len(uuids) > 1:
+            multi_uuid_transects.append(transect)
+
+    details: dict = {"transects": table, "no_filename_match_count": no_match_count}
+
+    if multi_uuid_transects:
+        return Finding(
+            "subsite_cross_reference", "fail",
+            f"{len(multi_uuid_transects)} transect(s) span multiple UUIDs "
+            f"({', '.join(multi_uuid_transects)}); images from different dive events may be merged",
+            details=details,
+        )
+    return Finding(
+        "subsite_cross_reference", "ok",
+        f"{len(transect_counts)} transect(s), each mapping to a single dive-event UUID",
+        details=details,
+    )
+
 
 def validate_dataset(records: list[ImageRecord]) -> list[Finding]:
     """Dataset-level rules.  Distinct from per-image: these only fire once."""
@@ -516,6 +609,7 @@ def validate_dataset(records: list[ImageRecord]) -> list[Finding]:
         _check_gps_consistency(records),
         _check_size_outliers(records),
         _check_csv_coverage(records),
+        _check_subsite_cross_reference(records),
     ]
 
 
@@ -562,4 +656,5 @@ __all__ = [
     "EXPECTED_DATE_MIN",
     "EXPECTED_DATE_MAX",
     "BBOX_WEST", "BBOX_EAST", "BBOX_SOUTH", "BBOX_NORTH",
+    "TOTH_FILENAME_RE",
 ]

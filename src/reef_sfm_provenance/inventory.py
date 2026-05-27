@@ -83,6 +83,7 @@ class ImageRecord:
     csv_copyright: str | None = None
     csv_lat: float | None = None   # station-level, per dive event
     csv_lon: float | None = None
+    csv_uuid: str | None = None    # dive-event UUID from IDS CSV
     # Read-side issues we caught while cataloging this file
     read_errors: list[str] = dataclasses.field(default_factory=list)
 
@@ -376,6 +377,7 @@ def build_inventory(
                 csv_copyright=csv_rec.copyright if csv_rec else None,
                 csv_lat=csv_rec.lat if csv_rec else None,
                 csv_lon=csv_rec.lon if csv_rec else None,
+                csv_uuid=csv_rec.uuid if csv_rec else None,
                 read_errors=errors,
             )
         )

@@ -16,7 +16,7 @@ from reef_sfm_provenance.validation import (
 )
 
 
-def _good_record(name: str = "IMG_0001.tif", **overrides: Any) -> ImageRecord:
+def _good_record(name: str = "20220715_EDR_T1_R1_000001.tif", **overrides: Any) -> ImageRecord:
     """An ImageRecord that should pass every per-image rule."""
     base = ImageRecord(
         name=name,
@@ -53,6 +53,7 @@ def _good_record(name: str = "IMG_0001.tif", **overrides: Any) -> ImageRecord:
         csv_copyright=EXPECTED_EXIF_COPYRIGHT,
         csv_lat=24.53055,
         csv_lon=-81.48781,
+        csv_uuid="80e7c677-0000-0000-0000-000000000001",
     )
     return dataclasses.replace(base, **overrides)
 
@@ -73,7 +74,7 @@ def good_dataset() -> list[ImageRecord]:
     records: list[ImageRecord] = []
     for i in range(1500):
         rec = _good_record(
-            name=f"IMG_{i:04d}.tif",
+            name=f"20220715_EDR_T1_R1_{i:06d}.tif",
             sha256=f"{i:064x}",
             size_bytes=10_000_000 + (i * 137 % 5_000_000),
             exif_datetime_original=f"2022:07:15 {(i // 60) % 24:02d}:{i % 60:02d}:00",

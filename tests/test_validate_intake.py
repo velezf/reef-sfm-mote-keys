@@ -284,6 +284,7 @@ def test_happy_path_all_pass(edr_site):
         assert findings["exif_copyright"].is_pass
         assert findings["datetime_original"].is_pass
         assert findings["gps_present"].is_pass
+        assert findings["filename_pattern"].is_pass
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +364,9 @@ def test_csv_coverage_all_matched(edr_site):
     inv = build_inventory(edr_site["site_dir"], ids_records=ids_records, use_exiftool=False)
     findings = {f.code: f for f in validate_dataset(inv)}
     assert findings["csv_coverage"].is_pass
+    # Toth-named files with one UUID per transect
+    assert findings["subsite_cross_reference"].is_pass
+    assert "T8" in findings["subsite_cross_reference"].details["transects"]
 
 
 def test_csv_coverage_unmatched_warns_or_fails(edr_site):
