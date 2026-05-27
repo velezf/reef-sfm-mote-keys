@@ -178,11 +178,11 @@ def test_software_lineage_unknown_value_fails(good_record_factory):
 
 
 def test_iptc_credit_present_passes(good_record_factory):
-    """IPTC Credit present and matching → ok."""
-    from reef_sfm_provenance.validation import EXPECTED_IPTC_CREDIT
-    rec = good_record_factory(iptc_credit=EXPECTED_IPTC_CREDIT)
+    """Any non-empty IPTC Credit → ok; rule does not assert a specific institution."""
+    rec = good_record_factory(iptc_credit="Some Generic Institution Name")
     findings = {f.code: f for f in validate_image(rec)}
     assert findings["iptc_credit"].is_pass
+    assert findings["iptc_credit"].details["actual"] == "Some Generic Institution Name"
 
 
 def test_iptc_credit_absent_with_exif_rights_warns(good_record_factory):

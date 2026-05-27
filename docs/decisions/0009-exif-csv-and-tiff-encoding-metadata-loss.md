@@ -166,10 +166,13 @@ by metadata-block type:
   `DateTimeOriginal` all absent — confirmed at full-dataset scale.  `DateTime` present but
   reflects the Photoshop save timestamp, not capture time.
 
-- **IPTC Credit: absent.**  Either never authored by USGS or stripped by Photoshop's TIFF
-  export path.  Adjacent rights fields (`EXIF Artist`, `EXIF Copyright`) are present and
-  well-formed on every file, so this is a redundant-field absence, not a missing rights record.
-  The `iptc_credit` validator rule was softened to warn (not fail) in response.
+- **IPTC Credit: preserved.**  Present on every file with value `'U.S. Geological Survey'`.
+  The IPTC block survived USGS's Photoshop re-encoding intact alongside the XMP block.  USGS
+  does not include Mote Marine Laboratory in the IPTC Credit even though Toth et al. 2025
+  authorship includes both institutions; this is an authorial decision, not a metadata-loss
+  artifact.  The previous version of this addendum claimed "IPTC Credit: absent" — that was
+  a rule-design artifact (the rule hardcoded `'U.S. Geological Survey, Mote Marine
+  Laboratory'` as the expected string); corrected in a subsequent commit.
 
 - **XMP attribution URL: preserved.**  Adobe Photoshop is the canonical XMP implementation
   and preserves XMP blocks by default on TIFF export.  `XMP:AttributionURL`,
@@ -179,8 +182,8 @@ by metadata-block type:
   `ImageDescription`, `Orientation`, width, height all survive Photoshop re-encoding
   without modification.
 
-The Photoshop pipeline is more selective in what it strips than the original Finding B's
-framing implied.  Validators reading future USGS releases produced by similar pipelines should
-expect this specific three-layer pattern, not generic "metadata loss."
+The Photoshop pipeline strips one specific thing — the EXIF sub-IFD — and preserves the IPTC,
+XMP, and TIFF baseline blocks intact.  Validators reading future USGS releases produced by
+similar pipelines should expect this specific pattern, not generic "metadata loss."
 
 #tags: exif, tiff, photoshop, cr2, raw, metadata-loss, validate-intake, csv, dtoriginal, focal-length, metashape, bundle-adjustment, provenance, lzw

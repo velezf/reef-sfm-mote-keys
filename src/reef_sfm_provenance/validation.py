@@ -295,22 +295,24 @@ def _check_xmp_attribution(rec: ImageRecord) -> Finding:
 
 
 def _check_iptc_credit(rec: ImageRecord) -> Finding:
-    """IPTC Credit check with three outcomes (ADR-0009 three-layer metadata picture).
+    """IPTC Credit check with three outcomes (ADR-0009, ADR-0011).
 
-    ok   — Credit present and matches expected USGS/Mote attribution
-    warn — Credit absent but EXIF Artist + Copyright both present (redundant-field-not-set,
-           not a missing rights record; confirmed as the EDR dataset pattern)
-    fail — Credit absent AND EXIF Artist or Copyright also absent (no rights documentation)
+    ok   — Credit present and non-empty (any institutional string; specific value
+           recorded in details for transparency but not asserted against)
+    warn — Credit absent but EXIF Artist + Copyright both present (adjacent rights
+           tags provide equivalent documentation; redundant-field-not-set pattern)
+    fail — Credit absent AND EXIF Artist or Copyright also missing (no rights docs)
+
+    Which specific institution should appear in IPTC:Credit is a dataset-profile
+    concern, not a data-integrity check.  Per ADR-0011, dataset-specific expected
+    values belong in the future Chat 6 profile schema, not inline here.
     """
     if rec.iptc_credit is not None:
-        if rec.iptc_credit == EXPECTED_IPTC_CREDIT:
-            return Finding("iptc_credit", "ok",
-                           "IPTC Credit matches USGS/Mote attribution", scope=rec.name)
         return Finding(
-            "iptc_credit", "fail",
-            f"IPTC:Credit {rec.iptc_credit!r} != expected",
+            "iptc_credit", "ok",
+            f"IPTC:Credit = {rec.iptc_credit!r} (rights documented)",
             scope=rec.name,
-            details={"actual": rec.iptc_credit, "expected": EXPECTED_IPTC_CREDIT},
+            details={"actual": rec.iptc_credit},
         )
     # Credit is absent (field not set, or exiftool unavailable).
     # Fall back to EXIF rights fields as equivalent documentation.

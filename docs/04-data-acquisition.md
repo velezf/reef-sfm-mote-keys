@@ -103,7 +103,7 @@ metadata file.  Each rule emits one of four severities:
 | `datetime_original` | CSV dtoriginal within 2022-07-10 … 2023-07-19 | warn |
 | `gps_present` | CSV station GPS inside survey bbox (24.45–24.62 N, −81.88–−81.36 W) | fail |
 | `xmp_attribution_url` | `https://doi.org/10.5066/P1WHKTRD` (exiftool only) | fail when read, unverified otherwise |
-| `iptc_credit` | `U.S. Geological Survey, Mote Marine Laboratory` (exiftool only) → ok; absent + EXIF Artist/Copyright present → warn (redundant field, not missing rights); absent + no EXIF rights → fail | ok / warn / fail |
+| `iptc_credit` | IPTC Credit present and non-empty → ok (any institutional string; specific value not asserted per ADR-0011); absent + EXIF Artist/Copyright present → warn (redundant field, not missing rights); absent + no EXIF rights → fail | ok / warn / fail |
 
 ### Dataset-level rules (one finding per dataset)
 
@@ -147,12 +147,15 @@ methodology, not a data-integrity problem; both subsets are from the same pipeli
 `software_lineage` rule's warn-vs-fail distinction was added in response to this finding
 so the rule produces actionable signal rather than 1,563 false failures.
 
-**iptc_credit absence:** IPTC Credit is absent on all 3,271 files.  EXIF Artist
-(`USGS St. Petersburg Coastal and Marine Science Center`) and EXIF Copyright (`Public Domain`)
-are present on all 3,271 files and provide equivalent rights documentation.  The `iptc_credit`
-rule's warn-vs-fail distinction was added in response to this finding; absent IPTC Credit
-alongside present EXIF rights tags is a documented characteristic of the USGS Photoshop
-pipeline (ADR-0009 three-layer metadata picture), not a defect.
+**iptc_credit:** IPTC Credit is present on every file with value `'U.S. Geological Survey'`.
+USGS does not include Mote Marine Laboratory in the IPTC Credit even though the published
+Toth et al. 2025 authorship includes both institutions; this is an authorial decision in the
+data release preparation, not a methodological issue.  The IPTC block survived USGS's
+Photoshop re-encoding intact alongside the XMP block.  An earlier iteration of this rule
+treated the USGS-only credit as a failure because the rule hardcoded an expected institutional
+string (`'U.S. Geological Survey, Mote Marine Laboratory'`); this was incorrect rule design
+and was corrected in a subsequent commit.  The rule now validates presence-and-well-formedness
+only, consistent with the profile-driven validator architecture described in ADR-0011.
 
 **filename_pattern [RC]# fix:** 1,564 of 3,271 files use `C#` as the swath designator
 (column-direction passes of the double-lawnmower pattern; see Toth et al. 2025 ESM
