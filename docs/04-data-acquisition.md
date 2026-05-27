@@ -234,6 +234,78 @@ scripts/04_acquire_and_validate.sh
 docs/04-data-acquisition.md
 ```
 
+## Chat 4 outcomes and operational findings
+
+Wrap-up narrative for Chat 4, written at session close 2026-05-27. Captures what worked, what surprised us, and what propagates forward.
+
+### Final state of the dataset
+
+- 3,271 TIFFs acquired from USGS data release P1WHKTRD, EasternDryRocks site only
+- 53.22 GiB on-disk after LZW-compressed TIFFs unpacked (well above the ~5 GB initial estimate from the data release products summary)
+- Verified byte-for-byte against IDS acquisition manifest (3,271 / 3,271, 0 missing, 0 size mismatches)
+- 3,271 SHA-256 hashes confirmed unique (no duplicate content under different filenames)
+- 3 dive events at EDR mapping cleanly to 3 subsites (T1, T3, T8 per Toth ESM Table S1)
+- 100% CSV join coverage against `exif_data.csv` rights/identity metadata
+
+### Validation verdict
+
+`Overall: ⚠️ warn` — dispositively clean.
+
+| Rule category | Outcome |
+|---|---|
+| 7 dataset-level rules | All `ok` |
+| 11 per-image rules across 3,271 files | All `ok` except `software_lineage`: 1,708 ok / 1,563 warn / 0 fail |
+| 2 contact-sheet rendering failures | LZW decoder edge case on 2 of 3,271 files (`20230711_EDR_T1_C2_000197.tif`, `_000218.tif`); EXIF/metadata reads succeed on these files, only PIL pixel decode fails — flagged for Metashape verification in Chat 5 |
+
+The `software_lineage` warnings document workflow variation within the published methodology: 1,563 files carry `Software=Microsoft Windows Photo Viewer 10.0.19041.1` while the other 1,708 carry `Software=Adobe Photoshop 24.6 (Windows)`. Both represent processing through the Toth ESM Table S2 pipeline; the WIC tag indicates an additional pass through a Windows imaging utility (likely the ESM Step 10 image-dehaze action or a USGS review step) overwrote Photoshop's Software tag on those files.
+
+### What actually got built
+
+Substantially more than the original Chat 4 prompt scoped:
+
+- 4 ADRs landed: 0008 (IDS CSV as canonical acquisition source), 0009 (EXIF metadata loss in Photoshop re-encoding), 0010 (Toth ESM Table S2 as authoritative parameter source), 0011 (validator hardcoded now, profile-driven in Chat 6)
+- 1 strategic framing document: `docs/longitudinal-comparability-and-pipeline-adoption.md`
+- 7 iterative validator refactor rounds (CSV-primary architecture, file-context lifecycle fix, filename regex broadening, software_lineage three-bucket, iptc_credit three-bucket, iptc_credit-as-presence-check, hash_uniqueness-from-own-inventory)
+- Validator outputs: `data/qc/chat4/qc_report.md`, `data/qc/chat4/qc_report.json`, `data/qc/chat4/inventory.json`
+- 91 contact sheets generated; 3 representatives committed (`contact_sheet_001.jpg`, `_046.jpg`, `_091.jpg`); 88 left as EBS-snapshot artifacts via .gitignore exception
+
+### Operational findings worth carrying forward
+
+**1. The metadata-loss pattern is not monolithic.** Adobe Photoshop's TIFF export strips the EXIF sub-IFD (technical capture parameters) but preserves IPTC, XMP, and TIFF baseline tags. Documented in ADR-0009's three-layer-picture addendum.
+
+**2. IPTC Credit ≠ what the project plan assumed.** The actual IPTC Credit on every file is `U.S. Geological Survey` alone, not the dual USGS+Mote credit that the published Toth et al. 2025 authorship would suggest. USGS authorial decision in data-release preparation, not a methodological issue.
+
+**3. Two files have LZW decoder edge cases.** Files `20230711_EDR_T1_C2_000197.tif` and `_000218.tif` fail PIL's LZW pixel decoder (`decoder error -2`) but pass EXIF reads cleanly. Validator status on these files is correct for metadata integrity. Chat 5 must verify Metashape can load all 3,271 files including these two before committing to overnight dense reconstruction — Agisoft uses its own TIFF decoder, typically more robust than PIL's, but a 20-30 image trial including these problem files is the right sanity check before burning compute on alignment that might fail mid-run.
+
+**4. Validators tested only against synthetic fixtures cannot reveal whether their rules are correctly *designed* for real data.** The seven rounds of validator iteration today each caught a real-data-vs-rule-design mismatch that the unit tests had not surfaced. The pattern was: design rule against expected shape → fail on real data → tighten rule. Future test-fixture work should include closer simulation of real Photoshop-re-encoded TIFFs (full XMP/IPTC blocks, no EXIF sub-IFD, plausible Software tag distribution) to make fixtures more representative.
+
+**5. EC2 was behind origin/main when Chat 4 started.** Several hours into the session, a `git status` on EC2 showed it was 7 commits behind — work from the morning Mac session and the afternoon Claude Code refactors hadn't been pulled. Operational lesson: always `git fetch && git log HEAD..origin/main` before assuming local state is current, particularly when context switches between machines.
+
+**6. `uv run` deprecation warnings accumulating.** Every uv command emits a deprecation warning about the `tool.uv.dev-dependencies` field. Not blocking, but worth quieting in a future maintenance commit (migrate to `dependency-groups.dev` per pyproject.toml).
+
+### Recovery artifacts
+
+- **EBS snapshot:** `snap-013fbb4296bb92254` of `vol-08bcf0ab11df2c9ed` (the 1 TB data volume). Captures the full Chat 4 state: imagery, QC artifacts, contact sheets. Recorded in `docs/aws-resources.md`.
+- **Git history:** Chat 4 work spans approximately 15 commits across the day. The final state is `HEAD` on `origin/main` as of session close. No tag applied — v1.0 is reserved for Chat 9's portfolio-frozen step.
+
+### What this sets up for Chat 5
+
+- **Pipeline parameter values are now ESM Table S2-bound,** not PIFSC SOP. See ADR-0010 and `docs/longitudinal-comparability-and-pipeline-adoption.md` for the specifics.
+- **The two LZW-edge-case files need a Metashape compatibility test** before overnight dense reconstruction.
+- **The QC report's `inventory.json`** is the canonical SHA-256 reference for Chat 5 inputs.
+- **The 1,708 / 1,563 Photoshop / WIC software-tag split** does not affect Metashape inputs (Metashape reads pixels, not Software tags) but is a documented dataset characteristic.
+
+### What this sets up for Chat 6
+
+- **The reconciliation module must use the MultiscaleDTM R package** at 5×5 cm focal window on 1 cm DSMs, per Toth et al. 2025 ESM. The current `pyproject.toml` does not include R tooling; Chat 6 must add rpy2 or subprocess R invocation.
+- **The validator is intentionally EDR-hardcoded** per ADR-0011. Chat 6 refactors to profile-driven validation as part of the reusable provenance package deliverable.
+- **`inventory.json` is the canonical hash reference and metadata join key.** Reconciliation outputs should preserve per-file lineage by joining back to this inventory.
+
+---
+
+*Chat 4 wrapped: 2026-05-27.*  
+*Metashape trial: 1 day burned, 29 days remain.*
+
 ## References
 
 - Johnson, S. A., L. T. Toth, C. M. Jenkins, E. O. Lyons, 2025, Diver-Based
