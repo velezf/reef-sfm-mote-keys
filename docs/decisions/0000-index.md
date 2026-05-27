@@ -55,3 +55,4 @@ grep -lri sciencebase docs/adr/
 | [0008](0008-ids-viewer-csv-export-primary-acquisition-path.md) | IDS viewer CSV export is the primary acquisition path | Accepted | 4 |
 | [0009](0009-exif-csv-and-tiff-encoding-metadata-loss.md) | USGS TIFFs are Photoshop CR2→TIFF re-encodes; capture-time EXIF absent; CSV canonical for surviving metadata | Accepted | 4 |
 | [0010](0010-adopt-toth-usgs-metashape-workflow.md) | Adopt Toth et al. 2025 ESM Table S2 as Chat 5 parameter source; PIFSC SOP superseded | Accepted | 4 |
+| [0011](0011-validator-hardcoded-now-profile-driven-later.md) | Validator is intentionally EDR-hardcoded in Chat 4; profile-driven generalization deferred to Chat 6 | Accepted | 4 |

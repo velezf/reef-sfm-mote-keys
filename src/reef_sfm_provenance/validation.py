@@ -1,6 +1,11 @@
 """
 Intake validation rules for the P1WHKTRD image release.
 
+NOTE — EDR-specific values are currently inline (GPS bbox, filename regex,
+software allow-list, file-count range, metadata-lineage expectations).
+Generalization to a profile-driven architecture is deferred to Chat 6.
+See docs/decisions/0011-validator-hardcoded-now-profile-driven-later.md.
+
 Every rule here corresponds to an explicit claim in the USGS metadata text
 file (Johnson et al. 2025).  Each rule produces a `Finding` with:
 
