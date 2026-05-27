@@ -4,8 +4,8 @@ Intake QC report writer.
 Consumes the inventory (ImageRecord list) and validation Findings and writes
 two artifacts side by side:
 
-    intake_qc_report.json   structured, schema-versioned, consumed by Chat 6
-    intake_qc_report.md     human-readable, copyable into the Quarto writeup
+    qc_report.json   structured, schema-versioned, consumed by Chat 6
+    qc_report.md     human-readable, copyable into the Quarto writeup
 
 Both share a stable shape: dataset-level findings first, then per-image
 findings rolled up by rule code, then a small "head of failures" section

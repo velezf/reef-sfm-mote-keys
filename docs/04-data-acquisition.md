@@ -43,7 +43,8 @@ The script runs three subcommands:
 
 ```bash
 reef-sfm acquire         --out-dir /data/raw/P1WHKTRD --site EasternDryRocks
-reef-sfm validate-intake /data/raw/P1WHKTRD/EasternDryRocks --write-inventory
+reef-sfm validate-intake /data/raw/P1WHKTRD/EasternDryRocks \
+  --ids-csv data/reference/ids_export/exif_data.csv
 reef-sfm contact-sheet   /data/raw/P1WHKTRD/EasternDryRocks --out-dir /data/figures/contact_sheets/EasternDryRocks
 ```
 
@@ -71,9 +72,9 @@ Everything lands under `/data/raw/P1WHKTRD/EasternDryRocks/`:
 |---|---|
 | `<n_images>.tif` | the actual TIFFs |
 | `_provenance.json` | per-file: URL, SHA-256, byte size, ScienceBase parent item ID, download timestamp |
-| `intake_inventory.json` | per-file: dimensions, full EXIF/XMP/IPTC, hash |
-| `intake_qc_report.md` | human-readable QC report, copy/pasteable into the Chat-8 writeup |
-| `intake_qc_report.json` | structured QC report, consumed by Chat 6's processing manifest |
+| `inventory.json` | per-file: dimensions, full EXIF/XMP/IPTC, hash, CSV-joined metadata |
+| `qc_report.md` | human-readable QC report, copy/pasteable into the Chat-8 writeup |
+| `qc_report.json` | structured QC report (`reef-sfm-provenance/intake_qc/v2`), consumed by Chat 6 |
 
 Contact sheets land under `/data/figures/contact_sheets/EasternDryRocks/`.
 
@@ -92,14 +93,17 @@ metadata file.  Each rule emits one of four severities:
 
 | Code | Source | Severity on mismatch |
 |---|---|---|
-| `camera_consistency` | `EXIF:Make` = `Canon`, `EXIF:Model` ⊇ `PowerShot S120` | fail |
-| `dimensions` | 4000×3000 native S120 resolution | warn |
-| `exif_artist` | `USGS St. Petersburg Coastal and Marine Science Center` | fail |
-| `exif_copyright` | `Public Domain` | fail |
-| `datetime_original` | within 2022-07-10 … 2023-07-19 | warn |
-| `gps_present` | inside survey bbox (24.45–24.62 N, −81.88–−81.36 W) | fail |
-| `xmp_attribution_url` | matches `https://doi.org/10.5066/P1WHKTRD` | fail when read, unverified when not |
-| `iptc_credit` | `U.S. Geological Survey, Mote Marine Laboratory` | fail when read, unverified when not |
+| `csv_join` | Filename matched in IDS exif_data.csv (ADR-0009) | fail |
+| `software_lineage` | `EXIF:Software` starts with `Adobe Photoshop` (Toth et al. RAW→TIFF pipeline) | fail |
+| `filename_pattern` | `YYYYMMDD_SITE_T#_R#_NNNNNN.tif` Toth et al. naming convention | fail |
+| `camera_consistency` | Make = `Canon`, Model ⊇ `PowerShot S120` (CSV-primary, falls back to EXIF) | fail |
+| `dimensions` | 4000×3000 native S120 resolution | fail |
+| `exif_artist` | `USGS St. Petersburg Coastal and Marine Science Center` (CSV-primary) | fail |
+| `exif_copyright` | `Public Domain` (CSV-primary) | fail |
+| `datetime_original` | CSV dtoriginal within 2022-07-10 … 2023-07-19 | warn |
+| `gps_present` | CSV station GPS inside survey bbox (24.45–24.62 N, −81.88–−81.36 W) | fail |
+| `xmp_attribution_url` | `https://doi.org/10.5066/P1WHKTRD` (exiftool only) | fail when read, unverified otherwise |
+| `iptc_credit` | `U.S. Geological Survey, Mote Marine Laboratory` (exiftool only) | fail when read, unverified otherwise |
 
 ### Dataset-level rules (one finding per dataset)
 
@@ -108,8 +112,10 @@ metadata file.  Each rule emits one of four severities:
 | `file_count` | 1000–5000 images expected for an offshore site |
 | `dataset_camera_consistency` | exactly one (make, model) pair across the site |
 | `hash_uniqueness` | no two files share a SHA-256 |
-| `gps_consistency` | exactly one surface-station coordinate across the site (GPS does not work underwater) |
+| `gps_consistency` | all station GPS fixes within Lower Florida Keys bbox; multiple fixes OK for multi-subsite datasets |
 | `size_outliers` | flags files below 40% of the median size — usually lens-cap-on transect ends |
+| `csv_coverage` | fraction of on-disk files matched in the IDS exif_data.csv |
+| `subsite_cross_reference` | each T# transect group maps to exactly one dive-event UUID |
 
 ## When `validate-intake` reports failures
 
@@ -119,12 +125,13 @@ JSON report has the complete list.  Common findings and what they mean:
 - **`xmp_*` and `iptc_*` unverified, everything else ok.**  `exiftool` isn't
   on PATH.  `apt install libimage-exiftool-perl` and re-run; Pillow alone
   can't read XMP fields.
-- **`gps_consistency` warns or fails with multiple distinct fixes.**  All
-  images at one site must share *one* surface coordinate — GPS doesn't
-  penetrate seawater, so there is no per-image fix, only a per-site one
-  written by ExifTool.  A warn means two close fixes (likely a re-survey
-  day got its own handheld fix); a fail means clearly different sites got
-  merged into one directory.  Inspect `details.fixes` in the JSON.
+- **`gps_consistency` fails with a fix outside the bbox.**  GPS does not
+  penetrate seawater; coordinates are per-dive-event, not per-image.
+  EasternDryRocks legitimately has 3 station fixes (EDR_T1, EDR_T3, EDR_T8);
+  multiple fixes within the Lower Florida Keys bbox are expected and will
+  pass.  A fail means a fix clearly outside the bbox — images from a
+  different site were merged into this directory.  Inspect
+  `details.outside_bbox` in the JSON.
 - **`file_count` warns at <1000.**  IDS viewer subset may have been
   filtered too aggressively (e.g. only one transect selected).  Re-run
   `acquire` with `--site EasternDryRocks` and confirm child item titles.
@@ -157,7 +164,7 @@ methodological papers.  Encoding them as code does three things:
    EXIF expectations, our `validation.py` constants will diverge from the
    metadata and the tests will fail loudly.
 2. **Generates a citable QC artifact**: the JSON report is fixed-schema
-   (`reef-sfm-provenance/intake_qc/v1`), versioned, hostname-stamped,
+   (`reef-sfm-provenance/intake_qc/v2`), versioned, hostname-stamped,
    and feeds the processing manifest in Chat 6.
 3. **Makes the pipeline portable**: any restoration program with a
    ScienceBase-published image release and a similar metadata convention
@@ -174,7 +181,8 @@ src/reef_sfm_provenance/
 ├── __init__.py
 ├── __main__.py            # reef-sfm CLI entry point
 ├── acquisition.py         # USGS ScienceBase walk + streaming download
-├── inventory.py           # EXIF/XMP/IPTC cataloging
+├── ids_csv.py             # IDS exif_data.csv loader (ADR-0009)
+├── inventory.py           # EXIF/XMP/IPTC cataloging + CSV join
 ├── validation.py          # rule engine (per-image + dataset)
 ├── intake_report.py       # JSON + Markdown report writer
 └── contact_sheet.py       # JPEG contact-sheet generator
@@ -184,7 +192,8 @@ tests/
 ├── test_acquisition.py    # network-free acquisition tests
 ├── test_inventory.py      # synthesized TIFF round-trip tests
 ├── test_intake_report.py  # report shape and severity aggregation
-└── test_validation.py     # rule engine (36 tests, no network)
+├── test_validate_intake.py # CSV-primary validate-intake flow tests
+└── test_validation.py     # rule engine (per-image + dataset rules)
 
 notebooks/04_intake_inventory.ipynb
 scripts/04_acquire_and_validate.sh
