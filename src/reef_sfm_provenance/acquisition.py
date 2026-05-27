@@ -190,7 +190,28 @@ class ScienceBaseClient:
     # -- High-level queries -------------------------------------------------
 
     def find_item_by_doi(self, doi: str) -> dict[str, Any]:
-        """Resolve a DOI like "10.5066/P1WHKTRD" to its ScienceBase item."""
+        """Resolve a DOI like "10.5066/P1WHKTRD" to its ScienceBase item.
+
+        .. deprecated::
+            This method is no longer the supported acquisition path.
+
+            Two compounding failures drove this decision (2026-05-27):
+
+            1. **API breakage.** The DOI filter syntax documented at
+               usgs.gov/sciencebase-instructions-and-documentation/building-search-queries
+               (`filter=itemIdentifier={type:DOI,key:doi:...}`) returns HTTP 400
+               for the EasternDryRocks data release — even when the service is up.
+            2. **Full outage.** sciencebase.gov was completely down on 2026-05-27
+               morning (empty response bodies confirmed from both EC2 and a local
+               MacBook; google.com returned 200 from the same hosts).
+
+            The supported path is now the IDS viewer CSV export, reshaped by
+            ``scripts/manifest_from_ids_export.py`` and consumed via::
+
+                reef-sfm acquire --manifest path/to/manifest.csv
+
+            See ADR-0008 for the full decision record.
+        """
         # ScienceBase's query string uses a JSON-ish filter syntax that is
         # NOT URL-safe-escaped JSON; it's literally `filter=itemIdentifier=
         # {type:DOI,key:doi:10.5066/P1WHKTRD}`.  Build it as a raw string.

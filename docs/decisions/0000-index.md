@@ -52,3 +52,4 @@ grep -lri sciencebase docs/adr/
 | [0005](0005-four-level-severity-with-unverified.md) | Four severity levels (`ok` / `warn` / `fail` / `unverified`) | Accepted | 4 |
 | [0006](0006-exiftool-optional-batched-subprocess.md) | exiftool is an optional batched subprocess, not a hard dep | Accepted | 4 |
 | [0007](0007-gps-rule-expects-single-surface-fix.md) | GPS rule expects exactly one surface-station fix per site | Accepted | 4 |
+| [0008](0008-ids-viewer-csv-export-primary-acquisition-path.md) | IDS viewer CSV export is the primary acquisition path | Accepted | 4 |
