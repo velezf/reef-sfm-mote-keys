@@ -39,6 +39,7 @@ import csv
 import dataclasses
 import datetime as dt
 import hashlib
+import http.client
 import json
 import logging
 import os
@@ -384,30 +385,80 @@ def _stream_download(
     remote: RemoteFile,
     dest: Path,
     timeout: float = 60.0,
+    max_attempts: int = 3,
 ) -> tuple[str, int]:
     """Stream a single file to disk and return (sha256, bytes_written).
 
-    The hash is computed during streaming, so we never re-read the file
-    after download — a meaningful saving when each TIFF is ~3-5 MB and
-    we have thousands of them.
+    The hash is computed during streaming to avoid a second read pass.
+    Three robustness measures over the naive implementation:
+
+    1. Retry on ChunkedEncodingError / IncompleteRead — USGS CDN streams
+       occasionally drop mid-file; bounded backoff (2 s / 4 s / 8 s).
+    2. Post-download size check before rename — catches truncated downloads
+       that finished without a transport error.
+    3. Rename race guard — if two workers somehow target the same dest and
+       the other worker already won the race, treat as success rather than
+       raising FileNotFoundError on the missing .part file.
     """
     tmp = dest.with_suffix(dest.suffix + ".part")
-    h = hashlib.sha256()
-    written = 0
-    with session.get(remote.url, stream=True, timeout=timeout) as resp:
-        resp.raise_for_status()
-        tmp.parent.mkdir(parents=True, exist_ok=True)
-        with tmp.open("wb") as out:
-            for i, chunk in enumerate(resp.iter_content(chunk_size=CHUNK_BYTES)):
-                if not chunk:
-                    continue
-                out.write(chunk)
-                h.update(chunk)
-                written += len(chunk)
-                if i and i % PROGRESS_LOG_EVERY == 0:
-                    log.debug("%s: %.1f MB", remote.name, written / (1 << 20))
-    tmp.replace(dest)
-    return h.hexdigest(), written
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        h = hashlib.sha256()
+        written = 0
+        try:
+            with session.get(remote.url, stream=True, timeout=timeout) as resp:
+                resp.raise_for_status()
+                with tmp.open("wb") as out:
+                    for i, chunk in enumerate(resp.iter_content(chunk_size=CHUNK_BYTES)):
+                        if not chunk:
+                            continue
+                        out.write(chunk)
+                        h.update(chunk)
+                        written += len(chunk)
+                        if i and i % PROGRESS_LOG_EVERY == 0:
+                            log.debug("%s: %.1f MB", remote.name, written / (1 << 20))
+        except (requests.exceptions.ChunkedEncodingError, http.client.IncompleteRead) as exc:
+            last_exc = exc
+            if attempt < max_attempts:
+                delay = 2 ** attempt  # 2 s, 4 s, 8 s
+                log.warning(
+                    "%s: stream interrupted (attempt %d/%d): %s; retry in %ds",
+                    remote.name, attempt, max_attempts, exc, delay,
+                )
+                time.sleep(delay)
+                continue
+            raise
+
+        # Verify byte count before committing the rename.
+        if remote.size is not None and written != remote.size:
+            last_exc = ValueError(
+                f"{remote.name}: wrote {written} bytes but manifest says {remote.size}"
+            )
+            if attempt < max_attempts:
+                delay = 2 ** attempt
+                log.warning(
+                    "%s size mismatch (attempt %d/%d): %s; retry in %ds",
+                    remote.name, attempt, max_attempts, last_exc, delay,
+                )
+                time.sleep(delay)
+                continue
+            raise last_exc
+
+        # Atomic rename; tolerate a parallel worker that already won the race.
+        try:
+            tmp.replace(dest)
+        except FileNotFoundError:
+            if dest.exists():
+                log.debug("%s: rename raced; dest already present — OK", remote.name)
+            else:
+                raise
+
+        return h.hexdigest(), written
+
+    assert last_exc is not None  # loop always returns or raises before here
+    raise last_exc
 
 
 def download_all(
@@ -482,9 +533,6 @@ def download_all(
                 log.info("[%d/%d] %s: %s", n, total, remote.name, size_mismatch_note)
             log.info("[%d/%d] %s → %s", n, total, remote.name, dest.relative_to(out_dir.parent))
             sha, size = _stream_download(sess, remote, dest)
-            if remote.size is not None and size != remote.size:
-                log.warning("%s: downloaded %d bytes but ScienceBase reported %d",
-                            remote.name, size, remote.size)
 
         return DownloadResult(
             name=remote.name,
