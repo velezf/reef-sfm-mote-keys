@@ -156,4 +156,31 @@ supersedes PIFSC SOP values where they conflict.
   automated check: flag files whose `Software` tag contains `Adobe Photoshop`
   and whose Exif sub-IFD is absent.
 
+## Three-layer metadata picture (added 2026-05-27 after full-dataset run)
+
+Full-dataset validate-intake against 3,271 EDR files refined the original Finding B about
+USGS's Photoshop re-encoding behavior.  The metadata loss is not monolithic; it is structured
+by metadata-block type:
+
+- **EXIF sub-IFD: stripped.**  `ExposureTime`, `FNumber`, `ISOSpeedRatings`, `FocalLength`,
+  `DateTimeOriginal` all absent — confirmed at full-dataset scale.  `DateTime` present but
+  reflects the Photoshop save timestamp, not capture time.
+
+- **IPTC Credit: absent.**  Either never authored by USGS or stripped by Photoshop's TIFF
+  export path.  Adjacent rights fields (`EXIF Artist`, `EXIF Copyright`) are present and
+  well-formed on every file, so this is a redundant-field absence, not a missing rights record.
+  The `iptc_credit` validator rule was softened to warn (not fail) in response.
+
+- **XMP attribution URL: preserved.**  Adobe Photoshop is the canonical XMP implementation
+  and preserves XMP blocks by default on TIFF export.  `XMP:AttributionURL`,
+  `XMP:ExternalMetadataLink`, and `XMP:UsageTerms` all present — confirmed at full-dataset scale.
+
+- **TIFF baseline tags: preserved.**  `Make`, `Model`, `Artist`, `Copyright`,
+  `ImageDescription`, `Orientation`, width, height all survive Photoshop re-encoding
+  without modification.
+
+The Photoshop pipeline is more selective in what it strips than the original Finding B's
+framing implied.  Validators reading future USGS releases produced by similar pipelines should
+expect this specific three-layer pattern, not generic "metadata loss."
+
 #tags: exif, tiff, photoshop, cr2, raw, metadata-loss, validate-intake, csv, dtoriginal, focal-length, metashape, bundle-adjustment, provenance, lzw

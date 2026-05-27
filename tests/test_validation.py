@@ -71,10 +71,12 @@ def test_wrong_copyright_fails(good_record_factory):
 def test_xmp_unavailable_marks_unverified(good_record_factory):
     rec = good_record_factory(xmp_attribution_url=None, iptc_credit=None)
     findings = {f.code: f for f in validate_image(rec)}
+    # xmp_attribution_url: no value means exiftool was absent → unverified.
     assert findings["xmp_attribution_url"].severity == "unverified"
-    assert findings["iptc_credit"].severity == "unverified"
-    # And critically, NOT failures — exiftool absence is a tooling gap,
-    # not a data quality problem.
+    # iptc_credit: absent credit with EXIF Artist+Copyright present → warn (not fail).
+    # Exiftool absence is a tooling gap, not a data quality problem; EXIF rights
+    # provide equivalent documentation (ADR-0009 three-layer metadata picture).
+    assert findings["iptc_credit"].severity == "warn"
 
 
 def test_gps_outside_bbox_fails(good_record_factory):
@@ -173,6 +175,33 @@ def test_software_lineage_unknown_value_fails(good_record_factory):
     findings = {f.code: f for f in validate_image(rec)}
     assert findings["software_lineage"].is_fail
     assert "allowlist" in findings["software_lineage"].message
+
+
+def test_iptc_credit_present_passes(good_record_factory):
+    """IPTC Credit present and matching → ok."""
+    from reef_sfm_provenance.validation import EXPECTED_IPTC_CREDIT
+    rec = good_record_factory(iptc_credit=EXPECTED_IPTC_CREDIT)
+    findings = {f.code: f for f in validate_image(rec)}
+    assert findings["iptc_credit"].is_pass
+
+
+def test_iptc_credit_absent_with_exif_rights_warns(good_record_factory):
+    """IPTC Credit absent but EXIF Artist + Copyright present → warn (EDR pattern)."""
+    rec = good_record_factory(iptc_credit=None)
+    findings = {f.code: f for f in validate_image(rec)}
+    assert findings["iptc_credit"].severity == "warn"
+    assert "redundant-field-not-set" in findings["iptc_credit"].message
+
+
+def test_iptc_credit_absent_without_exif_rights_fails(good_record_factory):
+    """IPTC Credit absent AND EXIF Artist absent → fail (no rights docs anywhere)."""
+    rec = good_record_factory(
+        iptc_credit=None,
+        exif_artist=None, csv_artist=None,
+    )
+    findings = {f.code: f for f in validate_image(rec)}
+    assert findings["iptc_credit"].is_fail
+    assert "rights documentation cannot be confirmed" in findings["iptc_credit"].message
 
 
 def test_dataset_passes_with_good_inputs(good_dataset):

@@ -290,17 +290,41 @@ def _check_xmp_attribution(rec: ImageRecord) -> Finding:
 
 
 def _check_iptc_credit(rec: ImageRecord) -> Finding:
-    if rec.iptc_credit is None:
-        return Finding("iptc_credit", "unverified",
-                       "IPTC:Credit not read", scope=rec.name)
-    if rec.iptc_credit == EXPECTED_IPTC_CREDIT:
-        return Finding("iptc_credit", "ok",
-                       "IPTC Credit matches USGS/Mote attribution", scope=rec.name)
+    """IPTC Credit check with three outcomes (ADR-0009 three-layer metadata picture).
+
+    ok   — Credit present and matches expected USGS/Mote attribution
+    warn — Credit absent but EXIF Artist + Copyright both present (redundant-field-not-set,
+           not a missing rights record; confirmed as the EDR dataset pattern)
+    fail — Credit absent AND EXIF Artist or Copyright also absent (no rights documentation)
+    """
+    if rec.iptc_credit is not None:
+        if rec.iptc_credit == EXPECTED_IPTC_CREDIT:
+            return Finding("iptc_credit", "ok",
+                           "IPTC Credit matches USGS/Mote attribution", scope=rec.name)
+        return Finding(
+            "iptc_credit", "fail",
+            f"IPTC:Credit {rec.iptc_credit!r} != expected",
+            scope=rec.name,
+            details={"actual": rec.iptc_credit, "expected": EXPECTED_IPTC_CREDIT},
+        )
+    # Credit is absent (field not set, or exiftool unavailable).
+    # Fall back to EXIF rights fields as equivalent documentation.
+    artist = rec.csv_artist or rec.exif_artist
+    copyright_ = rec.csv_copyright or rec.exif_copyright
+    if artist and copyright_:
+        return Finding(
+            "iptc_credit", "warn",
+            f"IPTC Credit is absent but EXIF Artist ({artist!r}) and "
+            f"Copyright ({copyright_!r}) provide equivalent rights documentation. "
+            "This is a redundant-field-not-set pattern, not a missing rights record.",
+            scope=rec.name,
+            details={"artist": artist, "copyright": copyright_},
+        )
     return Finding(
         "iptc_credit", "fail",
-        f"IPTC:Credit {rec.iptc_credit!r} != expected",
+        "IPTC Credit is absent AND EXIF Artist/Copyright are not both present; "
+        "rights documentation cannot be confirmed from any metadata source.",
         scope=rec.name,
-        details={"actual": rec.iptc_credit, "expected": EXPECTED_IPTC_CREDIT},
     )
 
 
