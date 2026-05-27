@@ -152,67 +152,70 @@ def _read_pillow_exif(path: Path) -> tuple[dict[str, Any], list[str]]:
         with Image.open(path) as im:
             out["width"], out["height"] = im.size
             exif = im.getexif()
+
+            if not exif:
+                errors.append("no_exif")
+                return out, errors
+
+            # Tags that survive Photoshop's CR2→TIFF re-encode (ADR-0009 Finding B).
+            wanted = {
+                "Make": "exif_make",
+                "Model": "exif_model",
+                "Artist": "exif_artist",
+                "Copyright": "exif_copyright",
+                "ImageDescription": "exif_image_description",
+                "DateTimeOriginal": "exif_datetime_original",
+                "Software": "software",
+            }
+            for tag_name, field in wanted.items():
+                tag_id = _EXIF_TAGS.get(tag_name)
+                if tag_id is None:
+                    continue
+                out[field] = _coerce_str(exif.get(tag_id))
+
+            # Orientation is an integer; handle separately from string fields.
+            orientation_id = _EXIF_TAGS.get("Orientation")
+            if orientation_id and orientation_id in exif:
+                try:
+                    out["orientation"] = int(exif[orientation_id])
+                except (TypeError, ValueError):
+                    pass
+
+            # DateTimeOriginal sometimes lives in the EXIF sub-IFD, not the root.
+            # get_ifd() seeks the file — must be called while the file is still open.
+            if out["exif_datetime_original"] is None:
+                ifd = exif.get_ifd(0x8769) if hasattr(exif, "get_ifd") else {}
+                if ifd:
+                    dto_tag = _EXIF_TAGS.get("DateTimeOriginal")
+                    if dto_tag and dto_tag in ifd:
+                        out["exif_datetime_original"] = _coerce_str(ifd[dto_tag])
+
+            # GPS lives in a sub-IFD keyed by tag 0x8825.
+            # get_ifd() seeks the file — must be called while the file is still open.
+            gps_ifd: dict[Any, Any] = {}
+            if hasattr(exif, "get_ifd"):
+                try:
+                    gps_ifd = exif.get_ifd(0x8825) or {}
+                except Exception:  # noqa: BLE001
+                    gps_ifd = {}
+            if gps_ifd:
+                # _GPS_TAGS maps numeric→name (GPSLatitude, GPSLatitudeRef, ...)
+                named = {_GPS_TAGS.get(k, k): v for k, v in gps_ifd.items()}
+                lat = _gps_dms_to_decimal(
+                    named.get("GPSLatitude"), _coerce_str(named.get("GPSLatitudeRef"))
+                )
+                lon = _gps_dms_to_decimal(
+                    named.get("GPSLongitude"), _coerce_str(named.get("GPSLongitudeRef"))
+                )
+                out["gps_lat"] = lat
+                out["gps_lon"] = lon
+
     except UnidentifiedImageError as exc:
         errors.append(f"not_a_valid_image: {exc}")
         return out, errors
     except Exception as exc:  # noqa: BLE001
         errors.append(f"open_failed: {exc.__class__.__name__}: {exc}")
         return out, errors
-
-    if not exif:
-        errors.append("no_exif")
-        return out, errors
-
-    # Tags that survive Photoshop's CR2→TIFF re-encode (ADR-0009 Finding B).
-    wanted = {
-        "Make": "exif_make",
-        "Model": "exif_model",
-        "Artist": "exif_artist",
-        "Copyright": "exif_copyright",
-        "ImageDescription": "exif_image_description",
-        "DateTimeOriginal": "exif_datetime_original",
-        "Software": "software",
-    }
-    for tag_name, field in wanted.items():
-        tag_id = _EXIF_TAGS.get(tag_name)
-        if tag_id is None:
-            continue
-        out[field] = _coerce_str(exif.get(tag_id))
-
-    # Orientation is an integer; handle separately from string fields.
-    orientation_id = _EXIF_TAGS.get("Orientation")
-    if orientation_id and orientation_id in exif:
-        try:
-            out["orientation"] = int(exif[orientation_id])
-        except (TypeError, ValueError):
-            pass
-
-    # DateTimeOriginal sometimes lives in the EXIF sub-IFD, not the root.
-    if out["exif_datetime_original"] is None:
-        ifd = exif.get_ifd(0x8769) if hasattr(exif, "get_ifd") else {}
-        if ifd:
-            dto_tag = _EXIF_TAGS.get("DateTimeOriginal")
-            if dto_tag and dto_tag in ifd:
-                out["exif_datetime_original"] = _coerce_str(ifd[dto_tag])
-
-    # GPS lives in a sub-IFD keyed by tag 0x8825.
-    gps_ifd: dict[Any, Any] = {}
-    if hasattr(exif, "get_ifd"):
-        try:
-            gps_ifd = exif.get_ifd(0x8825) or {}
-        except Exception:  # noqa: BLE001
-            gps_ifd = {}
-    if gps_ifd:
-        # _GPS_TAGS maps numeric→name (GPSLatitude, GPSLatitudeRef, ...)
-        named = {_GPS_TAGS.get(k, k): v for k, v in gps_ifd.items()}
-        lat = _gps_dms_to_decimal(
-            named.get("GPSLatitude"), _coerce_str(named.get("GPSLatitudeRef"))
-        )
-        lon = _gps_dms_to_decimal(
-            named.get("GPSLongitude"), _coerce_str(named.get("GPSLongitudeRef"))
-        )
-        out["gps_lat"] = lat
-        out["gps_lon"] = lon
 
     return out, errors
 

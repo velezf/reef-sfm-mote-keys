@@ -8,12 +8,16 @@ degrades gracefully when exiftool is missing.
 
 from __future__ import annotations
 
+import io
+import struct
 from pathlib import Path
 
+import pytest
 from PIL import Image, TiffImagePlugin
 
 from reef_sfm_provenance.inventory import (
     ImageRecord,
+    _read_pillow_exif,
     build_inventory,
     iter_image_paths,
 )
@@ -44,6 +48,80 @@ def _write_tiff_with_exif(path: Path) -> None:
 
     img = Image.new("RGB", (4000, 3000), (60, 90, 120))
     img.save(path, format="TIFF", tiffinfo=info, compression="tiff_lzw")
+
+
+def _write_tiff_with_exif_subifd(path: Path, datetime_str: str = "2022:07:15 14:32:00") -> None:
+    """Write a minimal little-endian grayscale TIFF with a real Exif sub-IFD pointer.
+
+    Structure:
+      - IFD0: required TIFF tags for a 1x1 8-bit grayscale image
+               + ExifIFD pointer (tag 0x8769) to the sub-IFD
+      - Exif sub-IFD: DateTimeOriginal (tag 0x9003, ASCII)
+      - 1-byte pixel strip
+
+    PIL's Exif.get_ifd(0x8769) must seek to the sub-IFD offset in the file;
+    it cannot be satisfied from bytes already buffered during header parsing.
+    This guarantees that calling get_ifd() after the file is closed raises
+    ValueError -- reproducing the production crash.
+    """
+    LE = "<"
+
+    datetime_bytes = datetime_str.encode("ascii") + b"\x00"
+    dto_len = len(datetime_bytes)
+
+    exif_ifd_entry_count = 1
+    exif_ifd_size = 2 + exif_ifd_entry_count * 12 + 4  # count + entry + next_ptr
+
+    strip_data = bytes([255])  # one white grayscale pixel
+
+    # IFD0 must be sorted by tag ID and must include Compression and
+    # PhotometricInterpretation for PIL to recognize the file as a valid TIFF.
+    ifd0_entry_count = 9
+    ifd0_size = 2 + ifd0_entry_count * 12 + 4
+
+    header_size = 8
+    ifd0_offset = header_size
+    exif_ifd_offset = ifd0_offset + ifd0_size
+    dto_data_offset = exif_ifd_offset + exif_ifd_size
+    strip_offset = dto_data_offset + dto_len
+
+    buf = io.BytesIO()
+
+    # TIFF header
+    buf.write(b"II")
+    buf.write(struct.pack(LE + "H", 42))
+    buf.write(struct.pack(LE + "I", ifd0_offset))
+
+    # IFD0 entries sorted by tag ID
+    buf.write(struct.pack(LE + "H", ifd0_entry_count))
+    for tag, typ, count, value in [
+        (256,    3, 1, 1),                # ImageWidth SHORT
+        (257,    3, 1, 1),                # ImageLength SHORT
+        (258,    3, 1, 8),                # BitsPerSample SHORT
+        (259,    3, 1, 1),                # Compression SHORT (none=1)
+        (262,    3, 1, 1),                # PhotometricInterpretation SHORT (1=black-is-zero)
+        (273,    4, 1, strip_offset),     # StripOffsets LONG
+        (278,    3, 1, 1),                # RowsPerStrip SHORT
+        (279,    3, 1, 1),                # StripByteCounts SHORT
+        (0x8769, 4, 1, exif_ifd_offset),  # ExifIFD LONG
+    ]:
+        buf.write(struct.pack(LE + "HHI", tag, typ, count))
+        if typ == 3:  # SHORT: 2-byte value, zero-padded to 4 bytes
+            buf.write(struct.pack(LE + "HH", value, 0))
+        else:         # LONG: 4-byte value
+            buf.write(struct.pack(LE + "I", value))
+    buf.write(struct.pack(LE + "I", 0))  # next IFD ptr
+
+    # Exif sub-IFD: DateTimeOriginal
+    buf.write(struct.pack(LE + "H", exif_ifd_entry_count))
+    buf.write(struct.pack(LE + "HHI", 0x9003, 2, dto_len))  # tag, ASCII type, count
+    buf.write(struct.pack(LE + "I", dto_data_offset))        # value = data offset
+    buf.write(struct.pack(LE + "I", 0))                      # next IFD ptr
+
+    buf.write(datetime_bytes)
+    buf.write(strip_data)
+
+    path.write_bytes(buf.getvalue())
 
 
 def test_iter_image_paths_filters_and_sorts(tmp_path: Path):
@@ -87,7 +165,7 @@ def test_inventory_handles_missing_exif(tmp_path: Path):
     rec = inv[0]
     # Pillow can still read dimensions even when no USGS EXIF was written
     assert rec.width == 4000
-    # The Make/Model/Artist/Copyright fields should be absent — those are
+    # The Make/Model/Artist/Copyright fields should be absent -- those are
     # the per-image checks that will fail (correctly) downstream.
     assert rec.exif_make is None
     assert rec.exif_artist is None
@@ -119,3 +197,36 @@ def test_inventory_handles_corrupt_file(tmp_path: Path):
     # Should fail to open but not raise
     assert any("not_a_valid_image" in e or "open_failed" in e for e in rec.read_errors)
     assert rec.width is None
+
+
+# ---------------------------------------------------------------------------
+# Exif sub-IFD lifecycle tests
+# ---------------------------------------------------------------------------
+
+
+def test_exif_get_ifd_fails_after_close(tmp_path: Path):
+    """Document PIL's behavior: get_ifd() raises ValueError when file is closed.
+
+    This is the exact failure mode that hit production.  The test should
+    remain in the suite as a living specification of the library contract.
+    """
+    tiff = tmp_path / "subifd.tif"
+    _write_tiff_with_exif_subifd(tiff)
+
+    with Image.open(tiff) as im:
+        exif = im.getexif()
+    # File is now closed.  get_ifd() must seek to the sub-IFD offset.
+    with pytest.raises((ValueError, OSError)):
+        exif.get_ifd(0x8769)
+
+
+def test_read_pillow_exif_subifd_lifecycle(tmp_path: Path):
+    """_read_pillow_exif extracts DateTimeOriginal from Exif sub-IFD without crash."""
+    tiff = tmp_path / "subifd.tif"
+    _write_tiff_with_exif_subifd(tiff, datetime_str="2022:07:15 14:32:00")
+
+    frag, errors = _read_pillow_exif(tiff)
+    assert errors == [], f"unexpected read errors: {errors}"
+    assert frag["exif_datetime_original"] == "2022:07:15 14:32:00"
+    assert frag["width"] == 1
+    assert frag["height"] == 1
