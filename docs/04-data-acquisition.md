@@ -47,14 +47,21 @@ reef-sfm validate-intake /data/raw/P1WHKTRD/EasternDryRocks --write-inventory
 reef-sfm contact-sheet   /data/raw/P1WHKTRD/EasternDryRocks --out-dir /data/figures/contact_sheets/EasternDryRocks
 ```
 
-Expected timing (g6.4xlarge, ~1 Gbit/s ScienceBase throughput):
+Expected timing (g6.4xlarge, cmgds.marine.usgs.gov as source):
 
 | Step | Time |
 |---|---|
-| `acquire` (cold) | 20–40 min |
+| `acquire` (cold, `--max-workers 8`) | 60–90 min |
+| `acquire` (cold, `--max-workers 1`) | ~11 hours |
 | `acquire` (resume, hashes verified) | 1–2 min |
 | `validate-intake` | 3–5 min |
 | `contact-sheet` (~2000 images, 6×6 sheets) | 4–7 min |
+
+The bottleneck on cmgds is per-connection latency (~5 files/min serial),
+not bandwidth.  Eight concurrent workers give ~40 files/min, which
+brings a 3,271-file EasternDryRocks pull to ~80 minutes.  Override the
+default with `--max-workers N` or the `MAX_WORKERS` env var in the shell
+script.
 
 ## Outputs
 

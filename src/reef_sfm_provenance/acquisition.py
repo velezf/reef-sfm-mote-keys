@@ -42,8 +42,10 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import time
 from collections.abc import Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -415,6 +417,7 @@ def download_all(
     skip_existing_with_matching_hash: bool = True,
     expected_hashes: dict[str, str] | None = None,
     session: requests.Session | None = None,
+    max_workers: int = 8,
 ) -> list[DownloadResult]:
     """Download every file in `files` into `out_dir`.
 
@@ -429,55 +432,76 @@ def download_all(
 
     `expected_hashes` is a dict of {filename: sha256} from a prior
     _provenance.json; pass it on resume to re-verify in O(read).
+
+    Downloads are issued concurrently using `max_workers` threads (default 8).
+    The bottleneck on cmgds.marine.usgs.gov is per-connection latency rather
+    than bandwidth, so parallelism gives a near-linear speedup up to ~8 flows.
+    Results are always returned in the same order as the input `files` list.
     """
     sess = session or requests.Session()
     sess.headers.setdefault("User-Agent", USER_AGENT)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    results: list[DownloadResult] = []
-    files = list(files)
-    total = len(files)
-    log.info("Downloading %d files into %s", total, out_dir)
+    files_list = list(files)
+    total = len(files_list)
+    log.info("Downloading %d files into %s (max_workers=%d)", total, out_dir, max_workers)
 
-    for idx, remote in enumerate(files, start=1):
+    counter_lock = threading.Lock()
+    completed = 0
+
+    def _one(pos: int, remote: RemoteFile) -> DownloadResult:
+        nonlocal completed
         dest = out_dir / remote.name
         skipped = False
+        size_mismatch_note: str | None = None
         sha: str
         size: int
 
         if skip_existing_with_matching_hash and dest.exists():
             existing_size = dest.stat().st_size
             if remote.size is not None and existing_size != remote.size:
-                log.info("[%d/%d] %s: on-disk size %d != remote %d; re-downloading",
-                         idx, total, remote.name, existing_size, remote.size)
+                size_mismatch_note = (
+                    f"on-disk size {existing_size} != remote {remote.size}; re-downloading"
+                )
             else:
                 sha = _sha256_of_file(dest)
                 expected = (expected_hashes or {}).get(remote.name)
                 if expected is None or sha == expected:
                     skipped = True
                     size = existing_size
-                    log.info("[%d/%d] %s: present (sha256=%s, %d bytes); skipping",
-                             idx, total, remote.name, sha[:12], size)
 
-        if not skipped:
-            log.info("[%d/%d] %s → %s", idx, total, remote.name, dest.relative_to(out_dir.parent))
+        with counter_lock:
+            completed += 1
+            n = completed
+
+        if skipped:
+            log.info("[%d/%d] %s: present (sha256=%s, %d bytes); skipping",
+                     n, total, remote.name, sha[:12], size)
+        else:
+            if size_mismatch_note:
+                log.info("[%d/%d] %s: %s", n, total, remote.name, size_mismatch_note)
+            log.info("[%d/%d] %s → %s", n, total, remote.name, dest.relative_to(out_dir.parent))
             sha, size = _stream_download(sess, remote, dest)
             if remote.size is not None and size != remote.size:
                 log.warning("%s: downloaded %d bytes but ScienceBase reported %d",
                             remote.name, size, remote.size)
 
-        results.append(
-            DownloadResult(
-                name=remote.name,
-                relpath=str(dest.relative_to(out_dir.parent)),
-                url=remote.url,
-                sha256=sha,
-                size_bytes=size,
-                downloaded_at_utc=dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
-                parent_item_id=remote.parent_item_id,
-                notes="resumed" if skipped else "downloaded",
-            )
+        return DownloadResult(
+            name=remote.name,
+            relpath=str(dest.relative_to(out_dir.parent)),
+            url=remote.url,
+            sha256=sha,
+            size_bytes=size,
+            downloaded_at_utc=dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+            parent_item_id=remote.parent_item_id,
+            notes="resumed" if skipped else "downloaded",
         )
+
+    results: list[DownloadResult] = [None] * total  # type: ignore[list-item]
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_pos = {executor.submit(_one, i, f): i for i, f in enumerate(files_list)}
+        for future in as_completed(future_to_pos):
+            results[future_to_pos[future]] = future.result()
 
     return results
 

@@ -87,6 +87,7 @@ def cmd_acquire(args: argparse.Namespace) -> int:
         files,
         site_dir,
         expected_hashes=existing_hashes,
+        max_workers=args.max_workers,
     )
     write_provenance(results, site_dir, doi=args.doi, site=args.site)
     print(f"Done. {len(results)} files in {site_dir}")
@@ -199,6 +200,8 @@ def build_parser() -> argparse.ArgumentParser:
                          "to use instead of the ScienceBase API walk")
     sp.add_argument("--dry-run", action="store_true",
                     help="Enumerate but do not download")
+    sp.add_argument("--max-workers", type=int, default=8, metavar="N",
+                    help="Parallel download threads (default: 8; set 1 to serialize)")
     sp.set_defaults(func=cmd_acquire)
 
     # validate-intake

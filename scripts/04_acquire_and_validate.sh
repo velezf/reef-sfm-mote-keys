@@ -37,6 +37,7 @@ done
 
 SITE="${SITE:-EasternDryRocks}"
 DOI="${DOI:-10.5066/P1WHKTRD}"
+MAX_WORKERS="${MAX_WORKERS:-}"
 
 RAW_DIR="${DATA_ROOT}/raw/P1WHKTRD"
 SITE_DIR="${RAW_DIR}/${SITE}"
@@ -60,6 +61,9 @@ if [[ -n "${MANIFEST}" ]]; then
     fi
     echo "Using manifest: ${MANIFEST}"
     ACQUIRE_ARGS+=(--manifest "${MANIFEST}")
+fi
+if [[ -n "${MAX_WORKERS}" ]]; then
+    ACQUIRE_ARGS+=(--max-workers "${MAX_WORKERS}")
 fi
 
 echo "=== reef-sfm acquire ==="
