@@ -30,7 +30,7 @@ def test_report_shape(good_dataset):
         per_image_findings=per_image,
     )
     # Stable top-level schema
-    assert report["schema"] == "reef-sfm-provenance/intake_qc/v1"
+    assert report["schema"] == "reef-sfm-provenance/intake_qc/v2"
     assert report["site"] == "EasternDryRocks"
     assert report["doi"] == "10.5066/P1WHKTRD"
     assert report["image_count"] == 1500
@@ -41,7 +41,7 @@ def test_report_shape(good_dataset):
 
 
 def test_report_marks_failures(good_dataset, good_record_factory):
-    bad = good_record_factory(name="hard_fail.tif", exif_artist=None, sha256="ff" * 32)
+    bad = good_record_factory(name="hard_fail.tif", exif_artist=None, csv_artist=None, sha256="ff" * 32)
     inv = good_dataset + [bad]
     per_image = []
     for rec in inv:
@@ -74,7 +74,7 @@ def test_report_round_trips_to_disk(tmp_path: Path, good_dataset):
     )
     json_path = write_report_json(report, tmp_path / "report.json")
     md_path = write_report_markdown(report, tmp_path / "report.md")
-    assert json.loads(json_path.read_text())["schema"] == "reef-sfm-provenance/intake_qc/v1"
+    assert json.loads(json_path.read_text())["schema"] == "reef-sfm-provenance/intake_qc/v2"
     md = md_path.read_text()
     # Headline facts present
     assert "EasternDryRocks" in md

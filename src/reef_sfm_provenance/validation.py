@@ -48,18 +48,42 @@ EXPECTED_IPTC_CONTACT = "gs-g-spcmsc_data_inquiries@usgs.gov"
 EXPECTED_XMP_ATTRIBUTION_URL = "https://doi.org/10.5066/P1WHKTRD"
 
 # All offshore sites (including EasternDryRocks) used the Canon PowerShot
-# S120 per the metadata.  We match against the canonical EXIF strings
-# produced by that camera.  Note: USGS converted RAW → TIFF in Photoshop
-# CS25, so the Make/Model fields come from the original CR2 EXIF blocks
-# preserved during conversion.
+# S120 per the metadata.  Make/Model survived Photoshop's CR2→TIFF re-encode
+# and are present in both on-disk EXIF and the IDS CSV (as cammake/cammodel).
 EXPECTED_CAMERA_MAKE_PATTERN = re.compile(r"^Canon$", re.IGNORECASE)
 EXPECTED_CAMERA_MODEL_PATTERN = re.compile(r"PowerShot\s*S120", re.IGNORECASE)
 
-# The release spans 2022-07-11 to 2023-07-18.  We require DateTimeOriginal
-# values to fall in this window (with a generous 1-day pad either side
-# to absorb timezone drift in the EXIF write step).
+# The Toth et al. 2025 RAW→TIFF pipeline uses Adobe Photoshop (ESM Step 2).
+# The Software tag is the on-disk evidence of this lineage (ADR-0009 Finding B).
+EXPECTED_SOFTWARE_PREFIX = "Adobe Photoshop"
+
+# The release spans 2022-07-11 to 2023-07-18.  We validate against the IDS
+# CSV's dtoriginal (UTC-clean ISO 8601); the on-disk DateTime tag reflects
+# the Photoshop save time and must NOT be used for capture-time checks.
 EXPECTED_DATE_MIN = datetime(2022, 7, 10)
 EXPECTED_DATE_MAX = datetime(2023, 7, 19)
+
+# EXIF sub-IFD tags absent from all Photoshop re-encodes in this release.
+# Their absence is expected (ADR-0009 Finding B) and is documented in the
+# QC report's metadata_lineage section, NOT surfaced as per-image failures.
+METADATA_LINEAGE = {
+    "csv_primary_fields": [
+        "cammake", "cammodel", "artist", "copyright", "dtoriginal",
+    ],
+    "on_disk_primary_fields": [
+        "width", "height", "sha256", "size_bytes", "software", "orientation",
+    ],
+    "fields_absent_by_design": {
+        "reason": (
+            "Photoshop CR2-to-TIFF re-encode per Toth et al. 2025 ESM Table S2 "
+            "Step 2; Exif sub-IFD is stripped by Photoshop's TIFF export"
+        ),
+        "missing_exif_tags": [
+            "ExposureTime", "FNumber", "ISOSpeedRatings",
+            "FocalLength", "DateTimeOriginal",
+        ],
+    },
+}
 
 # Bounding box from the metadata's Spatial_Domain.  GPS coordinates are
 # per-site, not per-image, so all images in EasternDryRocks should share
@@ -71,6 +95,7 @@ BBOX_SOUTH, BBOX_NORTH = 24.4517, 24.6216
 # either landscape or portrait orientation since the underwater housing
 # allows both.
 EXPECTED_DIMS = {(4000, 3000), (3000, 4000)}
+
 
 # Minimum images per transect per Combs 2021: ~50-150 per 10x2m transect.
 # At 10-12 transects per offshore site, EasternDryRocks should land
@@ -112,41 +137,81 @@ class Finding:
 # ---------------------------------------------------------------------------
 
 
+def _check_csv_join(rec: ImageRecord) -> Finding:
+    """File must be present in the IDS exif_data.csv (ADR-0009)."""
+    if rec.csv_matched:
+        return Finding("csv_join", "ok",
+                       f"Matched in IDS CSV (image_id={rec.image_id})",
+                       scope=rec.name, details={"image_id": rec.image_id})
+    return Finding("csv_join", "fail",
+                   "File not found in IDS exif_data.csv; "
+                   "re-run with correct --ids-csv or re-download the IDS export",
+                   scope=rec.name)
+
+
+def _check_software_lineage(rec: ImageRecord) -> Finding:
+    """Software tag must confirm Toth et al.'s Adobe Photoshop RAW→TIFF pipeline."""
+    sw = rec.software
+    if sw is None:
+        return Finding("software_lineage", "fail",
+                       "Software EXIF tag absent (expected Adobe Photoshop prefix)",
+                       scope=rec.name)
+    if sw.startswith(EXPECTED_SOFTWARE_PREFIX):
+        return Finding("software_lineage", "ok",
+                       f"Software={sw!r} confirms Toth et al. RAW→TIFF lineage",
+                       scope=rec.name, details={"software": sw})
+    return Finding("software_lineage", "fail",
+                   f"Software={sw!r} does not start with {EXPECTED_SOFTWARE_PREFIX!r}; "
+                   "file may not be from the published methodology pipeline",
+                   scope=rec.name, details={"software": sw})
+
+
+
 def _check_camera(rec: ImageRecord) -> Finding:
-    make = rec.exif_make or ""
-    model = rec.exif_model or ""
+    # CSV values are canonical; fall back to on-disk EXIF when CSV not joined.
+    make = rec.csv_cammake or rec.exif_make or ""
+    model = rec.csv_cammodel or rec.exif_model or ""
+    source = "CSV" if rec.csv_cammake else "EXIF"
     make_ok = bool(EXPECTED_CAMERA_MAKE_PATTERN.search(make))
     model_ok = bool(EXPECTED_CAMERA_MODEL_PATTERN.search(model))
     if make_ok and model_ok:
         return Finding("camera_consistency", "ok",
-                       f"{make} {model}", scope=rec.name,
-                       details={"make": make, "model": model})
+                       f"{make} {model} (source: {source})", scope=rec.name,
+                       details={"make": make, "model": model, "source": source})
     return Finding(
         "camera_consistency", "fail",
-        f"Unexpected camera: make={make!r} model={model!r}",
-        scope=rec.name, details={"make": make, "model": model},
+        f"Unexpected camera: make={make!r} model={model!r} (source: {source})",
+        scope=rec.name, details={"make": make, "model": model, "source": source},
     )
 
 
 def _check_exif_artist(rec: ImageRecord) -> Finding:
-    if rec.exif_artist == EXPECTED_EXIF_ARTIST:
-        return Finding("exif_artist", "ok", "Artist matches USGS expectation", scope=rec.name)
+    # CSV artist is canonical; fall back to on-disk EXIF.
+    artist = rec.csv_artist or rec.exif_artist
+    source = "CSV" if rec.csv_artist else "EXIF"
+    if artist == EXPECTED_EXIF_ARTIST:
+        return Finding("exif_artist", "ok",
+                       f"Artist matches USGS expectation (source: {source})", scope=rec.name)
     return Finding(
         "exif_artist", "fail",
-        f"EXIF Artist {rec.exif_artist!r} != expected",
+        f"Artist {artist!r} != expected (source: {source})",
         scope=rec.name,
-        details={"actual": rec.exif_artist, "expected": EXPECTED_EXIF_ARTIST},
+        details={"actual": artist, "expected": EXPECTED_EXIF_ARTIST, "source": source},
     )
 
 
 def _check_exif_copyright(rec: ImageRecord) -> Finding:
-    if rec.exif_copyright == EXPECTED_EXIF_COPYRIGHT:
-        return Finding("exif_copyright", "ok", "Copyright = Public Domain", scope=rec.name)
+    # CSV copyright is canonical; fall back to on-disk EXIF.
+    copyright_ = rec.csv_copyright or rec.exif_copyright
+    source = "CSV" if rec.csv_copyright else "EXIF"
+    if copyright_ == EXPECTED_EXIF_COPYRIGHT:
+        return Finding("exif_copyright", "ok",
+                       f"Copyright = Public Domain (source: {source})", scope=rec.name)
     return Finding(
         "exif_copyright", "fail",
-        f"EXIF Copyright {rec.exif_copyright!r} != expected",
+        f"Copyright {copyright_!r} != expected (source: {source})",
         scope=rec.name,
-        details={"actual": rec.exif_copyright, "expected": EXPECTED_EXIF_COPYRIGHT},
+        details={"actual": copyright_, "expected": EXPECTED_EXIF_COPYRIGHT, "source": source},
     )
 
 
@@ -192,56 +257,66 @@ def _check_dimensions(rec: ImageRecord) -> Finding:
                        f"{rec.width}×{rec.height} matches Canon S120 native",
                        scope=rec.name,
                        details={"width": rec.width, "height": rec.height})
+    # Fail (not warn): dimensions are verifiable on-disk; unexpected size is
+    # a real problem for Metashape alignment, not just a metadata gap.
     return Finding(
-        "dimensions", "warn",
-        f"Unexpected dimensions {rec.width}×{rec.height} (expected 4000×3000)",
+        "dimensions", "fail",
+        f"Unexpected dimensions {rec.width}×{rec.height} (expected 4000×3000 or 3000×4000)",
         scope=rec.name,
         details={"width": rec.width, "height": rec.height},
     )
 
 
 def _check_datetime(rec: ImageRecord) -> Finding:
-    dto = rec.exif_datetime_original
+    # CSV dtoriginal is the canonical capture time (ADR-0009).  The on-disk
+    # DateTime tag reflects the Photoshop save timestamp, not capture time.
+    dto = rec.csv_dtoriginal_utc
     if not dto:
-        return Finding("datetime_original", "warn",
-                       "DateTimeOriginal missing", scope=rec.name)
-    # EXIF format: 'YYYY:MM:DD HH:MM:SS'
+        return Finding("datetime_original", "unverified",
+                       "dtoriginal not available (file not in IDS CSV or CSV not loaded)",
+                       scope=rec.name)
     try:
-        parsed = datetime.strptime(dto, "%Y:%m:%d %H:%M:%S")
+        parsed = datetime.fromisoformat(dto)
     except ValueError:
         return Finding(
             "datetime_original", "warn",
-            f"DateTimeOriginal {dto!r} did not parse",
+            f"CSV dtoriginal {dto!r} did not parse as ISO 8601",
             scope=rec.name,
         )
-    if EXPECTED_DATE_MIN <= parsed <= EXPECTED_DATE_MAX:
+    naive = parsed.replace(tzinfo=None)
+    if EXPECTED_DATE_MIN <= naive <= EXPECTED_DATE_MAX:
         return Finding("datetime_original", "ok",
-                       f"{parsed.isoformat()} in survey window", scope=rec.name)
+                       f"{naive.date().isoformat()} in survey window (source: CSV)",
+                       scope=rec.name, details={"dtoriginal_utc": dto})
     return Finding(
         "datetime_original", "warn",
-        f"DateTimeOriginal {parsed.isoformat()} outside survey window "
+        f"CSV dtoriginal {naive.date().isoformat()} outside survey window "
         f"[{EXPECTED_DATE_MIN.date()} – {EXPECTED_DATE_MAX.date()}]",
         scope=rec.name,
-        details={"value": parsed.isoformat()},
+        details={"dtoriginal_utc": dto},
     )
 
 
 def _check_gps(rec: ImageRecord) -> Finding:
-    if rec.gps_lat is None or rec.gps_lon is None:
+    # Prefer CSV station coordinate (canonical per ADR-0009); fall back to EXIF.
+    lat = rec.csv_lat if rec.csv_lat is not None else rec.gps_lat
+    lon = rec.csv_lon if rec.csv_lon is not None else rec.gps_lon
+    source = "CSV" if rec.csv_lat is not None else "EXIF"
+    if lat is None or lon is None:
         return Finding("gps_present", "fail",
-                       "GPS coordinates missing", scope=rec.name)
-    if not (BBOX_SOUTH <= rec.gps_lat <= BBOX_NORTH and BBOX_WEST <= rec.gps_lon <= BBOX_EAST):
+                       "GPS coordinates missing (not in CSV or EXIF)", scope=rec.name)
+    if not (BBOX_SOUTH <= lat <= BBOX_NORTH and BBOX_WEST <= lon <= BBOX_EAST):
         return Finding(
             "gps_present", "fail",
-            f"GPS ({rec.gps_lat:.5f}, {rec.gps_lon:.5f}) outside Lower Florida Keys bbox",
+            f"GPS ({lat:.5f}, {lon:.5f}) outside Lower Florida Keys bbox (source: {source})",
             scope=rec.name,
-            details={"lat": rec.gps_lat, "lon": rec.gps_lon},
+            details={"lat": lat, "lon": lon, "source": source},
         )
     return Finding(
         "gps_present", "ok",
-        f"GPS ({rec.gps_lat:.5f}, {rec.gps_lon:.5f}) inside survey bbox",
+        f"GPS ({lat:.5f}, {lon:.5f}) inside survey bbox (source: {source})",
         scope=rec.name,
-        details={"lat": rec.gps_lat, "lon": rec.gps_lon},
+        details={"lat": lat, "lon": lon, "source": source},
     )
 
 
@@ -262,8 +337,9 @@ def validate_image(rec: ImageRecord) -> list[Finding]:
     read_err = _check_read_errors(rec)
     if read_err:
         findings.append(read_err)
-        # If we couldn't even open the file, skip the EXIF-dependent rules.
         return findings
+    findings.append(_check_csv_join(rec))
+    findings.append(_check_software_lineage(rec))
     findings.append(_check_camera(rec))
     findings.append(_check_dimensions(rec))
     findings.append(_check_exif_artist(rec))
@@ -316,68 +392,48 @@ def _check_hash_uniqueness(records: list[ImageRecord]) -> Finding:
 
 
 def _check_gps_consistency(records: list[ImageRecord]) -> Finding:
-    """All images at a site share ONE surface-station coordinate.
+    """All station GPS fixes must fall within the expected site bounding box.
 
-    GPS does not penetrate seawater, so the dive team records a single
-    handheld-GPS fix at the surface above the transect and ExifTool stamps
-    that one coordinate pair into every image's EXIF.  The expected on-disk
-    state is therefore zero spread: one unique (lat, lon) pair across the
-    whole site directory.
+    GPS does not penetrate seawater; coordinates are per-dive-event, not
+    per-image.  EasternDryRocks has 3 legitimate station fixes (3 subsites:
+    EDR_T1, EDR_T3, EDR_T8) — the old single-fix expectation was wrong for
+    multi-subsite datasets.  The correct check is: every fix within bbox.
 
-    A non-zero spread doesn't mean GPS drift mid-dive — it can't.  It means
-    images from two different surface fixes (i.e. two different sites, or
-    two different days at the same site with different fixes) got placed
-    into one directory.  That's a sorting/merge bug worth catching.
-
-    We tolerate a handful of distinct fixes (≤2) at warn level — sometimes
-    a re-survey day genuinely gets a slightly different fix — but anything
-    above that or any spread above ~25m (i.e. clearly a different site)
-    fails.
+    Prefer CSV lat/lon (station-level, authoritative per ADR-0009) over
+    on-disk EXIF GPS when available.
     """
-    coords = [(r.gps_lat, r.gps_lon) for r in records if r.gps_lat is not None and r.gps_lon is not None]
+    # Use CSV coordinates when available, fall back to on-disk EXIF.
+    csv_coords = [(r.csv_lat, r.csv_lon) for r in records
+                  if r.csv_lat is not None and r.csv_lon is not None]
+    exif_coords = [(r.gps_lat, r.gps_lon) for r in records
+                   if r.gps_lat is not None and r.gps_lon is not None]
+    coords = csv_coords if csv_coords else exif_coords
+    source = "CSV" if csv_coords else "EXIF"
+
     if not coords:
-        return Finding("gps_consistency", "unverified", "No GPS coordinates to compare")
+        return Finding("gps_consistency", "unverified",
+                       "No GPS coordinates available (CSV not loaded and no EXIF GPS)")
 
     unique_fixes = sorted(set(coords))
     n_fixes = len(unique_fixes)
 
-    if n_fixes == 1:
-        lat, lon = unique_fixes[0]
+    outside = [
+        (lat, lon) for lat, lon in unique_fixes
+        if not (BBOX_SOUTH <= lat <= BBOX_NORTH and BBOX_WEST <= lon <= BBOX_EAST)
+    ]
+    if outside:
         return Finding(
-            "gps_consistency", "ok",
-            f"All {len(coords)} images share one station coordinate ({lat:.5f}, {lon:.5f}) — "
-            "expected behavior, GPS does not work underwater",
-            details={"unique_fixes": 1, "coordinate": [lat, lon]},
+            "gps_consistency", "fail",
+            f"{len(outside)} of {n_fixes} station fix(es) outside Lower Florida Keys bbox "
+            f"(source: {source}); images from a different site may have been merged in",
+            details={"outside_bbox": outside, "all_fixes": unique_fixes[:10], "source": source},
         )
 
-    # Multiple fixes — quantify the spread to distinguish "same site,
-    # re-survey day got a new GPS fix" from "two sites got mixed up".
-    lats = [c[0] for c in coords]
-    lons = [c[1] for c in coords]
-    span_m_lat = (max(lats) - min(lats)) * 111_000
-    span_m_lon = (max(lons) - min(lons)) * 111_000 * math.cos(math.radians(statistics.mean(lats)))
-    span_m = max(span_m_lat, span_m_lon)
-
-    if n_fixes == 2 and span_m < 25:
-        return Finding(
-            "gps_consistency", "warn",
-            f"{n_fixes} distinct station fixes within {span_m:.1f}m — likely re-survey "
-            f"day with a fresh handheld GPS fix; review before treating as one site",
-            details={
-                "unique_fixes": n_fixes,
-                "fixes": unique_fixes,
-                "max_span_m": round(span_m, 2),
-            },
-        )
+    event_note = f"{n_fixes} dive event(s)" if n_fixes > 1 else "single station"
     return Finding(
-        "gps_consistency", "fail",
-        f"{n_fixes} distinct station fixes spanning {span_m:.1f}m — looks like images "
-        f"from different sites got merged into one directory",
-        details={
-            "unique_fixes": n_fixes,
-            "fixes": unique_fixes[:10],
-            "max_span_m": round(span_m, 2),
-        },
+        "gps_consistency", "ok",
+        f"{n_fixes} station fix(es), all within survey bbox ({event_note}; source: {source})",
+        details={"unique_fixes": n_fixes, "fixes": unique_fixes[:10], "source": source},
     )
 
 
@@ -427,6 +483,28 @@ def _check_size_outliers(records: list[ImageRecord]) -> Finding:
     )
 
 
+def _check_csv_coverage(records: list[ImageRecord]) -> Finding:
+    """Fraction of on-disk files matched in the IDS CSV."""
+    total = len(records)
+    matched = sum(1 for r in records if r.csv_matched)
+    if total == 0:
+        return Finding("csv_coverage", "unverified", "No records to check")
+    pct = 100.0 * matched / total
+    if matched == total:
+        return Finding("csv_coverage", "ok",
+                       f"All {total} files matched in IDS CSV",
+                       details={"matched": matched, "total": total})
+    if pct >= 90:
+        return Finding("csv_coverage", "warn",
+                       f"{matched}/{total} ({pct:.1f}%) matched in IDS CSV",
+                       details={"matched": matched, "total": total, "pct": round(pct, 1)})
+    return Finding("csv_coverage", "fail",
+                   f"{matched}/{total} ({pct:.1f}%) matched in IDS CSV — "
+                   "check that --ids-csv points to the correct export",
+                   details={"matched": matched, "total": total, "pct": round(pct, 1)})
+
+
+
 def validate_dataset(records: list[ImageRecord]) -> list[Finding]:
     """Dataset-level rules.  Distinct from per-image: these only fire once."""
     if not records:
@@ -437,6 +515,7 @@ def validate_dataset(records: list[ImageRecord]) -> list[Finding]:
         _check_hash_uniqueness(records),
         _check_gps_consistency(records),
         _check_size_outliers(records),
+        _check_csv_coverage(records),
     ]
 
 
@@ -471,6 +550,7 @@ __all__ = [
     "validate_dataset",
     "aggregate_per_image",
     "overall_severity",
+    "METADATA_LINEAGE",
     # Constants exposed for tests and external review
     "EXPECTED_EXIF_ARTIST",
     "EXPECTED_EXIF_COPYRIGHT",
@@ -478,6 +558,7 @@ __all__ = [
     "EXPECTED_XMP_ATTRIBUTION_URL",
     "EXPECTED_CAMERA_MAKE_PATTERN",
     "EXPECTED_CAMERA_MODEL_PATTERN",
+    "EXPECTED_SOFTWARE_PREFIX",
     "EXPECTED_DATE_MIN",
     "EXPECTED_DATE_MAX",
     "BBOX_WEST", "BBOX_EAST", "BBOX_SOUTH", "BBOX_NORTH",

@@ -34,6 +34,8 @@ from typing import Any
 
 from PIL import ExifTags, Image, UnidentifiedImageError
 
+from .ids_csv import IdsRecord
+
 log = logging.getLogger(__name__)
 
 
@@ -59,7 +61,7 @@ class ImageRecord:
     exif_copyright: str | None
     exif_image_description: str | None
     exif_datetime_original: str | None
-    # GPS (single station coordinate per site)
+    # GPS from on-disk EXIF (station-level, not per-image)
     gps_lat: float | None
     gps_lon: float | None
     # XMP/IPTC: populated when exiftool is available, else None
@@ -68,8 +70,21 @@ class ImageRecord:
     xmp_usage_terms: str | None
     iptc_credit: str | None
     iptc_contact: str | None
+    # On-disk EXIF: Software tag (Photoshop lineage) and Orientation
+    software: str | None = None
+    orientation: int | None = None
+    # CSV-primary fields (ADR-0009): joined from IDS exif_data.csv by filename
+    csv_matched: bool = False
+    image_id: int | None = None
+    csv_dtoriginal_utc: str | None = None  # UTC ISO 8601 from CSV dtoriginal
+    csv_cammake: str | None = None
+    csv_cammodel: str | None = None
+    csv_artist: str | None = None
+    csv_copyright: str | None = None
+    csv_lat: float | None = None   # station-level, per dive event
+    csv_lon: float | None = None
     # Read-side issues we caught while cataloging this file
-    read_errors: list[str]
+    read_errors: list[str] = dataclasses.field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -130,6 +145,7 @@ def _read_pillow_exif(path: Path) -> tuple[dict[str, Any], list[str]]:
         "exif_artist": None, "exif_copyright": None,
         "exif_image_description": None, "exif_datetime_original": None,
         "gps_lat": None, "gps_lon": None,
+        "software": None, "orientation": None,
     }
     try:
         with Image.open(path) as im:
@@ -146,8 +162,7 @@ def _read_pillow_exif(path: Path) -> tuple[dict[str, Any], list[str]]:
         errors.append("no_exif")
         return out, errors
 
-    # Map: PIL exposes tag IDs, we want human names.  These are the ones
-    # USGS guarantees per their lineage script.
+    # Tags that survive Photoshop's CR2→TIFF re-encode (ADR-0009 Finding B).
     wanted = {
         "Make": "exif_make",
         "Model": "exif_model",
@@ -155,12 +170,21 @@ def _read_pillow_exif(path: Path) -> tuple[dict[str, Any], list[str]]:
         "Copyright": "exif_copyright",
         "ImageDescription": "exif_image_description",
         "DateTimeOriginal": "exif_datetime_original",
+        "Software": "software",
     }
     for tag_name, field in wanted.items():
         tag_id = _EXIF_TAGS.get(tag_name)
         if tag_id is None:
             continue
         out[field] = _coerce_str(exif.get(tag_id))
+
+    # Orientation is an integer; handle separately from string fields.
+    orientation_id = _EXIF_TAGS.get("Orientation")
+    if orientation_id and orientation_id in exif:
+        try:
+            out["orientation"] = int(exif[orientation_id])
+        except (TypeError, ValueError):
+            pass
 
     # DateTimeOriginal sometimes lives in the EXIF sub-IFD, not the root.
     if out["exif_datetime_original"] is None:
@@ -277,16 +301,21 @@ def build_inventory(
     site_dir: Path,
     *,
     hashes_by_name: dict[str, str] | None = None,
+    ids_records: dict[str, IdsRecord] | None = None,
     use_exiftool: bool | None = None,
     exiftool_batch_size: int = 200,
 ) -> list[ImageRecord]:
     """Catalog every image in `site_dir`.
 
     `hashes_by_name` lets us reuse SHA-256 values from the acquisition
-    provenance instead of re-hashing every file.  When omitted, the
-    inventory still works but each ImageRecord.sha256 will be None.
-    `use_exiftool=None` (default) auto-detects; True forces it on,
-    False forces it off.
+    provenance instead of re-hashing every file.
+
+    `ids_records` is a {filename_lower: IdsRecord} dict from `load_ids_csv`.
+    When supplied, CSV-primary fields (image_id, dtoriginal, cammake, …) are
+    merged into each ImageRecord.  Per ADR-0009, these fields are canonical;
+    on-disk EXIF equivalents remain in the record for reference.
+
+    `use_exiftool=None` (default) auto-detects; True forces it on, False off.
     """
     paths = list(iter_image_paths(site_dir))
     if not paths:
@@ -309,10 +338,12 @@ def build_inventory(
 
     records: list[ImageRecord] = []
     hashes_by_name = hashes_by_name or {}
+    ids_records = ids_records or {}
     for path in paths:
         rel = path.relative_to(site_dir.parent)
         pillow_frag, errors = _read_pillow_exif(path)
         xmp_frag = _xmp_fragment(xmp_by_name.get(path.name))
+        csv_rec: IdsRecord | None = ids_records.get(path.name.lower())
         records.append(
             ImageRecord(
                 name=path.name,
@@ -334,6 +365,17 @@ def build_inventory(
                 xmp_usage_terms=xmp_frag["xmp_usage_terms"],
                 iptc_credit=xmp_frag["iptc_credit"],
                 iptc_contact=xmp_frag["iptc_contact"],
+                software=pillow_frag["software"],
+                orientation=pillow_frag["orientation"],
+                csv_matched=csv_rec is not None,
+                image_id=csv_rec.image_id if csv_rec else None,
+                csv_dtoriginal_utc=csv_rec.dtoriginal if csv_rec else None,
+                csv_cammake=csv_rec.cammake if csv_rec else None,
+                csv_cammodel=csv_rec.cammodel if csv_rec else None,
+                csv_artist=csv_rec.artist if csv_rec else None,
+                csv_copyright=csv_rec.copyright if csv_rec else None,
+                csv_lat=csv_rec.lat if csv_rec else None,
+                csv_lon=csv_rec.lon if csv_rec else None,
                 read_errors=errors,
             )
         )

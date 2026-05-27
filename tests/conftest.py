@@ -41,7 +41,18 @@ def _good_record(name: str = "IMG_0001.tif", **overrides: Any) -> ImageRecord:
         xmp_usage_terms="Unless otherwise stated, all data, metadata and related materials …",
         iptc_credit=EXPECTED_IPTC_CREDIT,
         iptc_contact="gs-g-spcmsc_data_inquiries@usgs.gov",
-        read_errors=[],
+        # CSV-primary fields (ADR-0009)
+        software="Adobe Photoshop 24.6 (Windows)",
+        orientation=1,
+        csv_matched=True,
+        image_id=843464,
+        csv_dtoriginal_utc="2022-07-15T14:32:00+00:00",
+        csv_cammake="Canon",
+        csv_cammodel="Canon PowerShot S120",
+        csv_artist=EXPECTED_EXIF_ARTIST,
+        csv_copyright=EXPECTED_EXIF_COPYRIGHT,
+        csv_lat=24.53055,
+        csv_lon=-81.48781,
     )
     return dataclasses.replace(base, **overrides)
 
@@ -64,8 +75,9 @@ def good_dataset() -> list[ImageRecord]:
         rec = _good_record(
             name=f"IMG_{i:04d}.tif",
             sha256=f"{i:064x}",
-            size_bytes=10_000_000 + (i * 137 % 5_000_000),  # plausible spread
+            size_bytes=10_000_000 + (i * 137 % 5_000_000),
             exif_datetime_original=f"2022:07:15 {(i // 60) % 24:02d}:{i % 60:02d}:00",
+            csv_dtoriginal_utc=f"2022-07-15T{(i // 60) % 24:02d}:{i % 60:02d}:00+00:00",
         )
         records.append(rec)
     return records

@@ -25,6 +25,7 @@ from typing import Any
 from .inventory import ImageRecord
 from .validation import (
     Finding,
+    METADATA_LINEAGE,
     SEVERITY_ORDER,
     aggregate_per_image,
     overall_severity,
@@ -48,6 +49,7 @@ def build_report(
     dataset_findings: list[Finding],
     per_image_findings: list[Finding],
     extra_context: dict[str, Any] | None = None,
+    ids_csv_path: str | None = None,
 ) -> dict[str, Any]:
     """Build the structured report dict that gets serialized to JSON."""
     severity = overall_severity(dataset_findings + per_image_findings)
@@ -65,17 +67,21 @@ def build_report(
     failed_files = sorted([name for name, sev in per_file_severity.items() if sev == "fail"])
     warned_files = sorted([name for name, sev in per_file_severity.items() if sev == "warn"])
 
+    csv_matched = sum(1 for r in inventory if r.csv_matched)
     return {
-        "schema": "reef-sfm-provenance/intake_qc/v1",
+        "schema": "reef-sfm-provenance/intake_qc/v2",
         "generated_at_utc": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
         "package_version": __version__,
         "hostname": platform.node(),
         "site": site,
         "doi": doi,
         "site_dir": str(site_dir),
+        "ids_csv_path": ids_csv_path,
         "image_count": len(inventory),
+        "csv_join_count": csv_matched,
         "total_bytes": sum(r.size_bytes for r in inventory),
         "overall_severity": severity,
+        "metadata_lineage": METADATA_LINEAGE,
         "dataset_findings": [f.to_dict() for f in dataset_findings],
         "per_image_findings_rollup": rollup,
         "per_image_findings": [f.to_dict() for f in per_image_findings],
@@ -98,12 +104,25 @@ def write_report_markdown(report: dict[str, Any], path: Path) -> Path:
     ap("")
     ap(f"- **Site:** `{report['site']}`")
     ap(f"- **Data release DOI:** [{report['doi']}](https://doi.org/{report['doi']})")
-    ap(f"- **Images:** {report['image_count']:,}")
+    ap(f"- **Images:** {report['image_count']:,} ({report.get('csv_join_count', '?'):,} matched in IDS CSV)")
     ap(f"- **Total size:** {report['total_bytes'] / (1<<30):.2f} GiB")
+    ap(f"- **IDS CSV:** `{report.get('ids_csv_path') or 'not loaded'}`")
     ap(f"- **Generated:** {report['generated_at_utc']}")
     ap(f"- **Package version:** `{report['package_version']}`")
     ap(f"- **Overall result:** {SEVERITY_BADGES_MD.get(report['overall_severity'], report['overall_severity'])}")
     ap("")
+
+    lineage = report.get("metadata_lineage", {})
+    absent = lineage.get("fields_absent_by_design", {})
+    if absent:
+        ap("## Metadata lineage (ADR-0009)")
+        ap("")
+        ap(f"> {absent.get('reason', '')}")
+        ap("")
+        missing = absent.get("missing_exif_tags", [])
+        if missing:
+            ap(f"Tags absent by design (not failures): `{'`, `'.join(missing)}`")
+        ap("")
 
     ap("## Dataset-level checks")
     ap("")

@@ -32,6 +32,7 @@ from .acquisition import (
     write_provenance,
 )
 from .contact_sheet import generate_contact_sheets
+from .ids_csv import IDS_CSV_DEFAULT, load_ids_csv
 from .intake_report import build_report, write_report_json, write_report_markdown
 from .inventory import build_inventory, iter_image_paths, write_inventory_json
 from .validation import validate_dataset, validate_image
@@ -105,16 +106,67 @@ def cmd_validate_intake(args: argparse.Namespace) -> int:
         print(f"Not a directory: {site_dir}", file=sys.stderr)
         return 2
 
-    # Load hashes from acquisition provenance if available, so the inventory
-    # records carry SHA-256s without re-hashing.
+    # --write-inventory is deprecated (inventory.json is always written now).
+    if getattr(args, "write_inventory", False):
+        print(
+            "Warning: --write-inventory is deprecated; inventory.json is always written.",
+            file=sys.stderr,
+        )
+
+    # Load IDS CSV for CSV-primary metadata (ADR-0009).
+    ids_csv_path = Path(args.ids_csv).expanduser().resolve() if args.ids_csv else None
+    if ids_csv_path is None:
+        # Try the project-relative default.
+        candidate = Path.cwd() / IDS_CSV_DEFAULT
+        if candidate.exists():
+            ids_csv_path = candidate
+    ids_records = {}
+    if ids_csv_path and ids_csv_path.exists():
+        ids_records = load_ids_csv(ids_csv_path)
+        print(f"IDS CSV:      {ids_csv_path} ({len(ids_records):,} rows)")
+    else:
+        print(
+            "Warning: IDS CSV not found; CSV-primary checks will be unverified. "
+            "Use --ids-csv to specify the path.",
+            file=sys.stderr,
+        )
+
+    # Optional acquisition manifest for expected-file-set validation.
+    manifest_files: list | None = None
+    if args.manifest:
+        manifest_files = read_manifest_csv(Path(args.manifest).expanduser())
+        print(f"Manifest:     {args.manifest} ({len(manifest_files)} files expected)")
+
+    # Load hashes from acquisition provenance when available.
     hashes: dict[str, str] = {}
     prov_path = site_dir / "_provenance.json"
     if prov_path.exists():
         prior = load_provenance(prov_path)
         hashes = {f["name"]: f["sha256"] for f in prior.get("files", [])}
 
-    inv = build_inventory(site_dir, hashes_by_name=hashes, use_exiftool=args.use_exiftool)
-    print(f"Cataloged {len(inv)} images in {site_dir}")
+    inv = build_inventory(
+        site_dir,
+        hashes_by_name=hashes,
+        ids_records=ids_records,
+        use_exiftool=args.use_exiftool,
+    )
+    print(f"Cataloged:    {len(inv)} images in {site_dir}")
+
+    # Check manifest coverage if a manifest was supplied.
+    extra_context: dict = {}
+    if manifest_files is not None:
+        on_disk = {r.name for r in inv}
+        expected = {f.name for f in manifest_files}
+        missing = sorted(expected - on_disk)
+        unexpected = sorted(on_disk - expected)
+        extra_context["manifest_check"] = {
+            "expected": len(expected),
+            "on_disk": len(on_disk),
+            "missing_files": missing[:50],
+            "unexpected_files": unexpected[:50],
+        }
+        if missing:
+            print(f"  Missing from disk: {len(missing)} file(s)", file=sys.stderr)
 
     per_image_findings = []
     for rec in inv:
@@ -128,24 +180,29 @@ def cmd_validate_intake(args: argparse.Namespace) -> int:
         inventory=inv,
         dataset_findings=dataset_findings,
         per_image_findings=per_image_findings,
+        extra_context=extra_context,
+        ids_csv_path=str(ids_csv_path) if ids_csv_path else None,
     )
 
     out_dir = Path(args.out_dir).expanduser().resolve() if args.out_dir else site_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.write_inventory:
-        inv_path = out_dir / "intake_inventory.json"
-        write_inventory_json(inv, inv_path)
-        print(f"Inventory:    {inv_path}")
+    inv_path = out_dir / "inventory.json"
+    write_inventory_json(inv, inv_path)
 
-    json_path = out_dir / "intake_qc_report.json"
-    md_path = out_dir / "intake_qc_report.md"
+    json_path = out_dir / "qc_report.json"
+    md_path = out_dir / "qc_report.md"
     write_report_json(report, json_path)
     write_report_markdown(report, md_path)
+
+    print(f"Inventory:    {inv_path}")
     print(f"QC report:    {md_path}")
     print(f"QC report:    {json_path}")
     print(f"Overall:      {report['overall_severity']}")
-    return 0 if report["overall_severity"] != "fail" else 1
+
+    if args.strict:
+        return 0 if report["overall_severity"] != "fail" else 1
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -209,10 +266,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("site_dir", help="Per-site directory of TIFFs")
     sp.add_argument("--site", default=DEFAULT_SITE)
     sp.add_argument("--doi", default=DOI_IMAGES)
+    sp.add_argument("--ids-csv", default=None, metavar="PATH",
+                    help="IDS viewer exif_data.csv (default: data/reference/ids_export/exif_data.csv)")
+    sp.add_argument("--manifest", default=None, metavar="PATH",
+                    help="Acquisition manifest CSV (url/name/size) for expected-file-set check")
     sp.add_argument("--out-dir", default=None,
                     help="Where to write the report (default: site_dir)")
+    sp.add_argument("--strict", action="store_true",
+                    help="Exit non-zero on any failure (default: always exit 0)")
     sp.add_argument("--write-inventory", action="store_true",
-                    help="Also write intake_inventory.json")
+                    help="(Deprecated) inventory.json is now always written")
     sp.add_argument("--use-exiftool", default=None,
                     action=argparse.BooleanOptionalAction,
                     help="Force exiftool on/off; default = auto-detect")
