@@ -53,3 +53,5 @@ grep -lri sciencebase docs/adr/
 | [0006](0006-exiftool-optional-batched-subprocess.md) | exiftool is an optional batched subprocess, not a hard dep | Accepted | 4 |
 | [0007](0007-gps-rule-expects-single-surface-fix.md) | GPS rule expects exactly one surface-station fix per site | Accepted | 4 |
 | [0008](0008-ids-viewer-csv-export-primary-acquisition-path.md) | IDS viewer CSV export is the primary acquisition path | Accepted | 4 |
+| [0009](0009-exif-csv-and-tiff-encoding-metadata-loss.md) | USGS TIFFs are Photoshop CR2→TIFF re-encodes; capture-time EXIF absent; CSV canonical for surviving metadata | Accepted | 4 |
+| [0010](0010-adopt-toth-usgs-metashape-workflow.md) | Adopt Toth et al. 2025 ESM Table S2 as Chat 5 parameter source; PIFSC SOP superseded | Accepted | 4 |
