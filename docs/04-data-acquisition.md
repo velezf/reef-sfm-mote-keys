@@ -94,8 +94,8 @@ metadata file.  Each rule emits one of four severities:
 | Code | Source | Severity on mismatch |
 |---|---|---|
 | `csv_join` | Filename matched in IDS exif_data.csv (ADR-0009) | fail |
-| `software_lineage` | `EXIF:Software` starts with `Adobe Photoshop` (Toth et al. RAW→TIFF pipeline) | fail |
-| `filename_pattern` | `YYYYMMDD_SITE_T#_R#_NNNNNN.tif` Toth et al. naming convention | fail |
+| `software_lineage` | `EXIF:Software` starts with `Adobe Photoshop` → ok; known Windows utility (e.g. `Microsoft Windows Photo Viewer`) → warn; absent or unrecognized → fail | ok / warn / fail |
+| `filename_pattern` | `YYYYMMDD_SITE_T#_[RC]#_NNNNNN.tif` Toth et al. naming convention ([RC]# = R# row-direction or C# column-direction swath per ESM Step 1 double-lawnmower pattern) | fail |
 | `camera_consistency` | Make = `Canon`, Model ⊇ `PowerShot S120` (CSV-primary, falls back to EXIF) | fail |
 | `dimensions` | 4000×3000 native S120 resolution | fail |
 | `exif_artist` | `USGS St. Petersburg Coastal and Marine Science Center` (CSV-primary) | fail |
@@ -135,6 +135,22 @@ JSON report has the complete list.  Common findings and what they mean:
 - **`file_count` warns at <1000.**  IDS viewer subset may have been
   filtered too aggressively (e.g. only one transect selected).  Re-run
   `acquire` with `--site EasternDryRocks` and confirm child item titles.
+
+### Empirical observations from the full-dataset validate-intake run (3,271 EDR files)
+
+**software_lineage mix:** ~52% of files (1,708) carry `Adobe Photoshop 24.6 (Windows)`;
+~48% (1,563) carry `Microsoft Windows Photo Viewer 10.0.19041.1`.  The Microsoft tag is
+the Windows Imaging Component identifier — almost certainly applied during a review or
+dehaze pass in the team's processing workflow (likely ESM Step 10 or a post-conversion
+orientation check).  This is workflow variation within the published Toth et al. 2025 ESM
+methodology, not a data-integrity problem; both subsets are from the same pipeline.  The
+`software_lineage` rule's warn-vs-fail distinction was added in response to this finding
+so the rule produces actionable signal rather than 1,563 false failures.
+
+**filename_pattern [RC]# fix:** 1,564 of 3,271 files use `C#` as the swath designator
+(column-direction passes of the double-lawnmower pattern; see Toth et al. 2025 ESM
+Step 1).  The original regex required `R#` only.  The pattern now accepts `[RC]#`; the
+captured field is named `swath` in the details payload.
 
 ## Snapshot the data volume
 

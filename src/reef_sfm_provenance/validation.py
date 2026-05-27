@@ -58,6 +58,16 @@ EXPECTED_CAMERA_MODEL_PATTERN = re.compile(r"PowerShot\s*S120", re.IGNORECASE)
 # The Software tag is the on-disk evidence of this lineage (ADR-0009 Finding B).
 EXPECTED_SOFTWARE_PREFIX = "Adobe Photoshop"
 
+# Windows Imaging Component (WIC) identifiers observed in the full EDR dataset.
+# ~48% of the 3,271 EDR files carry one of these tags instead of the Photoshop
+# prefix, reflecting workflow variation within the Toth et al. 2025 ESM
+# methodology (likely a review or dehaze pass through a Windows utility).
+# Files in this set are warn, not fail; they are from the same pipeline.
+# New unknown prefixes must be human-reviewed before adding here.
+SOFTWARE_WARN_PREFIXES: tuple[str, ...] = (
+    "Microsoft Windows Photo Viewer",
+)
+
 # The release spans 2022-07-11 to 2023-07-18.  We validate against the IDS
 # CSV's dtoriginal (UTC-clean ISO 8601); the on-disk DateTime tag reflects
 # the Photoshop save time and must NOT be used for capture-time checks.
@@ -97,12 +107,13 @@ BBOX_SOUTH, BBOX_NORTH = 24.4517, 24.6216
 # allows both.
 EXPECTED_DIMS = {(4000, 3000), (3000, 4000)}
 
-# Toth et al. 2025 filename convention: YYYYMMDD_SITE_T#_R#_NNNNNN.tif
+# Toth et al. 2025 filename convention: YYYYMMDD_SITE_T#_[RC]#_NNNNNN.tif
 # T# = transect/subsite identifier (T1, T3, T8 for EDR)
-# R# = run/replicate number within the transect
+# [RC]# = swath designator: R# (row-direction) or C# (column-direction),
+#          reflecting the double-lawnmower swim pattern in ESM Step 1
 # NNNNNN = 6-digit sequential image number
 TOTH_FILENAME_RE = re.compile(
-    r"^(\d{8})_([A-Za-z0-9]+)_(T\d+)_(R\d+)_(\d{6})\.(tif)$",
+    r"^(\d{8})_([A-Za-z0-9]+)_(T\d+)_([RC]\d+)_(\d{6})\.(tif)$",
     re.IGNORECASE,
 )
 
@@ -159,7 +170,13 @@ def _check_csv_join(rec: ImageRecord) -> Finding:
 
 
 def _check_software_lineage(rec: ImageRecord) -> Finding:
-    """Software tag must confirm Toth et al.'s Adobe Photoshop RAW→TIFF pipeline."""
+    """Software tag must confirm Toth et al.'s Adobe Photoshop RAW→TIFF pipeline.
+
+    Three outcomes:
+      ok   — starts with "Adobe Photoshop" (ESM Step 2)
+      warn — known Windows imaging utility (same dataset, different processing step)
+      fail — absent, or an unrecognized value not in SOFTWARE_WARN_PREFIXES
+    """
     sw = rec.software
     if sw is None:
         return Finding("software_lineage", "fail",
@@ -169,29 +186,39 @@ def _check_software_lineage(rec: ImageRecord) -> Finding:
         return Finding("software_lineage", "ok",
                        f"Software={sw!r} confirms Toth et al. RAW→TIFF lineage",
                        scope=rec.name, details={"software": sw})
+    if any(sw.startswith(p) for p in SOFTWARE_WARN_PREFIXES):
+        return Finding(
+            "software_lineage", "warn",
+            f"Software={sw!r} indicates the file was touched by a Windows imaging "
+            "utility in addition to the Photoshop RAW→TIFF conversion; this represents "
+            "workflow variation within the Toth et al. 2025 ESM methodology, not a "
+            "pipeline mismatch",
+            scope=rec.name, details={"software": sw},
+        )
     return Finding("software_lineage", "fail",
-                   f"Software={sw!r} does not start with {EXPECTED_SOFTWARE_PREFIX!r}; "
+                   f"Software={sw!r} does not start with {EXPECTED_SOFTWARE_PREFIX!r} "
+                   "and is not in the known-workflow allowlist; "
                    "file may not be from the published methodology pipeline",
                    scope=rec.name, details={"software": sw})
 
 
 def _check_filename_pattern(rec: ImageRecord) -> Finding:
-    """Filename must match Toth et al. YYYYMMDD_SITE_T#_R#_NNNNNN.tif convention."""
+    """Filename must match Toth et al. YYYYMMDD_SITE_T#_[RC]#_NNNNNN.tif convention."""
     m = TOTH_FILENAME_RE.match(rec.name)
     if m:
-        transect, run = m.group(3), m.group(4)
+        transect, swath = m.group(3), m.group(4)
         return Finding(
             "filename_pattern", "ok",
-            f"Matches Toth convention (transect={transect}, run={run})",
+            f"Matches Toth convention (transect={transect}, swath={swath})",
             scope=rec.name,
             details={
                 "date": m.group(1), "site": m.group(2),
-                "transect": transect, "run": run, "seq": m.group(5),
+                "transect": transect, "swath": swath, "seq": m.group(5),
             },
         )
     return Finding(
         "filename_pattern", "fail",
-        f"Filename {rec.name!r} does not match YYYYMMDD_SITE_T#_R#_NNNNNN.tif",
+        f"Filename {rec.name!r} does not match YYYYMMDD_SITE_T#_[RC]#_NNNNNN.tif",
         scope=rec.name,
     )
 
@@ -653,6 +680,7 @@ __all__ = [
     "EXPECTED_CAMERA_MAKE_PATTERN",
     "EXPECTED_CAMERA_MODEL_PATTERN",
     "EXPECTED_SOFTWARE_PREFIX",
+    "SOFTWARE_WARN_PREFIXES",
     "EXPECTED_DATE_MIN",
     "EXPECTED_DATE_MAX",
     "BBOX_WEST", "BBOX_EAST", "BBOX_SOUTH", "BBOX_NORTH",

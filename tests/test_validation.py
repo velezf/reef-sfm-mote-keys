@@ -161,6 +161,20 @@ def test_software_lineage_missing_fails(good_record_factory):
     assert findings["software_lineage"].is_fail
 
 
+def test_software_lineage_windows_photo_viewer_warns(good_record_factory):
+    rec = good_record_factory(software="Microsoft Windows Photo Viewer 10.0.19041.1")
+    findings = {f.code: f for f in validate_image(rec)}
+    assert findings["software_lineage"].severity == "warn"
+    assert "workflow variation" in findings["software_lineage"].message
+
+
+def test_software_lineage_unknown_value_fails(good_record_factory):
+    rec = good_record_factory(software="IrfanView 4.67")
+    findings = {f.code: f for f in validate_image(rec)}
+    assert findings["software_lineage"].is_fail
+    assert "allowlist" in findings["software_lineage"].message
+
+
 def test_dataset_passes_with_good_inputs(good_dataset):
     findings = validate_dataset(good_dataset)
     codes = {f.code: f for f in findings}
@@ -282,6 +296,25 @@ def test_filename_pattern_re_matches_variants():
     assert TOTH_FILENAME_RE.match("20230715_EDR_T3_R2_000100.tif")
     assert not TOTH_FILENAME_RE.match("IMG_0001.tif")
     assert not TOTH_FILENAME_RE.match("20220715_EDR_T1_R1_0001.tif")  # only 4 digits in seq
+
+
+def test_filename_pattern_c_and_r_swath_both_pass(good_record_factory):
+    """C# and R# swath designators are both valid per the double-lawnmower pattern."""
+    rec_c = good_record_factory(name="20230711_EDR_T1_C2_000000.tif")
+    rec_r = good_record_factory(name="20230711_EDR_T1_R2_000000.tif")
+    findings_c = {f.code: f for f in validate_image(rec_c)}
+    findings_r = {f.code: f for f in validate_image(rec_r)}
+    assert findings_c["filename_pattern"].is_pass
+    assert findings_c["filename_pattern"].details["swath"] == "C2"
+    assert findings_r["filename_pattern"].is_pass
+    assert findings_r["filename_pattern"].details["swath"] == "R2"
+
+
+def test_filename_pattern_invalid_swath_letter_fails(good_record_factory):
+    """Any swath letter other than R or C is not a valid Toth convention name."""
+    rec = good_record_factory(name="20230711_EDR_T1_X2_000000.tif")
+    findings = {f.code: f for f in validate_image(rec)}
+    assert findings["filename_pattern"].is_fail
 
 
 # ---------------------------------------------------------------------------
