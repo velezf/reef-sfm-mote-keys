@@ -83,6 +83,61 @@ adoption of the Logan script moves it to automated. That is the single biggest
 GUI-to-code shift in this layer and the clearest demonstration of the
 reproducibility value the project is selling.
 
+## Fidelity register — every ESM Table S2 step, classified
+
+This is the table Francisco reviews to confirm the pipeline is faithful to Toth
+et al. 2025 ESM Table S2 except where a departure is deliberate, defensible,
+and documented. Each step is classified **Faithful** (reproduces the ESM as
+written, headless), **GUI** (done by a human over Amazon DCV because it needs
+judgement or has no scriptable equivalent), or **Departure** (a deliberate,
+ADR-backed deviation). `run_pipeline.py` stage names are in the last column.
+This register supersedes the looser automated/manual split above.
+
+| ESM step | What Table S2 specifies | How we do it | Class | Ref / stage |
+|---|---|---|---|---|
+| 3 | One chunk per transect subfolder | `addPhotos`, one chunk per transect; `--transect` scopes a dev run to one | Faithful | `import` |
+| 4 | Estimate image quality; disable blurred (< 0.5) | `analyzeImages` + disable `Image/Quality < 0.50` before matching | Faithful | `step4` / ADR-0017 |
+| 5 | Align: High, 60k keypoints, generic preselection, exclude stationary | `matchPhotos(downscale=1, …)` with Toth's values | Faithful | `align` |
+| 6 | Optimize cameras (defaults) | `optimizeCameras()` | Faithful | `align` |
+| 7 | Detect coded targets; build 25 cm scale bars | **Detection** headless (`detectMarkers`, Circular 12-bit, tol 20); **scale-bar assignment** in GUI | Faithful (detect) + GUI (assign) | `reduce` + DCV |
+| 8 | Gradual selection: RU 20–40, PA 3–4, RE 0.3, re-optimize | Logan script in threshold mode **preferred**; built-in faithful transcription is the fallback (currently used — Logan not yet vendored), logged as a per-run departure | Faithful (values) — see note | `reduce` / ADR-0010 |
+| 9 | Color correction (Hatcher) — *optional* | **Skipped** (optional, visualization-only) | Departure (documented) | — / ADR-0010 |
+| 10 | Dehaze — *optional* | **Skipped** (optional, visualization-only) | Departure (documented) | — |
+| 11 | Jenkins Alignment Helper — local zero-point 1 m grid frame | GUI, over DCV (populates `chunk.transform.scale`) | GUI | DCV / ADR-0010 |
+| 12 | Depth maps + dense cloud (High, Mild); resize region to AOI | `buildDepthMaps(downscale=2)` + `buildPointCloud`; region (10×1 m AOI) confirmed/set in GUI at handoff | Faithful | `dense` |
+| 13 | Segment into 4 classes (noise/canopy/outplant/base), classify-and-keep via lasso | **Confidence noise filter only**, and **destructive** (`cleanPointCloud(Confidence,2)` + `compactPoints`) not classify-and-keep; 4-class split deferred to v2 | Departure (documented) | `filter` / ADR-0015 |
+| 14 | Build DSM from dense cloud | `buildDem` at **1 cm**, no region-clip workaround (ADR-0016 test) | Faithful (1 cm; 1 mm was PIFSC) | `dsm` / ADR-0017 |
+| 15 | Build orthomosaic (Mosaic, hole-fill) | `buildOrthomosaic(ElevationData, Mosaic, fill_holes)` | Faithful | `ortho` |
+| 16 | Export products | sparse.ply, dense.ply, dsm.tif, ortho.tif, cameras.json, scalebars.json, processing_report.pdf + `pipeline_summary.json`. **No mesh** (ESM has no mesh step; the ortho surface is the DSM) | Faithful (scripted, vs USGS Export Helper) | `report` |
+
+**Headless → GUI → headless split.** The `--stage` model expresses the split by
+*which stages run*, not by extra CLI flags (ADR-0017 declined
+`--chunk`/`--stop-after`/`--start-from` as redundant):
+
+1. **Headless align portion:** `import` → `step4` → `align` → `reduce`
+   (marker *detection* included). Surfaces Step 4 disabled count, alignment
+   rate, RMS pre/post, and which error-reduction path ran.
+2. **GUI handoff over DCV:** confirm marker detection; assign 25 cm scale bars
+   (ESM Step 7); place the Jenkins zero-point coordinate frame (ESM Step 11,
+   sets `transform.scale`); resize the region to the ~10×1 m area of interest
+   (ESM Step 12); eyeball alignment QA; **File → Save** (not Save As).
+3. **Headless dense portion:** `dense` → `filter` → `dsm` → `ortho` → `report`.
+   `filter` (ESM Step 13) is sequenced strictly between `dense` and `dsm` so the
+   DSM is never built on an unfiltered cloud (ADR-0015 + ADR-0017).
+
+**Note on Step 8 fidelity vs Logan.** The *thresholds* (RU 30, PA 3.5, RE 0.3)
+are faithful to Toth either way. ADR-0010 marks the Logan USGS script itself as
+the preferred tool because using the exact cited tool is part of the
+reproduction claim. As of this T3 dev run the Logan module is **not vendored on
+the instance** (`import reduce_error` fails; no clone on disk), so `reduce` runs
+the built-in transcription and records `reduction_path = "builtin_fallback"` in
+the manifest. This is logged as a per-run documented departure, not silently
+preferred. The earlier framing that "Logan lost the smoke A/B" was inaccurate:
+the smoke A/B compared focal-length arms, not Logan vs built-in, and Logan was
+never actually run because it was never present. Vendoring Logan (clone, verify
+the `reduce_error` signature, expose on `PYTHONPATH`) is tracked below and is
+the cleanest remaining fidelity upgrade for this layer.
+
 ## Logan error-reduction script — integration and verification
 
 ADR-0010 marks the Logan automated alignment/error-reduction script
@@ -295,43 +350,64 @@ metashape.sh -r scripts/metashape/smoke_test.py \
 # focal-length arm in run_pipeline.py's config for the full run accordingly.
 ```
 
-## Running it
+## Running it (the `--stage` model, post-ADR-0017)
+
+Stages are `import, step4, align, reduce, dense, filter, dsm, ortho, report`.
+The actual data layout: repo on the data volume at `/data/reef-sfm-mote-keys`;
+images flat at `/data/raw/P1WHKTRD/EasternDryRocks`; Metashape working area
+`/data/edr_work`; monitor + run logs `/data/edr_work/logs`. Run headless under
+`metashape.sh -platform offscreen -r`, inside tmux so it survives SSH drops.
 
 ```bash
-# First: clone + verify Logan (above). Then, from the repo on the data volume:
+PROJECT=/data/edr_work/edr_t3.psx
+IMGROOT=/data/raw/P1WHKTRD/EasternDryRocks
+META="/opt/metashape-pro/metashape.sh -platform offscreen -r scripts/metashape/run_pipeline.py"
 
-# Stage 1 — import + align (fast-ish; safe to watch interactively)
-# Reads focal_decision.json from the smoke test; refuses to start if the
-# verdict was NEEDS_REVIEW unless you pass --focal-mode explicitly.
-./scripts/metashape/run_headless.sh align
-tmux attach -t edr        # watch; Ctrl-b d to detach
+# --- Headless align portion (EDR_T3 dev run; --transect scopes the import) ---
+$META --project $PROJECT --image-root $IMGROOT --transect EDR_T3 --stage import
+$META --project $PROJECT --stage step4
+$META --project $PROJECT --stage align  --focal-mode fallback   # smoke decided 'fallback'
+$META --project $PROJECT --stage reduce
 
-# If the smoke test verdict was NEEDS_REVIEW, make the call yourself:
-#   metashape.sh -r scripts/metashape/run_pipeline.py --project /data/edr/edr.psx \
-#       --image-root /data/edr/images --stage align --focal-mode fallback
+# --- GUI handoff over DCV (ESM Steps 7/11/12) ---
+#   confirm marker detection; assign 25 cm scale bars; Jenkins coord frame
+#   (sets transform.scale); resize region to the ~10x1 m AOI; QA; File→Save.
 
-# GUI interlude over DCV: confirm marker detection, assign 25cm scale bars,
-# place coordinate frame with the Jenkins helper, eyeball alignment QA.
-
-# Stage 2 — error reduction (Logan threshold mode)
-./scripts/metashape/run_headless.sh reduce
-
-# Stage 3 — dense cloud. THE LONG ONE. Start it Friday evening.
-# 24-48 h at ESM "High" on ~3,271 images / L4. Schedule first among long steps.
-./scripts/metashape/run_headless.sh dense
-
-# Stages 4-6 — DSM, ortho, export
-./scripts/metashape/run_headless.sh dsm
-./scripts/metashape/run_headless.sh ortho
-./scripts/metashape/run_headless.sh report
-
-# Confidence noise filter (all transects); then manual lasso on the reference one
-metashape.sh -r scripts/metashape/segment_pointcloud.py \
-    --project /data/edr/edr.psx --chunk EDR_T1
-
-# Observe quality targets
-python3 scripts/metashape/observe_quality.py --products-root /data/edr/products
+# --- Headless dense portion ---
+$META --project $PROJECT --stage dense
+$META --project $PROJECT --stage filter     # ESM Step 13, BEFORE dsm
+$META --project $PROJECT --stage dsm         # 1 cm, no region workaround (ADR-0016 test)
+$META --project $PROJECT --stage ortho
+$META --project $PROJECT --stage report      # writes /data/edr_work/products/.../pipeline_summary.json
 ```
+
+Notes:
+- `--focal-mode fallback` is passed explicitly because `focal_decision.json`
+  was not committed (regenerable from `smoke_test.py --stage ab`); the smoke
+  verdict was `fallback` (both arms aligned identically, prefer no-assumption).
+- Critical sanity alarms (Step 4 disabling > 200/522; alignment < 70% of
+  enabled; DSM 0 or > 1e8 cells; unscaled chunk at dense) **hard-stop** the run.
+  Pass `--ignore-sanity` to downgrade to warn — not recommended for a dev run.
+- `--logan-module reduce_error` once Logan is vendored (see above); until then
+  the built-in transcription runs and is recorded as `builtin_fallback`.
+
+## Per-run observations — T3 dress rehearsal (2026-05-29)
+
+Recorded as the run progresses; the authoritative machine-readable record is
+`/data/edr_work/products/EDR_T3/pipeline_summary.json`.
+
+- **Trial clock:** activated 2026-05-27, expires 2026-06-27 (~29 days at run
+  time). Metashape 2.3.1 build 22446.
+- **Input:** 522 EDR_T3 C1 frames, SHA-256-pinned at import.
+- **ESM Step 4:** _(headless align portion — filled after the run)_
+- **Alignment:** _(aligned / enabled, %, RMS filter units)_
+- **Error reduction:** _(path: Logan vs builtin_fallback; RMS pre→post)_
+- **Confidence filter (Step 13):** _(points before→after, % removed; smoke
+  EDR_T8 reference was 30.9M→23.5M, ~24%)_
+- **buildDem / ADR-0016:** _(succeeded without region clip? raster dims;
+  transform.scale; peak RAM)_
+- **Resource peaks:** _(GPU VRAM, RAM, CPU, wall clock per stage — from
+  scripts/monitor.sh summary)_
 
 ## Trial-clock discipline
 

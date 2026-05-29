@@ -139,6 +139,26 @@ the patch is one line; the probe script will detect the change.
    excluded, because the DEM-build operation sees the same surface
    either way.
 
+## Amendment (2026-05-29, Chat 5 close-out / T3 dress rehearsal)
+
+When this ADR was written, the `cleanPointCloud` + `compactPoints` filter was
+wired into `smoke_test.py` and exposed as
+`segment_pointcloud.assign_noise_by_confidence`, but it was **not** wired into
+the production driver `run_pipeline.py` (commit 3e35c3b did not touch that
+file). In `run_pipeline.py`'s source order the dense stage was followed
+directly by `buildDem` with no filter between them — so the production DSM
+would have been built on an *unfiltered* cloud, contrary to this ADR.
+
+[ADR-0017](0017-esm-step-4-image-quality-and-production-wiring.md) closes that
+gap: `run_pipeline.py` now has a dedicated `filter` stage that calls
+`assign_noise_by_confidence` and is sequenced strictly between `dense` and
+`dsm`. The DSM is never built on an unfiltered cloud. The
+`cleanPointCloud + compactPoints` idiom and the `compactPoints`-materialization
+requirement documented above remain the single source of truth in
+`segment_pointcloud.py`; the production driver delegates to it rather than
+duplicating the calls. The decision in this ADR is unchanged — only its reach
+(smoke-only → production) was corrected.
+
 ## History
 
 This is the third ADR on the same decision. The wrong turns are part of
