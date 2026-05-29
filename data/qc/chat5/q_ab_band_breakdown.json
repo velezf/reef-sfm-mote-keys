@@ -1,0 +1,55 @@
+{
+  "description": "EDR_T3 ESM Step 4 image-quality threshold A/B \u2014 band registration breakdown",
+  "dataset": "EDR_T3, 522 re-encoded TIFFs, Metashape 2.3.1 build 22446, L4 GPU",
+  "decision_rule": "keep arm that aligns comparably with more coverage; floor wins if 0.50 shows no benefit",
+  "arms": {
+    "q050": {
+      "threshold_disable_below": 0.5,
+      "enabled": 280,
+      "aligned_total": 140,
+      "tie_points": 659078,
+      "registration_by_quality_band": {
+        "<0.30": {
+          "cameras": 5,
+          "aligned": 0,
+          "rate": 0.0
+        },
+        "0.30-0.50": {
+          "cameras": 237,
+          "aligned": 0,
+          "rate": 0.0
+        },
+        ">=0.50": {
+          "cameras": 280,
+          "aligned": 140,
+          "rate": 0.5
+        }
+      }
+    },
+    "q030": {
+      "threshold_disable_below": 0.3,
+      "enabled": 517,
+      "aligned_total": 515,
+      "tie_points": 2441346,
+      "registration_by_quality_band": {
+        "<0.30": {
+          "cameras": 5,
+          "aligned": 0,
+          "rate": 0.0
+        },
+        "0.30-0.50": {
+          "cameras": 237,
+          "aligned": 235,
+          "rate": 0.9916
+        },
+        ">=0.50": {
+          "cameras": 280,
+          "aligned": 280,
+          "rate": 1.0
+        }
+      }
+    }
+  },
+  "mechanism_overlap_collapse": "The >=0.50 frames aligned 140/280 in q050 (band disabled) but 280/280 in q030 (band enabled). Including the 0.30-0.50 band did not merely add frames; it RESCUED alignment of the >=0.50 frames by restoring image-network overlap. The 0.30-0.50 band itself registers at 99.2% (235/237) in q030 \u2014 fully usable.",
+  "decision": "Adopt floor cut (disable < 0.30). Toth's verbatim 0.50 over-cuts our re-encoded TIFFs (26.8% aligned vs 98.7%)."
+}

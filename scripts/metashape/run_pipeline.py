@@ -39,8 +39,11 @@ Stages (run in this order for --stage all)
     step4   — ESM Step 4 image-quality filter: analyzeImages + disable < 0.50
               BEFORE matching (ADR-0017; ~60% smoke alignment-loss lesson)
     align   — match + align + optimize (ESM Steps 5-6)
-    reduce  — detect markers (ESM Step 7, detection only) + error reduction
-              (ESM Step 8; Logan preferred, built-in fallback)
+    markers — detect coded targets (ESM Step 7, detection only); runs BEFORE
+              the GUI scale-bar handoff
+    reduce  — error reduction (ESM Step 8; Logan preferred, built-in fallback);
+              runs AFTER scale bars are assigned, so the final optimize is
+              scale-constrained — Toth's order (Step 7 precedes Step 8)
     dense   — depth maps + dense point cloud (ESM Step 12)
     filter  — ESM Step 13 confidence noise filter (ADR-0015), sequenced
               BETWEEN dense and dsm so the DSM is NEVER built on an
@@ -497,13 +500,14 @@ def filter_low_quality_images(chunk: "Metashape.Chunk",
     return stats
 
 
-def stage_step4(doc: Metashape.Document, ignore_sanity: bool) -> None:
+def stage_step4(doc: Metashape.Document, ignore_sanity: bool,
+                quality_threshold: float) -> None:
     for chunk in doc.chunks:
         if _meta_get(chunk, "esm.step4") is not None:
             log(f"{chunk.label}: ESM Step 4 already done; skipping.")
             continue
         t0 = time.time()
-        stats = filter_low_quality_images(chunk, PARAMS.image_quality_threshold)
+        stats = filter_low_quality_images(chunk, quality_threshold)
         stats["seconds"] = round(time.time() - t0, 1)
         _meta_set(chunk, "esm.step4", stats)
         log(f"{chunk.label}: ESM Step 4 analyzed={stats['analyzed']} "
@@ -571,19 +575,23 @@ def stage_align(doc: Metashape.Document, focal_mode: str,
 
 
 # --------------------------------------------------------------------------- #
-# Stage: reduce  (ESM Steps 7-8) — marker detection + error reduction
+# Stage: markers  (ESM Step 7, DETECTION) — runs BEFORE the GUI handoff
 # --------------------------------------------------------------------------- #
 
 
-def stage_reduce(doc: Metashape.Document, logan_module: str | None,
-                 ignore_sanity: bool) -> None:
-    """Detect coded markers (detection only — scale-bar assignment is GUI), then
-    run error reduction. Logan USGS script preferred (ADR-0010); the built-in
-    faithful transcription is the fallback and, when used, is recorded as a
-    per-run documented departure (NOT silently preferred)."""
+def stage_markers(doc: Metashape.Document, ignore_sanity: bool) -> None:
+    """Detect coded targets headless (ESM Step 7, detection only). Scale-bar
+    ASSIGNMENT (pairing markers + setting the 25 cm distance) is the GUI step
+    that follows. Detection runs here so the operator starts the GUI handoff
+    from placed targets rather than a blank slate.
+
+    Ordering matters: this is Step 7, which precedes Step 8 (error reduction).
+    The sequence is markers (here) -> [GUI: assign scale bars] -> reduce, so the
+    final optimizeCameras in `reduce` runs with scale constraints active, as in
+    Toth ESM Table S2. See docs/05 'Corrected step order'."""
     for chunk in doc.chunks:
-        if _meta_get(chunk, "esm.reduce") is not None:
-            log(f"{chunk.label}: error reduction already done; skipping.")
+        if _meta_get(chunk, "esm.markers") is not None and chunk.markers:
+            log(f"{chunk.label}: markers already detected; skipping.")
             continue
         t0 = time.time()
         log(f"{chunk.label}: detecting {PARAMS.marker_type} markers "
@@ -593,8 +601,52 @@ def stage_reduce(doc: Metashape.Document, logan_module: str | None,
             tolerance=PARAMS.marker_tolerance,
         )
         n_markers = len(chunk.markers)
-        log(f"{chunk.label}: {n_markers} markers detected")
+        _meta_set(chunk, "esm.markers", {
+            "markers_detected": n_markers,
+            "tolerance": PARAMS.marker_tolerance,
+            "seconds": round(time.time() - t0, 1),
+        })
+        log(f"{chunk.label}: {n_markers} markers detected. NEXT (GUI handoff): "
+            f"assign 25 cm scale bars to marker pairs + place the Jenkins "
+            f"coordinate frame, then run --stage reduce.")
+        if n_markers == 0:
+            alarm(f"{chunk.label}: 0 coded targets detected at tolerance "
+                  f"{PARAMS.marker_tolerance}. Raise tolerance in increments of "
+                  f"5, or check the targets weren't mis-detected — no scale bars "
+                  f"can be assigned without markers.",
+                  critical=False, ignore=ignore_sanity)
+        save(doc)
 
+
+# --------------------------------------------------------------------------- #
+# Stage: reduce  (ESM Step 8) — error reduction; runs AFTER scale-bar assignment
+# --------------------------------------------------------------------------- #
+
+
+def stage_reduce(doc: Metashape.Document, logan_module: str | None,
+                 ignore_sanity: bool) -> None:
+    """ESM Step 8 error reduction. Runs AFTER the GUI handoff has assigned scale
+    bars (Step 7), so the final optimizeCameras is scale-constrained — faithful
+    to Toth's order (Step 7 precedes Step 8). A critical alarm fires if no scale
+    bars are present, to enforce that order (override with --ignore-sanity only
+    if a transect genuinely has no usable coded targets).
+
+    Logan USGS script preferred (ADR-0010); the built-in faithful transcription
+    is the fallback and, when used, is recorded as a per-run documented departure
+    (NOT silently preferred)."""
+    for chunk in doc.chunks:
+        if _meta_get(chunk, "esm.reduce") is not None:
+            log(f"{chunk.label}: error reduction already done; skipping.")
+            continue
+        n_sb = len(chunk.scalebars)
+        if n_sb == 0:
+            alarm(f"{chunk.label}: error reduction (ESM Step 8) is running with "
+                  f"NO scale bars. Step 8 must follow Step 7 scale-bar "
+                  f"assignment so the final optimize is scale-constrained "
+                  f"(Toth's order). Assign 25 cm scale bars in the GUI first — "
+                  f"see docs/05 'Corrected step order'.",
+                  critical=True, ignore=ignore_sanity)
+        t0 = time.time()
         rms_pre, _ = _reprojection_rms(chunk)
 
         # Error reduction. Prefer the Logan USGS script (ADR-0010 REQUIRED);
@@ -611,7 +663,7 @@ def stage_reduce(doc: Metashape.Document, logan_module: str | None,
         rms_post, _ = _reprojection_rms(chunk)
         stats = {
             "reduction_path": path,
-            "markers_detected": n_markers,
+            "scalebars_present": n_sb,
             "reproj_rms_pre_filter_units": round(rms_pre, 4) if rms_pre is not None else None,
             "reproj_rms_post_filter_units": round(rms_post, 4) if rms_post is not None else None,
             "thresholds": {
@@ -622,9 +674,9 @@ def stage_reduce(doc: Metashape.Document, logan_module: str | None,
             "seconds": round(time.time() - t0, 1),
         }
         _meta_set(chunk, "esm.reduce", stats)
-        log(f"{chunk.label}: error reduction via '{path}'; "
-            f"RMS(filter units) {stats['reproj_rms_pre_filter_units']} -> "
-            f"{stats['reproj_rms_post_filter_units']}; markers={n_markers}")
+        log(f"{chunk.label}: error reduction via '{path}' with {n_sb} scale "
+            f"bar(s); RMS(filter units) {stats['reproj_rms_pre_filter_units']} "
+            f"-> {stats['reproj_rms_post_filter_units']}")
         save(doc)
 
 
@@ -980,6 +1032,7 @@ def stage_report(doc: Metashape.Document, out_root: Path,
             "stage_import": _meta_get(chunk, "esm.import"),
             "stage_step4": _meta_get(chunk, "esm.step4"),
             "stage_align": _meta_get(chunk, "esm.align"),
+            "stage_markers": _meta_get(chunk, "esm.markers"),
             "stage_reduce": _meta_get(chunk, "esm.reduce"),
             "stage_dense": _meta_get(chunk, "esm.dense"),
             "stage_filter": _meta_get(chunk, "esm.filter"),
@@ -1003,7 +1056,12 @@ def _file_stat(path: Path) -> dict:
 # Driver
 # --------------------------------------------------------------------------- #
 
-STAGES = ["import", "step4", "align", "reduce", "dense", "filter",
+# Corrected step order (ADR-0017 + fidelity fix): marker detection (Step 7) is
+# its own stage BEFORE the GUI scale-bar handoff; error reduction (Step 8) runs
+# AFTER it. Sequence with handoffs:
+#   import step4 align markers [GUI: scale bars] reduce [GUI: coord frame]
+#   dense filter dsm ortho report
+STAGES = ["import", "step4", "align", "markers", "reduce", "dense", "filter",
           "dsm", "ortho", "report"]
 
 
@@ -1019,6 +1077,12 @@ def main() -> None:
     ap.add_argument("--out-root", type=Path,
                     default=Path("/data/edr_work/products"))
     ap.add_argument("--stage", default="all", choices=STAGES + ["all"])
+    ap.add_argument("--quality-threshold", type=float,
+                    default=PARAMS.image_quality_threshold,
+                    help="ESM Step 4 image-quality cutoff (step4 stage). 0.50 is "
+                         "Toth's verbatim ESM value; on our re-encoded TIFFs it "
+                         "disables ~46%% of EDR_T3, so the empirically-chosen "
+                         "floor may be lower (see ADR-0017).")
     ap.add_argument("--noise-confidence", type=float,
                     default=float(PARAMS.noise_confidence_threshold),
                     help="ESM Step 13 confidence threshold (filter stage).")
@@ -1055,9 +1119,11 @@ def main() -> None:
                 sys.exit("--image-root required for the import stage.")
             stage_import(doc, args.image_root, args.transect, args.project)
         elif st == "step4":
-            stage_step4(doc, args.ignore_sanity)
+            stage_step4(doc, args.ignore_sanity, args.quality_threshold)
         elif st == "align":
             stage_align(doc, focal_mode, args.ignore_sanity)
+        elif st == "markers":
+            stage_markers(doc, args.ignore_sanity)
         elif st == "reduce":
             stage_reduce(doc, args.logan_module, args.ignore_sanity)
         elif st == "dense":

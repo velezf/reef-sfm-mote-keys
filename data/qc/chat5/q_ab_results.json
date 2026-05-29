@@ -1,0 +1,34 @@
+[
+  {
+    "arm": "q050",
+    "threshold": 0.5,
+    "disabled": 242,
+    "enabled": 280,
+    "aligned": 140,
+    "align_rate_of_enabled": 0.5,
+    "align_rate_of_522": 0.2682,
+    "tie_points": 659078,
+    "region_size": [
+      75.4289,
+      37.4097,
+      15.5855
+    ],
+    "minutes": 7.7
+  },
+  {
+    "arm": "q030",
+    "threshold": 0.3,
+    "disabled": 5,
+    "enabled": 517,
+    "aligned": 515,
+    "align_rate_of_enabled": 0.9961,
+    "align_rate_of_522": 0.9866,
+    "tie_points": 2441346,
+    "region_size": [
+      74.7571,
+      67.1517,
+      21.2247
+    ],
+    "minutes": 15.0
+  }
+]

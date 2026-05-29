@@ -15,14 +15,19 @@ et al. 2025 ESM Table S2:
 
 1. **ESM Step 4 (image-quality filter) was never wired anywhere.** Table S2
    Step 4 estimates per-image quality and disables blurred frames before
-   matching. The smoke skipped it. The empirical cost showed up in the smoke
-   A/B: only **129 of 325 EDR_T8 cameras aligned (39.7%)** — ~60% failed to
-   align. Both focal arms (bundle-adjusted fallback and manual S120 5.2 mm)
-   aligned the *same* 129/325, so focal length was NOT the cause. With focal
-   length ruled out, image quality (motion blur, backscatter, turbidity — all
-   expected in 30 m-deep reef transect video frames) is the leading remaining
-   driver. ESM Step 4 is the published method's answer to exactly this, and it
-   was missing.
+   matching (ESM verbatim, line 101–102: *"Image quality was estimated and
+   images with image quality <0.50 were disabled."*). The smoke skipped it.
+   The smoke A/B separately surfaced a low alignment rate — only **129 of 325
+   EDR_T8 cameras aligned (39.7%)**, with both focal arms (bundle-adjusted
+   fallback and manual S120 5.2 mm) aligning the *same* 129/325, which rules
+   out focal length as the cause. **Step 4 and the T8 alignment loss are kept
+   distinct.** Step 4 is image-quality *hygiene* — drop frames the SfM solver
+   shouldn't trust — and is wired because the published method specifies it and
+   we were not running it. It is **not** claimed here to be the fix for the
+   39.7%; the cause of the T8 loss (end-of-transect overlap, the two
+   LZW-undecodable frames per ADR-0009, turbidity, or quality) is a separate,
+   still-open question. Conflating "we added the quality gate" with "we
+   explained the alignment loss" would be the overclaim this ADR avoids.
 
 2. **ADR-0015's confidence filter was never in the production driver.** Commit
    3e35c3b wired `cleanPointCloud` + `compactPoints` into `smoke_test.py` and
@@ -61,15 +66,55 @@ without the dense run sweeping in every transect or losing resumability.
 The call site is a dedicated `step4` stage that runs after `import` and before
 `align`, so disabled cameras never enter `matchPhotos`.
 
-**Threshold pinned at 0.50, not stricter.** Agisoft's own `analyzeImages`
-documentation states: *"Cameras with quality less than 0.5 are considered
-blurred and we recommend to disable them."* 0.50 is therefore the vendor
-recommendation, and it is what we read ESM Step 4 to mean (the ESM does not
-publish a stricter cutoff). We do not invent a stricter number; if a stricter
-threshold is ever justified it will be its own ADR with its own evidence. A
-sanity alarm fires if Step 4 disables more than 200 of ~522 cameras — that
-would indicate either a bad threshold or a genuinely unusable transect, and the
-run stops for review rather than silently aligning a decimated set.
+**The 0.50 value is Toth's, verbatim — but it does not transfer cleanly to our
+data, and the threshold we actually apply is decided empirically.** ESM Step 4
+(line 101–102) and Agisoft's own `analyzeImages` doc both say disable
+`< 0.50`. So 0.50 is not invented — it is the published cutoff. But on the
+EDR_T3 frames the 0.50 cut disables **242 of 522 cameras (46.4%)**, which the
+`step4` stage's sanity alarm (`> 200 of ~522`) correctly flagged and
+hard-stopped on. The reason is in the distribution, not the threshold:
+
+```
+EDR_T3 Image/Quality (Metashape 2.3.1, our re-encoded TIFFs):
+  min 0.000 | p25 0.458 | median 0.507 | p75 0.568 | max 0.698
+  < 0.50 = 242 (46.4%)   < 0.40 = 43 (8.2%)   < 0.30 = 5 (1.0%)   ~0.0 = 2
+```
+
+The scores form a tight unimodal bell **centered on 0.50** and topping out at
+0.70 — nothing scores "good" on Agisoft's scale. Metashape's `Image/Quality` is
+a sharpness/contrast metric calibrated for aerial/terrestrial photography;
+underwater reef frames (backscatter, low contrast, uniform water column)
+systematically score low. A literal 0.50 here bisects a usable transect at its
+center of mass rather than separating blurred from sharp.
+
+**Non-transferability is a HYPOTHESIS, not confirmed.** It is supported by (a)
+our distribution being centered on 0.50, and (b) the domain-calibration
+argument above. It is **not** confirmed against Toth's actual EDR_T3
+registered-camera count, because we do not have that number: the ESM contains
+no per-transect registration counts (Table S1 is coral-outplant *survival*, not
+camera registration — a number that looks tempting and is the wrong column),
+and the P13HMEON product release (which would carry the Metashape processing
+reports) was never downloaded — its repo directory is empty. Confirming the
+hypothesis against Toth's count is deferred to Chat 6, once P13HMEON is
+backfilled (see Consequences).
+
+**So the threshold is decided empirically on our own data, via an A/B align**
+(`scripts/metashape/probes/ab_quality_threshold.py`):
+
+- **Arm q050** — Toth's verbatim cut, disable `< 0.50` (242 disabled, 280 enabled).
+- **Arm q030** — *floor* cut, disable `< 0.30` (5 disabled — the genuine low
+  tail, which includes the 2 degenerate ~0.0 frames `EDR_T3_R1_000130/000135`;
+  517 enabled).
+
+Both arms run identical alignment (ESM High, 60k). Decision rule: keep whichever
+aligns **comparably with more coverage**. If the 0.50 cut yields no alignment
+benefit over the floor, that is evidence it over-cuts our re-encoded TIFFs, and
+we adopt the floor and document the departure with that A/B evidence. The
+A/B result and the chosen threshold are recorded in the Empirical record section
+below and in docs/05. `run_pipeline.py` exposes `--quality-threshold` so the
+chosen value is explicit and auditable per run; the `> 200` disabled alarm
+stays, so any future transect where 0.50 again decimates coverage stops for the
+same review rather than silently aligning a halved set.
 
 ### 2. Wire ADR-0015's confidence filter into the production driver as a `filter` stage between `dense` and `dsm`
 
@@ -133,13 +178,16 @@ the GUI handoff forces, and the `report` stage assembles them into the manifest.
 
 ## Consequences
 
-- **The smoke's 39.7% alignment is now expected to improve** once Step 4 drops
-  the blurred frames before matching — but by how much is an *open empirical
-  question*, not a closed one. This ADR does NOT claim Step 4 fully explains the
-  ~60% loss. Other candidates remain: insufficient overlap at transect ends,
-  the two known LZW-undecodable frames (ADR-0009), genuine turbidity. Full
-  alignment-loss attribution is a separate investigation; this ADR only wires
-  the published method's quality gate and records the before number.
+- **Step 4 at Toth's 0.50 made alignment WORSE on our data, not better** — the
+  opposite of the naive expectation. The T3 A/B (Empirical record below) shows
+  the 0.50 cut aligned only 140/522 (26.8%), below even the smoke's no-filter
+  39.7%, because disabling 46% of frames collapsed image-network overlap. The
+  floor cut (< 0.30) aligned 515/522 (98.7%). So Step 4 is genuinely
+  quality *hygiene* — remove the few unusable frames — and emphatically not an
+  alignment booster at the published threshold on this dataset. The cause of
+  the smoke's T8 loss remains a separate open question (overlap at transect
+  ends, the two LZW-undecodable frames per ADR-0009, turbidity); this ADR does
+  not attribute it.
 - **Disabling cameras changes the denominator.** The alignment-rate sanity
   alarm (< 70% of *enabled*) is measured against post-Step-4 enabled cameras,
   not the raw 522. The manifest records both `cameras_total` and
@@ -157,10 +205,51 @@ the GUI handoff forces, and the `report` stage assembles them into the manifest.
   success validates the ADR-0016 hypothesis; OOM escalates to ADR-0018. The
   smoke's BBox workaround is NOT re-applied.
 
+## Empirical record — EDR_T3 quality-threshold A/B (2026-05-29)
+
+Decided on our data, not from Toth's count (which we don't have). Artifacts:
+`data/qc/chat5/q_ab_results.json` and `data/qc/chat5/q_ab_band_breakdown.json`
+(probe: `scripts/metashape/probes/ab_quality_threshold.py`).
+
+**Aggregate (same 522 frames, identical ESM-High alignment):**
+
+| Arm | Disable < | Enabled | Aligned | % of 522 | Tie points |
+|---|---|---|---|---|---|
+| q050 (Toth verbatim) | 0.50 | 280 | 140 | 26.8% | 659,078 |
+| q030 (floor) | 0.30 | 517 | **515** | **98.7%** | 2,441,346 |
+
+**Band breakdown — the mechanism (stronger than the aggregate):**
+
+| Quality band | q050 aligned | q030 aligned |
+|---|---|---|
+| < 0.30 (disabled both arms) | — (disabled) | — (disabled) |
+| 0.30–0.50 (the band 0.50 discards) | 0 / 237 (disabled) | **235 / 237 = 99.2%** |
+| ≥ 0.50 | **140 / 280 = 50.0%** | **280 / 280 = 100%** |
+
+Two facts decide it:
+1. **The discard band is fully usable.** The 0.30–0.50 frames that Toth's 0.50
+   cut throws away register at **99.2%** in the floor arm — as well as the
+   ≥0.50 frames.
+2. **Including the band RESCUED the good frames (cross-arm, overlap collapse).**
+   The *same* ≥0.50 frames aligned only **140/280 (50%)** when the band was
+   disabled (q050) but **280/280 (100%)** when it was kept (q030). Removing 46%
+   of frames didn't just lose those frames — it fragmented the image network so
+   the "good" frames could no longer align. This is why 0.50 collapses to 26.8%.
+
+**Decision: adopt the floor cut, disable < 0.30** (5 frames: the genuine low
+tail, including the two degenerate ~0.0 frames `EDR_T3_R1_000130/000135`). The
+non-transferability hypothesis is *consistent with* this evidence but still not
+*confirmed* against Toth's own EDR_T3 registration count (deferred to Chat 6 /
+P13HMEON backfill). The code keeps `image_quality_threshold = 0.50` as the
+documented Toth-published value; the applied value is `--quality-threshold 0.30`
+and is recorded in the manifest's `stage_step4.threshold`.
+
 ## What this ADR does NOT close
 
-- Whether Step 4 actually recovers the smoke's alignment loss (empirical, T3).
-- Full attribution of the ~60% alignment loss (multi-cause; separate work).
+- **Confirming the non-transferability hypothesis against Toth's actual EDR_T3
+  registered count** (needs the P13HMEON processing reports — not yet
+  downloaded; Chat 6).
+- Full attribution of the smoke's T8 alignment loss (multi-cause; separate work).
 - The ADR-0016 `buildDem` extent question (resolved by the T3 dense run, not by
   this wiring).
 - Logan vendoring (deferred; fallback is documented).

@@ -81,6 +81,12 @@ Layered atop the DLAMI:
 | Jupyter kernel | `ipykernel install --user` | Cursor + Jupyter discovery |
 | QGIS LTR | qgis.org apt repo | Chat 7 GIS work |
 | XFCE desktop | apt | Display surface for DCV |
+
+> **Correction (Chat 5, 2026-05-29):** the running DCV `console` session is
+> actually **GNOME** (`gnome-shell`), not XFCE. XFCE is installed and available
+> as an xsession option, but the default graphical session that DCV attaches to
+> is GNOME. Metashape Pro runs fine on it; the GUI handoff uses the GNOME
+> console session as-is.
 | Amazon DCV server 2025.0 | d1uj6qtbmh3dt5.cloudfront.net | Remote GUI for Metashape |
 | Metashape Pro 2.3.1 | download.agisoft.com | Photogrammetry engine |
 

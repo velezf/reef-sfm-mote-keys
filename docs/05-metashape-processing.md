@@ -99,8 +99,8 @@ This register supersedes the looser automated/manual split above.
 | 4 | Estimate image quality; disable blurred (< 0.5) | `analyzeImages` + disable `Image/Quality < 0.50` before matching | Faithful | `step4` / ADR-0017 |
 | 5 | Align: High, 60k keypoints, generic preselection, exclude stationary | `matchPhotos(downscale=1, …)` with Toth's values | Faithful | `align` |
 | 6 | Optimize cameras (defaults) | `optimizeCameras()` | Faithful | `align` |
-| 7 | Detect coded targets; build 25 cm scale bars | **Detection** headless (`detectMarkers`, Circular 12-bit, tol 20); **scale-bar assignment** in GUI | Faithful (detect) + GUI (assign) | `reduce` + DCV |
-| 8 | Gradual selection: RU 20–40, PA 3–4, RE 0.3, re-optimize | Logan script in threshold mode **preferred**; built-in faithful transcription is the fallback (currently used — Logan not yet vendored), logged as a per-run departure | Faithful (values) — see note | `reduce` / ADR-0010 |
+| 7 | Detect coded targets; build 25 cm scale bars | **Detection** headless (`detectMarkers`, Circular 12-bit, tol 20); **scale-bar assignment** in GUI. Detection is its own stage BEFORE the handoff | Faithful (detect) + GUI (assign) | `markers` + DCV |
+| 8 | Gradual selection: RU 20–40, PA 3–4, RE 0.3, re-optimize | Logan script in threshold mode **preferred**; built-in faithful transcription is the fallback (currently used — Logan not yet vendored), logged as a per-run departure. Runs AFTER scale bars exist (see Corrected step order) | Faithful (values) — see note | `reduce` / ADR-0010 |
 | 9 | Color correction (Hatcher) — *optional* | **Skipped** (optional, visualization-only) | Departure (documented) | — / ADR-0010 |
 | 10 | Dehaze — *optional* | **Skipped** (optional, visualization-only) | Departure (documented) | — |
 | 11 | Jenkins Alignment Helper — local zero-point 1 m grid frame | GUI, over DCV (populates `chunk.transform.scale`) | GUI | DCV / ADR-0010 |
@@ -110,20 +110,38 @@ This register supersedes the looser automated/manual split above.
 | 15 | Build orthomosaic (Mosaic, hole-fill) | `buildOrthomosaic(ElevationData, Mosaic, fill_holes)` | Faithful | `ortho` |
 | 16 | Export products | sparse.ply, dense.ply, dsm.tif, ortho.tif, cameras.json, scalebars.json, processing_report.pdf + `pipeline_summary.json`. **No mesh** (ESM has no mesh step; the ortho surface is the DSM) | Faithful (scripted, vs USGS Export Helper) | `report` |
 
-**Headless → GUI → headless split.** The `--stage` model expresses the split by
-*which stages run*, not by extra CLI flags (ADR-0017 declined
-`--chunk`/`--stop-after`/`--start-from` as redundant):
+**Headless → GUI → headless split — TWO GUI touches, not one.** The `--stage`
+model expresses the split by *which stages run*, not by extra CLI flags
+(ADR-0017 declined `--chunk`/`--stop-after`/`--start-from` as redundant). The
+order is `scale-bars → reduce → coord-frame → dense`, which forces two separate
+GUI touches with a short headless `reduce` between them:
 
-1. **Headless align portion:** `import` → `step4` → `align` → `reduce`
-   (marker *detection* included). Surfaces Step 4 disabled count, alignment
-   rate, RMS pre/post, and which error-reduction path ran.
-2. **GUI handoff over DCV:** confirm marker detection; assign 25 cm scale bars
-   (ESM Step 7); place the Jenkins zero-point coordinate frame (ESM Step 11,
-   sets `transform.scale`); resize the region to the ~10×1 m area of interest
-   (ESM Step 12); eyeball alignment QA; **File → Save** (not Save As).
-3. **Headless dense portion:** `dense` → `filter` → `dsm` → `ortho` → `report`.
+1. **Headless align portion:** `import` → `step4` → `align` → `markers`
+   (ESM Step 7 *detection*). Surfaces Step 4 disabled count, alignment rate,
+   RMS, and the detected-marker count.
+2. **GUI touch 1 (DCV):** confirm marker detection; assign 25 cm scale bars to
+   marker pairs (ESM Step 7); **File → Save**. *Do not place the coordinate
+   frame yet.*
+3. **Headless `reduce`:** ESM Step 8 error reduction, now scale-constrained
+   because the scale bars exist. Minutes, not hours — so touch 2 comes fast.
+4. **GUI touch 2 (DCV):** place the Jenkins zero-point coordinate frame
+   (ESM Step 11, sets `transform.scale`); resize the region to the ~10×1 m area
+   of interest (ESM Step 12); eyeball alignment QA; **File → Save**.
+5. **Headless dense portion:** `dense` → `filter` → `dsm` → `ortho` → `report`.
    `filter` (ESM Step 13) is sequenced strictly between `dense` and `dsm` so the
    DSM is never built on an unfiltered cloud (ADR-0015 + ADR-0017).
+
+**Why two touches, why this order.** Toth's ESM runs Step 7 (scale bars) before
+Step 8 (error reduction), so the final `optimizeCameras` inside reduce is
+scale-constrained — our earlier single-handoff order ran reduce *before* any
+scale bars and is corrected here. And the coordinate frame (Step 11) goes
+*after* reduce, not bundled with the scale bars: reduce's final bundle
+adjustment perturbs the camera/point geometry, so placing the zero-point frame
+before reduce would let that optimize shift the placement out from under it.
+Scale bars are a metric *constraint* the optimize should honour; the coordinate
+frame is a *datum* that must be pinned to the final, post-reduce geometry. The
+`reduce` stage enforces this with a critical alarm if it runs with zero scale
+bars present.
 
 **Note on Step 8 fidelity vs Logan.** The *thresholds* (RU 30, PA 3.5, RE 0.3)
 are faithful to Toth either way. ADR-0010 marks the Logan USGS script itself as
@@ -256,7 +274,16 @@ validator. The ESM-reported envelopes to eyeball the report PDF against:
   did not hit 1 mm, so reconciling against the PIFSC target would have been
   reconciling against a number the source paper never achieved. We observe
   against Toth's reported envelope and record the PIFSC number only for the log.
-* Registered images: ESM-style expectation ≥90% of input cameras aligned.
+* Registered images: a **generic SfM QC target** of ≥90% of cameras aligned —
+  this is a rule-of-thumb, **not** a figure Toth's ESM states. The ESM reports
+  no per-transect registered-camera count anywhere (Table S1 is coral-outplant
+  *survival*, not camera registration), so we have no Toth EDR_T3 number to
+  reconcile against yet. The published P13HMEON product release would carry the
+  Metashape processing reports with those counts, but it was **never downloaded**
+  — `data/raw/P13HMEON/` is an empty stub. **Backfilling P13HMEON is a Chat 4
+  gap that Chat 6 reconciliation depends on** (it is also where the Step 4
+  threshold non-transferability hypothesis gets confirmed or refuted against
+  Toth's actual registration count — see the quality-threshold note below).
 
 ## Smoke test — REQUIRED before the full run (gate)
 
@@ -352,11 +379,12 @@ metashape.sh -r scripts/metashape/smoke_test.py \
 
 ## Running it (the `--stage` model, post-ADR-0017)
 
-Stages are `import, step4, align, reduce, dense, filter, dsm, ortho, report`.
-The actual data layout: repo on the data volume at `/data/reef-sfm-mote-keys`;
-images flat at `/data/raw/P1WHKTRD/EasternDryRocks`; Metashape working area
-`/data/edr_work`; monitor + run logs `/data/edr_work/logs`. Run headless under
-`metashape.sh -platform offscreen -r`, inside tmux so it survives SSH drops.
+Stages are `import, step4, align, markers, reduce, dense, filter, dsm, ortho,
+report`. The actual data layout: repo on the data volume at
+`/data/reef-sfm-mote-keys`; images flat at `/data/raw/P1WHKTRD/EasternDryRocks`;
+Metashape working area `/data/edr_work`; monitor + run logs
+`/data/edr_work/logs`. Run headless under `metashape.sh -platform offscreen -r`,
+inside tmux so it survives SSH drops.
 
 ```bash
 PROJECT=/data/edr_work/edr_t3.psx
@@ -365,13 +393,14 @@ META="/opt/metashape-pro/metashape.sh -platform offscreen -r scripts/metashape/r
 
 # --- Headless align portion (EDR_T3 dev run; --transect scopes the import) ---
 $META --project $PROJECT --image-root $IMGROOT --transect EDR_T3 --stage import
-$META --project $PROJECT --stage step4
-$META --project $PROJECT --stage align  --focal-mode fallback   # smoke decided 'fallback'
-$META --project $PROJECT --stage reduce
+$META --project $PROJECT --stage step4 --quality-threshold 0.30   # floor cut (A/B-justified; see below)
+$META --project $PROJECT --stage align  --focal-mode fallback     # smoke decided 'fallback'
+$META --project $PROJECT --stage markers                          # ESM Step 7 detection only
 
-# --- GUI handoff over DCV (ESM Steps 7/11/12) ---
-#   confirm marker detection; assign 25 cm scale bars; Jenkins coord frame
-#   (sets transform.scale); resize region to the ~10x1 m AOI; QA; File→Save.
+# --- GUI touch 1 (DCV): assign 25 cm scale bars to marker pairs; File→Save ---
+$META --project $PROJECT --stage reduce                           # ESM Step 8, scale-constrained
+# --- GUI touch 2 (DCV): Jenkins coord frame (sets transform.scale); resize
+#     region to ~10x1 m AOI; QA; File→Save ---
 
 # --- Headless dense portion ---
 $META --project $PROJECT --stage dense
@@ -382,14 +411,43 @@ $META --project $PROJECT --stage report      # writes /data/edr_work/products/..
 ```
 
 Notes:
+- `--quality-threshold 0.30` is the **A/B-justified floor** for our re-encoded
+  TIFFs; Toth's verbatim 0.50 over-cuts them (see the quality-threshold finding
+  below). Omitting it uses the 0.50 default and the `> 200 disabled` alarm
+  hard-stops, by design.
 - `--focal-mode fallback` is passed explicitly because `focal_decision.json`
   was not committed (regenerable from `smoke_test.py --stage ab`); the smoke
   verdict was `fallback` (both arms aligned identically, prefer no-assumption).
 - Critical sanity alarms (Step 4 disabling > 200/522; alignment < 70% of
-  enabled; DSM 0 or > 1e8 cells; unscaled chunk at dense) **hard-stop** the run.
-  Pass `--ignore-sanity` to downgrade to warn — not recommended for a dev run.
+  enabled; reduce with 0 scale bars; DSM 0 or > 1e8 cells; unscaled chunk at
+  dense) **hard-stop** the run. Pass `--ignore-sanity` to downgrade to warn —
+  not recommended for a dev run.
 - `--logan-module reduce_error` once Logan is vendored (see above); until then
   the built-in transcription runs and is recorded as `builtin_fallback`.
+
+### ESM Step 4 quality-threshold finding (the headline T3 result)
+
+Toth's ESM Step 4 disables `Image/Quality < 0.50` (verbatim). On our re-encoded
+EDR_T3 TIFFs under Metashape 2.3.1 that disables **242 / 522 (46.4%)** — the
+score distribution is a tight bell centered on 0.50 (median 0.507, max 0.698;
+the metric is calibrated for aerial/terrestrial imagery and underwater frames
+systematically score low). An on-data A/B settled the threshold (artifacts:
+`data/qc/chat5/q_ab_results.json`, `q_ab_band_breakdown.json`):
+
+| Arm | Disable < | Enabled | Aligned (of 522) | Tie points |
+|---|---|---|---|---|
+| Toth verbatim | 0.50 | 280 | 140 (26.8%) | 659k |
+| **Floor (adopted)** | **0.30** | **517** | **515 (98.7%)** | **2.44M** |
+
+The mechanism is in the band breakdown: the 0.30–0.50 frames Toth's cut discards
+register at **235/237 = 99.2%** in the floor arm, and — the decisive cross-arm
+fact — the ≥0.50 frames themselves aligned only **140/280 (50%)** when the band
+was disabled but **280/280 (100%)** when it was kept. Removing 46% of frames
+*fragmented the image network and broke the good frames' alignment* (overlap
+collapse); it did not merely drop weak frames. **Adopted: floor cut < 0.30**
+(5 frames incl. 2 degenerate). Non-transferability of the 0.50 number to our
+data/version is the most likely reading but remains a **hypothesis** until
+confirmed against Toth's own EDR_T3 registered count (P13HMEON backfill, Chat 6).
 
 ## Per-run observations — T3 dress rehearsal (2026-05-29)
 
@@ -398,10 +456,16 @@ Recorded as the run progresses; the authoritative machine-readable record is
 
 - **Trial clock:** activated 2026-05-27, expires 2026-06-27 (~29 days at run
   time). Metashape 2.3.1 build 22446.
-- **Input:** 522 EDR_T3 C1 frames, SHA-256-pinned at import.
-- **ESM Step 4:** _(headless align portion — filled after the run)_
-- **Alignment:** _(aligned / enabled, %, RMS filter units)_
-- **Error reduction:** _(path: Logan vs builtin_fallback; RMS pre→post)_
+- **Input:** 522 EDR_T3 frames, SHA-256-pinned at import.
+- **ESM Step 4:** `Image/Quality` median 0.507, max 0.698, 242/522 below 0.50.
+  Threshold decided by on-data A/B → **floor cut < 0.30** (5 disabled). 0.50
+  over-cuts (aligns 26.8% vs 98.7%). See the quality-threshold finding above
+  and `data/qc/chat5/q_ab_band_breakdown.json`.
+- **Alignment (A/B q030 floor arm):** 515/517 enabled aligned (99.6%);
+  2,441,346 tie points. Production re-run on `edr_t3.psx` at `< 0.30` pending
+  (recorded in `pipeline_summary.json`).
+- **Error reduction:** _(path: builtin_fallback — Logan not vendored; RMS
+  pre→post — filled after the post-scale-bar `reduce` stage)_
 - **Confidence filter (Step 13):** _(points before→after, % removed; smoke
   EDR_T8 reference was 30.9M→23.5M, ~24%)_
 - **buildDem / ADR-0016:** _(succeeded without region clip? raster dims;
