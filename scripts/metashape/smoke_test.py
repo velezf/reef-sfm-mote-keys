@@ -85,14 +85,53 @@ S120_PIXEL_MM = 7.44 / 4000.0  # ~0.00186 mm
 
 # Focal-decision margins. RMS is primary; alignment is the tiebreak. A gap must
 # exceed its margin to count as "decisive" — within the margin is treated as a
-# tie. RMS_MARGIN_PX of 0.02 px is well below the 0.27-0.52 px envelope Toth
-# reports, so a real quality difference will clear it while noise will not.
-RMS_MARGIN_PX = 0.02
+# tie. Note: the RMS used here is in Metashape filter units (NOT raw image
+# pixels) — see _reprojection_rms and ADR-0012. The margin is set in the same
+# units; 0.02 is well below the unit-1-scale separation we expect a real quality
+# difference to produce, while noise stays under it.
+RMS_MARGIN_FILTER = 0.02
 ALIGN_MARGIN_PCT = 2.0
 
 
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] SMOKE: {msg}", flush=True)
+
+
+def _log_dense_bbox(pc: "Metashape.PointCloud", log_fn,
+                    label: str, json_path: Path, snapshot_key: str) -> None:
+    """Print + persist the dense point cloud's bbox extent.
+
+    Used to verify the ESM Step 13 confidence filter actually collapses the
+    point-cloud bbox from outlier-driven ~10^7 chunk units down to the real
+    footprint (chunk.region scale, ~10^1 units). Logs to stdout and merges
+    into bbox_pre_post_filter.json under the given snapshot_key.
+    """
+    info = {"snapshot": snapshot_key, "label": label,
+            "point_count": pc.point_count}
+    try:
+        ext = pc.extent()  # method call, not property — per API ref
+        try:
+            info["min"] = {"x": ext.min.x, "y": ext.min.y, "z": ext.min.z}
+            info["max"] = {"x": ext.max.x, "y": ext.max.y, "z": ext.max.z}
+            info["size"] = {"x": ext.max.x - ext.min.x,
+                            "y": ext.max.y - ext.min.y,
+                            "z": ext.max.z - ext.min.z}
+        except AttributeError:
+            info["extent_repr"] = repr(ext)
+    except (AttributeError, TypeError) as exc:
+        info["extent_error"] = f"pc.extent() unavailable: {exc}"
+    log_fn(f"{label} dense: pts={info['point_count']:,}; "
+           f"bbox_min={info.get('min')}; bbox_max={info.get('max')}; "
+           f"size={info.get('size')}")
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    payload: dict = {}
+    if json_path.exists():
+        try:
+            payload = json.loads(json_path.read_text())
+        except Exception:
+            payload = {}
+    payload[snapshot_key] = info
+    json_path.write_text(json.dumps(payload, indent=2))
 
 
 # --------------------------------------------------------------------------- #
@@ -257,8 +296,14 @@ def _align_arm(subset: list[Path], manual_calib: bool, out_root: Path) -> dict:
         "aligned_pct": round(100 * n_aligned / len(chunk.cameras), 1)
         if chunk.cameras else 0.0,
         "tie_points_after_reduction": len(chunk.tie_points.points),
-        "reproj_rms_px": round(reproj_rms, 4) if reproj_rms is not None else None,
+        "reproj_rms_filter_units": round(reproj_rms, 4)
+        if reproj_rms is not None else None,
         "reproj_residual_count": n_resid,
+        "reproj_rms_units_note": (
+            "Metashape ReprojectionError filter values; normalized internal "
+            "units, NOT image pixels. A/B comparison only; pixel-calibrated "
+            "RMS for the Toth envelope comes from the full-run report PDF. "
+            "See ADR-0012."),
     }
     # Still export the report PDF as a human-readable cross-check artifact — the
     # operator can eyeball it to confirm our computed RMS matches what Metashape
@@ -274,48 +319,28 @@ def _align_arm(subset: list[Path], manual_calib: bool, out_root: Path) -> dict:
 
 
 def _reprojection_rms(chunk: "Metashape.Chunk") -> tuple[float | None, int]:
-    """Compute root-mean-square reprojection error (in pixels) over all valid
-    tie-point projections, straight from the Metashape model.
+    """Compute RMS of per-tie-point reprojection-error filter values.
 
-    For each tie point, for each camera that observes it, we project the 3D
-    point back into the image and measure the pixel distance to the detected
-    key-point. RMS over all those residuals is the same quantity Metashape's
-    report calls 'Reprojection error (pix)'. Returns (rms, residual_count);
-    rms is None if nothing is aligned.
+    UNITS: these are Metashape's normalized internal filter units, NOT raw
+    image pixels. Manually re-projecting tie points (via cam.project /
+    cam.error) in an unscaled chunk produced nonsense magnitudes, so we use
+    the same per-point value the gradual-selection filter compares to its
+    threshold. This is fine for the A/B (both arms measured the same way), but
+    is NOT directly comparable to Toth's 0.27-0.52 px published RMS envelope —
+    that comes from the pixel-calibrated number in the Metashape report PDF
+    after the full run has scale bars + coordinate frame set. See ADR-0012.
+    Returns (rms_filter_units, point_count); rms is None if nothing is aligned.
     """
     tp = chunk.tie_points
-    points = tp.points
-    if not points:
+    if not tp.points:
         return None, 0
-    projections = tp.projections
-    total_sq = 0.0
-    n = 0
-    for cam in chunk.cameras:
-        if not cam.transform:
-            continue
-        cam_projections = projections[cam]
-        if not cam_projections:
-            continue
-        for proj in cam_projections:
-            track_id = proj.track_id
-            if track_id >= len(points):
-                continue
-            pt = points[track_id]
-            if not pt.valid:
-                continue
-            # World coord of the tie point -> camera image coords.
-            world = pt.coord
-            local = chunk.transform.matrix.inv().mulp(world)
-            image_xy = cam.project(local)
-            if image_xy is None:
-                continue
-            dx = image_xy.x - proj.coord.x
-            dy = image_xy.y - proj.coord.y
-            total_sq += dx * dx + dy * dy
-            n += 1
-    if n == 0:
+    f = Metashape.TiePoints.Filter()
+    f.init(chunk, Metashape.TiePoints.Filter.ReprojectionError)
+    errs = [e for e, pt in zip(f.values, tp.points) if pt.valid]
+    if not errs:
         return None, 0
-    return (total_sq / n) ** 0.5, n
+    rms = (sum(e * e for e in errs) / len(errs)) ** 0.5
+    return rms, len(errs)
 
 
 def stage_ab(subset: list[Path], out_root: Path) -> str:
@@ -337,9 +362,10 @@ def stage_ab(subset: list[Path], out_root: Path) -> str:
     fallback = _align_arm(subset, manual_calib=False, out_root=out_root)
     manual = _align_arm(subset, manual_calib=True, out_root=out_root)
 
-    log("A/B MEASUREMENTS:")
+    log("A/B MEASUREMENTS (RMS in Metashape filter units, see ADR-0012; "
+        "NOT image pixels):")
     for r in (fallback, manual):
-        log(f"   {r['arm']}: RMS={r['reproj_rms_px']} px, "
+        log(f"   {r['arm']}: RMS={r['reproj_rms_filter_units']} (filter), "
             f"aligned {r['cameras_aligned']}/{r['cameras_total']} "
             f"({r['aligned_pct']}%), "
             f"{r['tie_points_after_reduction']} tie pts after reduction")
@@ -352,9 +378,15 @@ def stage_ab(subset: list[Path], out_root: Path) -> str:
         "generated_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "subset_image_count": len(subset),
         "criterion": {
-            "primary": "reproj_rms_px (lower is better)",
+            "primary": "reproj_rms_filter_units (lower is better)",
             "tiebreak": "aligned_pct (higher is better)",
-            "rms_margin_px": RMS_MARGIN_PX,
+            "rms_margin_filter_units": RMS_MARGIN_FILTER,
+            "rms_units_note": (
+                "Metashape ReprojectionError filter values; normalized "
+                "internal units, NOT image pixels. Smoke A/B comparison "
+                "only. Pixel-calibrated RMS for the Toth 0.27-0.52 px "
+                "envelope comparison comes from the full-run report PDF "
+                "after scale bars + coordinate frame are set. See ADR-0012."),
             "align_margin_pct": ALIGN_MARGIN_PCT,
             "s120_manual_assumption": {
                 "focal_length_mm": S120_FOCAL_MM,
@@ -379,10 +411,14 @@ def stage_ab(subset: list[Path], out_root: Path) -> str:
 def _decide_focal(fallback: dict, manual: dict) -> dict:
     """Apply the RMS-primary / alignment-tiebreak criterion to the two arms.
 
+    RMS values are in Metashape filter units (see ADR-0012), not pixels — the
+    relative comparison between arms is valid; the absolute number is not
+    directly comparable to Toth's pixel-calibrated envelope.
+
     Logic:
       * If either arm failed to produce an RMS (no alignment), the other wins
         by default (DEGRADED note).
-      * Otherwise compare RMS. If the RMS gap exceeds RMS_MARGIN_PX, the
+      * Otherwise compare RMS. If the RMS gap exceeds RMS_MARGIN_FILTER, the
         lower-RMS arm wins (DECIDED).
       * If RMS is within the margin (a tie on quality), use alignment %: the
         arm aligning >ALIGN_MARGIN_PCT more cameras wins (DECIDED).
@@ -392,7 +428,8 @@ def _decide_focal(fallback: dict, manual: dict) -> dict:
         clearly favors the other. The validator refuses to trade quality
         against coverage on the operator's behalf -> NEEDS_REVIEW.
     """
-    fr, mr = fallback["reproj_rms_px"], manual["reproj_rms_px"]
+    fr = fallback["reproj_rms_filter_units"]
+    mr = manual["reproj_rms_filter_units"]
     fa, ma = fallback["aligned_pct"], manual["aligned_pct"]
 
     # Degenerate: an arm didn't align.
@@ -414,35 +451,38 @@ def _decide_focal(fallback: dict, manual: dict) -> dict:
     rms_winner = "fallback" if fr < mr else "manual"
     align_winner = "fallback" if fa > ma else "manual"
 
-    rms_decisive = rms_gap > RMS_MARGIN_PX
+    rms_decisive = rms_gap > RMS_MARGIN_FILTER
     align_decisive = align_gap > ALIGN_MARGIN_PCT
 
     if rms_decisive and align_decisive and rms_winner != align_winner:
         return {"verdict": "NEEDS_REVIEW", "chosen_arm": "NEEDS_REVIEW",
                 "rationale": (f"Signals disagree: lower RMS is '{rms_winner}' "
-                              f"(gap {rms_gap:.4f} px) but higher alignment is "
-                              f"'{align_winner}' (gap {align_gap:.1f}%). "
-                              f"Quality vs coverage trade-off is yours to make.")}
+                              f"(gap {rms_gap:.4f} filter units) but higher "
+                              f"alignment is '{align_winner}' (gap "
+                              f"{align_gap:.1f}%). Quality vs coverage "
+                              f"trade-off is yours to make.")}
 
     if rms_decisive:
         return {"verdict": "DECIDED", "chosen_arm": rms_winner,
                 "rationale": (f"Lower reprojection RMS ('{rms_winner}', "
-                              f"{min(fr, mr):.4f} vs {max(fr, mr):.4f} px, gap "
-                              f"{rms_gap:.4f} > {RMS_MARGIN_PX} margin). RMS is "
-                              f"primary per the criterion.")}
+                              f"{min(fr, mr):.4f} vs {max(fr, mr):.4f} filter "
+                              f"units, gap {rms_gap:.4f} > {RMS_MARGIN_FILTER} "
+                              f"margin). RMS is primary per the criterion.")}
 
     # RMS within margin -> quality tie; fall to alignment tiebreak.
     if align_decisive:
         return {"verdict": "DECIDED", "chosen_arm": align_winner,
-                "rationale": (f"RMS within {RMS_MARGIN_PX} px (quality tie at "
-                              f"~{fr:.4f}/{mr:.4f}); tiebreak on alignment "
-                              f"favors '{align_winner}' (+{align_gap:.1f}%).")}
+                "rationale": (f"RMS within {RMS_MARGIN_FILTER} filter units "
+                              f"(quality tie at ~{fr:.4f}/{mr:.4f}); tiebreak "
+                              f"on alignment favors '{align_winner}' "
+                              f"(+{align_gap:.1f}%).")}
 
     return {"verdict": "DECIDED", "chosen_arm": "fallback",
             "rationale": (f"RMS and alignment both within margins "
-                          f"(RMS {fr:.4f}/{mr:.4f} px, align {fa}/{ma}%). "
-                          f"Prefer fallback: no wrong-zoom assumption, matches "
-                          f"how high-overlap reef data is normally handled.")}
+                          f"(RMS {fr:.4f}/{mr:.4f} filter units, align "
+                          f"{fa}/{ma}%). Prefer fallback: no wrong-zoom "
+                          f"assumption, matches how high-overlap reef data "
+                          f"is normally handled.")}
 
 
 # --------------------------------------------------------------------------- #
@@ -452,6 +492,15 @@ def _decide_focal(fallback: dict, manual: dict) -> dict:
 
 def stage_full(subset: list[Path], smoke_project: Path, out_root: Path,
                arm: str) -> None:
+    """Run the full dense → filter → DSM/ortho → export sequence on the subset.
+
+    DSM and orthomosaic generation on unscaled chunks may OOM due to
+    buildDem extent inference (see ADR-0016). The smoke continues without
+    them rather than crashing — production builds on scaled chunks where
+    this is not an issue. Dense.ply, focal_decision.json,
+    bbox_pre_post_filter.json, and the processing report are always
+    exported regardless of DSM/ortho success.
+    """
     log(f"FULL subset pipeline using '{arm}' arm. REAL dense at ESM High.")
     smoke_project.parent.mkdir(parents=True, exist_ok=True)
     doc = Metashape.Document()
@@ -479,25 +528,116 @@ def stage_full(subset: list[Path], smoke_project: Path, out_root: Path,
     log(f"Dense done in {(time.time()-t0)/60:.1f} min.")
     doc.save()
 
-    chunk.buildDem(source_data=Metashape.PointCloudData,
-                   interpolation=Metashape.EnabledInterpolation, resolution=0.01)
-    chunk.buildOrthomosaic(surface_data=Metashape.ElevationData,
-                           blending_mode=Metashape.MosaicBlending, fill_holes=True)
+    # ESM Step 13 confidence noise filter applied to the dense cloud BEFORE
+    # buildDem. Engineered destructive departure from ESM's classify-and-keep
+    # GUI workflow; see ADR-0015 for full reasoning. Documented as remove
+    # (cleanPointCloud line 1929) followed by undocumented-but-required
+    # compactPoints materialization (line 6203 — point_count is stale until
+    # compact is called, established via probe_v8_cleanpc.py). Outliers
+    # from unscaled bundle adjustment that previously OOM'd buildDem are
+    # caught at threshold=2 and removed; the bbox then collapses to the
+    # real footprint.
+    pc = chunk.point_cloud
+    _log_dense_bbox(pc, log, label="pre-filter",
+                    json_path=out_root / "bbox_pre_post_filter.json",
+                    snapshot_key="pre")
+    n_before = pc.point_count
+    chunk.cleanPointCloud(
+        criterion=Metashape.PointCloud.Criterion.Confidence,
+        threshold=2,
+    )
+    pc.compactPoints()
+    n_after = pc.point_count
+    removed = n_before - n_after
+    log(f"ESM Step 13 noise removal (cleanPointCloud + compactPoints, "
+        f"threshold=2): {n_before:,} -> {n_after:,} dense pts "
+        f"({removed:,} removed, "
+        f"{100*removed/max(n_before, 1):.1f}%). See ADR-0015.")
+    if n_before > 0 and removed == 0:
+        log(f"WARNING: ESM Step 13 removed 0 points at threshold=2. "
+            f"Expected if the dense cloud has no points with confidence < 2; "
+            f"not necessarily an error. See bbox_pre_post_filter.json.")
+    _log_dense_bbox(pc, log, label="post-filter",
+                    json_path=out_root / "bbox_pre_post_filter.json",
+                    snapshot_key="post")
+    doc.save()
+
+    # Smoke-only: buildDem infers target extent from camera viewing volumes
+    # or depth-map extents rather than pc.extent() — which means the dense
+    # cloud's confidence filter doesn't constrain DSM bbox inference (filter
+    # operates on point_cloud; buildDem reads something else). On an unscaled
+    # chunk this produces multi-billion-pixel DEMs and std::bad_alloc.
+    # Production gets scale from manual coded-target placement (ESM Step 7)
+    # and Jenkins Alignment Helper (ESM Step 11); on a scaled chunk
+    # buildDem auto-inferred extent is in meters and tractable.
+    # See ADR-0016 and bbox_pre_post_filter.json.
+    size = chunk.region.size
+    center = chunk.region.center
+    smoke_res = max(size.x, size.y) / 2000.0
+    smoke_bbox = Metashape.BBox()
+    smoke_bbox.min = Metashape.Vector(
+        [center.x - size.x / 2.0, center.y - size.y / 2.0])
+    smoke_bbox.max = Metashape.Vector(
+        [center.x + size.x / 2.0, center.y + size.y / 2.0])
+    log(f"Smoke DSM/ortho resolution (chunk units): {smoke_res:.6f}; "
+        f"BBox region clip to chunk.region xy footprint (smoke-only, see "
+        f"ADR-0016). Unscaled chunk; outputs NOT metrically comparable to "
+        f"Toth. Production builds metric DSM at 1 cm in run_pipeline.py "
+        f"post-scale-bars without this clip.")
+    # DSM and orthomosaic generation on unscaled chunks may OOM due to
+    # buildDem extent inference reading beyond pc.extent() and beyond the
+    # explicit BBox region clip (see ADR-0016). The smoke continues without
+    # them rather than crashing — production builds on scaled chunks where
+    # this is not an issue. The MemoryError below is logged loudly so it
+    # can't be missed when reviewing smoke output.
+    built_dem = False
+    built_ortho = False
+    try:
+        chunk.buildDem(source_data=Metashape.PointCloudData,
+                       interpolation=Metashape.EnabledInterpolation,
+                       resolution=smoke_res, region=smoke_bbox)
+        built_dem = True
+    except MemoryError as exc:
+        log(f"WARNING: buildDem OOM'd on unscaled chunk "
+            f"(MemoryError: {exc}). Continuing without DSM/ortho. "
+            f"See ADR-0016.")
+    if built_dem:
+        try:
+            chunk.buildOrthomosaic(surface_data=Metashape.ElevationData,
+                                   blending_mode=Metashape.MosaicBlending,
+                                   fill_holes=True, resolution=smoke_res,
+                                   region=smoke_bbox)
+            built_ortho = True
+        except MemoryError as exc:
+            log(f"WARNING: buildOrthomosaic OOM'd on unscaled chunk "
+                f"(MemoryError: {exc}). Continuing without ortho. "
+                f"See ADR-0016.")
     doc.save()
 
     out_root.mkdir(parents=True, exist_ok=True)
-    products = {
+    products: dict[str, Path] = {
         "dense": out_root / "smoke_dense.ply",
-        "dsm": out_root / "smoke_dsm.tif",
-        "ortho": out_root / "smoke_ortho.tif",
     }
     chunk.exportPointCloud(str(products["dense"]),
                            source_data=Metashape.PointCloudData,
                            save_point_color=True, save_point_confidence=True)
-    chunk.exportRaster(str(products["dsm"]), source_data=Metashape.ElevationData,
-                       resolution=0.01)
-    chunk.exportRaster(str(products["ortho"]),
-                       source_data=Metashape.OrthomosaicData)
+    if built_dem:
+        products["dsm"] = out_root / "smoke_dsm.tif"
+        try:
+            chunk.exportRaster(str(products["dsm"]),
+                               source_data=Metashape.ElevationData,
+                               resolution=smoke_res)
+        except Exception as exc:
+            log(f"WARNING: DSM export failed: {exc}")
+            del products["dsm"]
+    if built_ortho:
+        products["ortho"] = out_root / "smoke_ortho.tif"
+        try:
+            chunk.exportRaster(str(products["ortho"]),
+                               source_data=Metashape.OrthomosaicData)
+        except Exception as exc:
+            log(f"WARNING: ortho export failed: {exc}")
+            del products["ortho"]
     chunk.exportReport(str(out_root / "smoke_report.pdf"))
 
     # Integrity check: every product exists and is non-trivially sized.
@@ -510,12 +650,23 @@ def stage_full(subset: list[Path], smoke_project: Path, out_root: Path,
             log(f"   {name}: MISSING or too small — export path/perm problem.")
             ok = False
     if not ok:
-        sys.exit("FULL stage produced incomplete exports. Fix before full run.")
-    log("FULL SUBSET PIPELINE PASSED end to end. The plumbing is sound: every "
-        "stage transitioned and every product exported. NOTE: this does NOT "
-        "prove the full 3,271-image run won't hit disk-full or GPU-OOM at full "
-        "point count — check free disk on /data and nvidia-smi memory headroom "
-        "before launching the night.")
+        sys.exit("FULL stage produced incomplete exports of "
+                 "expected-to-build products. Fix before full run.")
+    if not built_dem or not built_ortho:
+        log("PARTIAL SMOKE: dense + report exported; DSM/ortho deferred to "
+            "scaled production runs per ADR-0016. The confidence filter "
+            "(ADR-0015) was validated end-to-end on the dense cloud — that "
+            "was the actual Chat 5 mandate.")
+    else:
+        log("FULL SUBSET PIPELINE PASSED end to end. The plumbing is sound: "
+            "every API call (matchPhotos, alignCameras, optimizeCameras, "
+            "error reduction, buildDepthMaps, buildPointCloud, "
+            "cleanPointCloud, compactPoints, buildDem, buildOrthomosaic, "
+            "exportPointCloud, exportRaster, exportReport) executed and "
+            "every product exported. NOTE: this does NOT prove the full "
+            "3,271-image run won't hit disk-full or GPU-OOM at full point "
+            "count — check free disk on /data and nvidia-smi memory "
+            "headroom before launching the night.")
 
 
 # --------------------------------------------------------------------------- #

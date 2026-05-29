@@ -44,7 +44,7 @@ decide = smoke._decide_focal
 def _arm(name, rms, aligned_pct):
     return {
         "arm": name,
-        "reproj_rms_px": rms,
+        "reproj_rms_filter_units": rms,
         "aligned_pct": aligned_pct,
         "cameras_total": 100,
         "cameras_aligned": int(aligned_pct),

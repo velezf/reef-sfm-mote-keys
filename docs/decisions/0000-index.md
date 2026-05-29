@@ -56,3 +56,8 @@ grep -lri sciencebase docs/adr/
 | [0009](0009-exif-csv-and-tiff-encoding-metadata-loss.md) | USGS TIFFs are Photoshop CR2→TIFF re-encodes; capture-time EXIF absent; CSV canonical for surviving metadata | Accepted | 4 |
 | [0010](0010-adopt-toth-usgs-metashape-workflow.md) | Adopt Toth et al. 2025 ESM Table S2 as Chat 5 parameter source; PIFSC SOP superseded | Accepted | 4 |
 | [0011](0011-validator-hardcoded-now-profile-driven-later.md) | Validator is intentionally EDR-hardcoded in Chat 4; profile-driven generalization deferred to Chat 6 | Accepted | 4 |
+| [0012](0012-smoke-ab-rms-in-filter-units-not-pixels.md) | Smoke A/B reprojection RMS is in Metashape filter units, not image pixels | Accepted | 5 |
+| [0013](0013-confidence-noise-filter-via-cleanpointcloud.md) | ESM Step 13 confidence filter implemented via Chunk.cleanPointCloud (remove); GUI's classify-and-keep has no Python equivalent in 2.x | Superseded by 0015 | 5 |
+| [0014](0014-headless-confidence-filter-via-docpopi-pattern.md) | Headless confidence noise filter uses setConfidenceFilter + cropSelectedPoints (DocPopi pattern); cleanPointCloud is documented-but-non-functional on 2.3.1 build 22446 | Superseded by 0015 | 5 |
+| [0015](0015-headless-step13-engineered-departure.md) | Headless ESM Step 13: engineered destructive departure (cleanPointCloud + compactPoints); supersedes 0013 and 0014; reframes choice as departure not reproduction | Accepted | 5 |
+| [0016](0016-builddem-extent-beyond-pcextent-smoke-bbox-clip.md) | buildDem extent inference on unscaled chunks: BBox region clip insufficient; full headless smoke of DSM/ortho deferred to scaled production runs (T3 dress rehearsal or v2) | Accepted with caveat | 5 |

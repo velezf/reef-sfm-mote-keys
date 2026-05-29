@@ -151,6 +151,25 @@ claude doctor      # verifies install, auth, PATH
 
 Both are already acquired per Chat 4b; listed here for completeness.
 
+### Load-bearing methodology references (Chat 5)
+
+Two PDFs are referenced as authoritative sources in Chat 5 ADRs (notably
+ADR-0015) and decisions hinge on quoted passages from them. Pinned with
+SHA-256 so future readers can verify they are reading the same documents.
+
+| Document | URL | SHA-256 | Used in |
+|---|---|---|---|
+| Metashape Pro Python API 2.3.1 reference (PDF) | https://www.agisoft.com/pdf/metashape_python_api_2_3_1.pdf | `d683ca7e1965eecdb5eea0d9cbac261bcf74e701a61e9d7d8c001968dab102f9` | ADR-0013, 0014, 0015 (verbatim API quotes); smoke and segment patches |
+| Toth et al. 2025 ESM (Supplementary Material PDF) | https://static-content.springer.com/esm/art%3A10.1038%2Fs41598-025-04818-3/MediaObjects/41598_2025_4818_MOESM1_ESM.pdf | `7f9d19e85bf1d735c8dc5d41dde9cffe6e84e84da2243104a6863c1b0a75d0d6` | ADR-0010 (workflow adoption); ADR-0015 (Step 13 verbatim departure rationale) |
+
+Both can be re-fetched with:
+
+```bash
+curl -sLo metashape_python_api_2_3_1.pdf https://www.agisoft.com/pdf/metashape_python_api_2_3_1.pdf
+curl -sLo toth_2025_esm.pdf https://static-content.springer.com/esm/art%3A10.1038%2Fs41598-025-04818-3/MediaObjects/41598_2025_4818_MOESM1_ESM.pdf
+sha256sum metashape_python_api_2_3_1.pdf toth_2025_esm.pdf
+```
+
 ---
 
 ## R tooling for Chat 6 (heads-up, not Chat 5)

@@ -238,7 +238,13 @@ This decision is an *artifact*, not a judgement call left to the operator. The
    which is precisely the brittle report-coupling the longitudinal doc says the
    provenance layer exists to replace. Source data → number is robust; PDF →
    number is not. (The report PDF is still exported per arm as a human-readable
-   cross-check; the pipeline just doesn't depend on parsing it.)
+   cross-check; the pipeline just doesn't depend on parsing it.) Note: the RMS
+   read from the filter is in Metashape's normalized internal filter units, NOT
+   raw image pixels — see ADR-0012. It is valid for the A/B comparison (both
+   arms measured the same way) but is NOT directly comparable to Toth's pixel-
+   calibrated 0.27–0.52 px envelope. The pixel-calibrated number comes from the
+   full-run report PDF after scale bars and coordinate frame are set, and is
+   what Chat 6's reconciliation uses against the Toth envelope.
 2. Writes `focal_decision.json` — a structured artifact recording each arm's RMS
    and alignment, the criterion applied (RMS primary, alignment tiebreak, with
    explicit margins), the verdict, the chosen arm, and a rationale string. This

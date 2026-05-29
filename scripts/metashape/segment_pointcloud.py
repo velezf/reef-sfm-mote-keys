@@ -53,25 +53,51 @@ except ImportError:
 
 
 def assign_noise_by_confidence(chunk: "Metashape.Chunk", max_conf: float) -> int:
-    """Assign points with confidence < max_conf to the LowPoint (noise) class.
+    """Remove dense-cloud points with confidence < max_conf.
 
-    Faithful to ESM Step 13 Step 1: 'Filter by confidence -> min 0, max 1 ->
-    assign Low-point(noise)'. We expose the threshold because the ESM text and
-    the figure caption differ slightly (caption says confidence < 2); 2.0 is the
-    documented project value. Returns the number of points reclassified.
+    Implements ESM Step 13 Step 1 noise handling as an *engineered
+    destructive departure* from Toth's classify-and-keep GUI workflow.
+    See ADR-0015 for the full reasoning. The function name is retained
+    for run_pipeline.py call-site compatibility but is slightly
+    misleading: it removes the noise points outright rather than
+    assigning them to the LowPoint class.
+
+    Implementation: chunk.cleanPointCloud(Confidence, threshold) is the
+    documented destructive API (Metashape 2.3.1 Python reference line
+    1929, "Remove points based on specified criterion"); compactPoints()
+    is required to materialize the deletion (point_count is stale until
+    compact is called — undocumented Metashape behavior empirically
+    established via scripts/metashape/probes/probe_v8_cleanpc.py).
+
+    Returns the dense-cloud point_count after removal.
     """
     pc = chunk.point_cloud
     if pc is None:
         sys.exit(f"{chunk.label}: no dense cloud to segment.")
 
-    # Set the active confidence filter window, select, assign, reset.
-    pc.setConfidenceFilter(0, int(max_conf))      # show only low-confidence pts
-    pc.assignClassToSelection(Metashape.PointClass.LowPoint)
-    pc.resetFilters()
-    n = pc.point_count
-    print(f"{chunk.label}: assigned points with confidence < {max_conf} "
-          f"to LowPoint (noise). Cloud now {n} pts total.", flush=True)
-    return n
+    # Engineered destructive departure from ESM Step 13's classify-and-keep
+    # workflow. See ADR-0015 for full reasoning. Documented as remove
+    # (cleanPointCloud line 1929) followed by undocumented-but-required
+    # compactPoints materialization (line 6203).
+    n_before = pc.point_count
+    chunk.cleanPointCloud(
+        criterion=Metashape.PointCloud.Criterion.Confidence,
+        threshold=int(max_conf),
+    )
+    pc.compactPoints()
+    n_after = pc.point_count
+    removed = n_before - n_after
+    print(f"{chunk.label}: ESM Step 13 noise removal (cleanPointCloud + "
+          f"compactPoints, threshold={max_conf}): {n_before:,} -> {n_after:,} "
+          f"({removed:,} points removed, {100*removed/max(n_before,1):.1f}%). "
+          f"See ADR-0015.", flush=True)
+    if n_before > 0 and removed == 0:
+        print(f"WARNING: {chunk.label}: ESM Step 13 removed 0 points at "
+              f"threshold={max_conf}. This is expected if the dense cloud "
+              f"has no points with confidence < {max_conf}; not necessarily "
+              f"an error. See bbox_pre_post_filter.json to verify cloud "
+              f"state.", flush=True)
+    return n_after
 
 
 def main() -> None:
