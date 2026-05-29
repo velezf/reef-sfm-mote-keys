@@ -85,8 +85,27 @@ Layered atop the DLAMI:
 > **Correction (Chat 5, 2026-05-29):** the running DCV `console` session is
 > actually **GNOME** (`gnome-shell`), not XFCE. XFCE is installed and available
 > as an xsession option, but the default graphical session that DCV attaches to
-> is GNOME. Metashape Pro runs fine on it; the GUI handoff uses the GNOME
-> console session as-is.
+> is GNOME (ubuntu-desktop was pulled in during Chat 3 to fix a LightDM-on-24.04
+> incompatibility, which is why it's GNOME via GDM3, not the planned XFCE).
+> Metashape Pro runs fine on it; the GUI handoff uses the GNOME console session.
+>
+> **Grey-screen fix — autologin MUST be on (Chat 5 regression + re-fix).** The
+> Chat-3 grey-screen fix has two halves: (1) `WaylandEnable=false` in
+> `/etc/gdm3/custom.conf`, and (2) **GDM autologin enabled** for `ubuntu`:
+> ```
+> [daemon]
+> WaylandEnable=false
+> AutomaticLoginEnable=true
+> AutomaticLogin=ubuntu
+> ```
+> If autologin is off, DCV `console` shows the **GDM greeter**; logging in there
+> starts a *second* ubuntu graphical session that collides with the seat's
+> existing one → **grey screen**. With autologin on, GDM auto-starts a single
+> ubuntu session on the console seat and DCV shows the desktop directly. To
+> re-apply without a reboot: set the config, `loginctl terminate-session <the
+> orphan graphical session>` (NOT the SSH session), then
+> `sudo systemctl restart gdm3`. Verified 2026-05-29: one ubuntu x11 session on
+> seat0, no greeter, no collision.
 | Amazon DCV server 2025.0 | d1uj6qtbmh3dt5.cloudfront.net | Remote GUI for Metashape |
 | Metashape Pro 2.3.1 | download.agisoft.com | Photogrammetry engine |
 

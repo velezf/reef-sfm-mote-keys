@@ -461,9 +461,11 @@ Recorded as the run progresses; the authoritative machine-readable record is
   Threshold decided by on-data A/B → **floor cut < 0.30** (5 disabled). 0.50
   over-cuts (aligns 26.8% vs 98.7%). See the quality-threshold finding above
   and `data/qc/chat5/q_ab_band_breakdown.json`.
-- **Alignment (A/B q030 floor arm):** 515/517 enabled aligned (99.6%);
-  2,441,346 tie points. Production re-run on `edr_t3.psx` at `< 0.30` pending
-  (recorded in `pipeline_summary.json`).
+- **Alignment (production, `edr_t3.psx`, floor 0.30):** 515/517 enabled aligned
+  (99.6%); 2,441,345 tie points; RMS 0.1888 filter units (pre-reduction).
+  Reproduces the A/B q030 arm exactly.
+- **Markers (ESM Step 7 detection):** 7 Circular-12-bit coded targets detected
+  at tolerance 20. → GUI touch 1: assign 25 cm scale bars to pairs.
 - **Error reduction:** _(path: builtin_fallback — Logan not vendored; RMS
   pre→post — filled after the post-scale-bar `reduce` stage)_
 - **Confidence filter (Step 13):** _(points before→after, % removed; smoke
