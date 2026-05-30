@@ -465,15 +465,44 @@ Recorded as the run progresses; the authoritative machine-readable record is
   (99.6%); 2,441,345 tie points; RMS 0.1888 filter units (pre-reduction).
   Reproduces the A/B q030 arm exactly.
 - **Markers (ESM Step 7 detection):** 7 Circular-12-bit coded targets detected
-  at tolerance 20. → GUI touch 1: assign 25 cm scale bars to pairs.
-- **Error reduction:** _(path: builtin_fallback — Logan not vendored; RMS
-  pre→post — filled after the post-scale-bar `reduce` stage)_
-- **Confidence filter (Step 13):** _(points before→after, % removed; smoke
-  EDR_T8 reference was 30.9M→23.5M, ~24%)_
-- **buildDem / ADR-0016:** _(succeeded without region clip? raster dims;
-  transform.scale; peak RAM)_
-- **Resource peaks:** _(GPU VRAM, RAM, CPU, wall clock per stage — from
-  scripts/monitor.sh summary)_
+  at tolerance 20. GUI pairing was geometrically ambiguous (mutual-NN distances
+  inconsistent — see `probes/marker_pairing_geometry.py`), resolved via
+  scale-bar residuals instead.
+- **GUI touch 1 — scale bars (done):** 4 scale bars at 0.250 m, residual error
+  **~0.001 m (1 mm) each**, mutually consistent → scale is sound and
+  cross-validated. Project saved.
+- **Error reduction (NEXT — not yet run):** path builtin_fallback (Logan not
+  vendored); scale-constrained (4 bars present, so the zero-bar hard-stop
+  passes). Run `--stage reduce`, then `probes/reprojection_rms_px.py` for the
+  pixel-calibrated RMS vs the ESM 0.27–0.52 px envelope.
+- **GUI touch 2 — Jenkins coord frame:** pending (after reduce).
+- **Confidence filter (Step 13):** pending (smoke EDR_T8 ref 30.9M→23.5M, ~24%).
+- **buildDem / ADR-0016:** pending — the test is whether the scaled chunk + 1 cm
+  builds the DSM WITHOUT the smoke region-clip.
+- **Resource peaks (align + A/B + handoff gap only; NOT dense):** peak GPU util
+  99% (brief, during matching), peak VRAM **1636 MB / 23034 MB (7%)**, peak RAM
+  **8313 MB / 61909 MB (13%)**, 0 swap. Logged at
+  `data/qc/chat5/t3_monitor_summary.txt`. Dense is the real VRAM/RAM stressor
+  and is still to come — restart `scripts/monitor.sh start` before it.
+
+### Session state — RESUME HERE (paused 2026-05-29, hard stop)
+
+Done & committed: pipeline hardened (import/step4/markers/reduce/filter stages,
+sanity alarms, extended manifest); ADR-0017 + ADR-0015 amendment + docs/05
+fidelity register; quality-threshold A/B (floor 0.30 adopted, artifacts in
+`data/qc/chat5/`); DCV grey-screen re-fixed (autologin); T3 aligned at 0.30
+(515/517) with 7 markers; 4 scale bars placed in GUI (1 mm residuals, saved).
+
+Next steps, in order, on `/data/edr_work/edr_t3.psx`:
+1. `metashape.sh -platform offscreen -r scripts/metashape/run_pipeline.py
+   --project /data/edr_work/edr_t3.psx --stage reduce` (scale-constrained Step 8).
+2. `metashape.sh -platform offscreen -r scripts/metashape/probes/reprojection_rms_px.py`
+   → report pixel RMS vs 0.27–0.52 px envelope.
+3. GUI touch 2 (DCV): Jenkins coordinate frame + resize region to ~10×1 m AOI;
+   File → Save.
+4. Restart monitor, then dense back-half: `--stage dense`, `filter`, `dsm`
+   (ADR-0016 buildDem test — no region clip), `ortho`, `report`.
+5. EBS snapshot tagged `Transect=EDR_T3`; produce the T1 go/no-go gate table.
 
 ## Trial-clock discipline
 

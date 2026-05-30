@@ -1,0 +1,21 @@
+=== Resource summary (right-sizing evidence) ===
+Note: smoke test (325 imgs) under-stresses VRAM vs full EDR_T1 (2424 imgs).
+Size off a FULL-transect run for a real instance decision.
+
+GPU  (/data/edr_work/logs/gpu_20260529_123519.csv):
+  peak GPU util  : 99%
+  mean GPU util  : 1%
+  peak VRAM used : 1636 MB of 23034 MB (7%)
+  samples        : 9275
+
+  VRAM headroom OK (7% used; warn threshold 80%).
+
+CPU/RAM (/data/edr_work/logs/cpumem_20260529_123519.csv):
+  peak CPU util  : 0%
+  mean CPU util  : 0%
+  peak RAM used  : 8313 MB of 61909 MB (13%)
+  peak swap used : 0 MB
+  samples        : 10265
+
+  RAM headroom OK (13% used).
+
