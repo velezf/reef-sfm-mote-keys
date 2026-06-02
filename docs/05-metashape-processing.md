@@ -464,13 +464,42 @@ Recorded as the run progresses; the authoritative machine-readable record is
 - **Alignment (production, `edr_t3.psx`, floor 0.30):** 515/517 enabled aligned
   (99.6%); 2,441,345 tie points; RMS 0.1888 filter units (pre-reduction).
   Reproduces the A/B q030 arm exactly.
-- **Markers (ESM Step 7 detection):** 7 Circular-12-bit coded targets detected
-  at tolerance 20. GUI pairing was geometrically ambiguous (mutual-NN distances
-  inconsistent — see `probes/marker_pairing_geometry.py`), resolved via
-  scale-bar residuals instead.
-- **GUI touch 1 — scale bars (done):** 4 scale bars at 0.250 m, residual error
-  **~0.001 m (1 mm) each**, mutually consistent → scale is sound and
-  cross-validated. Project saved.
+- **Markers (ESM Step 7):** 7 Circular-12-bit coded targets **auto-detected
+  headless** at tolerance 20, **plus 1 marker manually placed in DCV** to
+  complete the fourth pair → **8 markers total → 4 scale bars**. (The
+  `esm.markers` metadata records `markers_detected: 7` — the true count of the
+  *detection* step only; the +1 manual placement happens later in the GUI and is
+  intentionally not part of that record.) GUI pairing was geometrically
+  ambiguous (mutual-NN distances inconsistent — see
+  `probes/marker_pairing_geometry.py`), resolved via scale-bar residuals instead.
+- **GUI touch 1 — scale bars (done):** 4 scale bars, all **enabled**, each
+  **referenced at 0.250 m**; chunk scale set via **Update Transform** and
+  **locked at 0.23695916**. NOTE — the earlier "~0.001 m (1 mm) each residual"
+  claim was **wrong**: `0.001 m` is the `accuracy_scalebars` **input weight**
+  (the assumed measurement accuracy fed to the bundle adjustment), **not** an
+  achieved residual. The actual **pre-Step-8 residuals** (post-Update-Transform,
+  **before** error reduction; read live from the project 2026-06-02) are:
+
+  | Pair | Reference | Residual |
+  |---|---|---|
+  | 25‑26 | 0.250 m | **+15.2 mm** (pre-reduction) |
+  | 13‑14 | 0.250 m | **−5.2 mm** (pre-reduction) |
+  | 15‑16 | 0.250 m | **−6.9 mm** (pre-reduction) |
+  | 19‑20 | 0.250 m | **−4.3 mm** (pre-reduction) |
+  | *(all bars, post-Step-8)* | 0.250 m | **TBD — fill in after `--stage reduce`** |
+
+  These are the **single-global-scale fit** residuals from Update Transform; no
+  scalebar-constrained `optimizeCameras` has run yet (confirmed from the open
+  project: only the align-stage optimize is recorded —
+  `fit_flags = f cx cy k1 k2 k3 p1 p2`, no fit-additional; no `esm.reduce`).
+  **The ESM ≤1 mm accuracy target applies to the POST-reduction residuals, not
+  to these pre-reduction values.** Re-read the bars after Step 8 and record them
+  in the TBD row. Project saved.
+
+  **Watched outlier — pair 25‑26 (+15.2 mm):** the only positive bar and 2–3× the
+  magnitude of the others. Expected to tighten after Step 8 error reduction + the
+  scale-constrained optimize; **if it stays high, re-inspect markers 25/26 in
+  DCV** (likely weak end-of-transect geometry or a slightly mis-placed target).
 - **Error reduction (NEXT — not yet run):** path builtin_fallback (Logan not
   vendored); scale-constrained (4 bars present, so the zero-bar hard-stop
   passes). Run `--stage reduce`, then `probes/reprojection_rms_px.py` for the
@@ -491,7 +520,10 @@ Done & committed: pipeline hardened (import/step4/markers/reduce/filter stages,
 sanity alarms, extended manifest); ADR-0017 + ADR-0015 amendment + docs/05
 fidelity register; quality-threshold A/B (floor 0.30 adopted, artifacts in
 `data/qc/chat5/`); DCV grey-screen re-fixed (autologin); T3 aligned at 0.30
-(515/517) with 7 markers; 4 scale bars placed in GUI (1 mm residuals, saved).
+(515/517) with **8 markers (7 auto-detected + 1 manual)**; 4 scale bars placed
+in GUI (**pre-Step-8 residuals +15.2 / −5.2 / −6.9 / −4.3 mm — the "1 mm" was the
+accuracy_scalebars input weight, not a residual; ESM ≤1 mm target is
+post-reduction**; saved).
 
 Next steps, in order, on `/data/edr_work/edr_t3.psx`:
 1. `metashape.sh -platform offscreen -r scripts/metashape/run_pipeline.py
