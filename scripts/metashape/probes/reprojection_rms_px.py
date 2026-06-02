@@ -42,7 +42,13 @@ def main():
             pt = pts[j]
             if not pt.valid:
                 continue
-            e = calib.error(T.mulp(pt.coord), p.coord)
+            # Metashape 2.x: a tie point's .coord is a length-4 homogeneous
+            # vector, but Matrix.mulp() requires length-3 (it appends the
+            # homogeneous 1 internally). Passing the length-4 coord raises
+            # "matrix * vector: vector length does not match matrix row size
+            # minus 1" on 2.3.1. Slice to 3 components before mulp.
+            c = pt.coord
+            e = calib.error(T.mulp(Metashape.Vector([c[0], c[1], c[2]])), p.coord)
             sse += e.norm() ** 2
             n += 1
     rms = math.sqrt(sse / n) if n else float("nan")
