@@ -1,0 +1,63 @@
+{
+  "transect": "EDR_T3",
+  "project": "/data/edr_work/edr_t3.psx",
+  "stage": "esm_step8_error_reduction",
+  "status": "post_reduce",
+  "final_for_t3": true,
+  "measured_utc": "2026-06-02T01:30:00Z",
+  "measured_with": "scripts/metashape/probes/reprojection_rms_px.py (fixed: 2.x length-4 .coord sliced to 3 before Matrix.mulp)",
+  "metashape_version": "2.3.1.22446",
+  "reduction_path": "builtin_fallback",
+  "esm_thresholds": {
+    "reconstruction_uncertainty": 30.0,
+    "projection_accuracy": 3.5,
+    "reprojection_error": 0.3,
+    "fit_additional_after_reduction": true
+  },
+  "reprojection_rms_px": {
+    "pre_reduce": 0.9361,
+    "post_reduce": 0.3499,
+    "esm_envelope_before": [0.55, 2.22],
+    "esm_envelope_after": [0.27, 0.52],
+    "post_reduce_in_after_envelope": true
+  },
+  "tie_points": {
+    "pre_reduce": 2441345,
+    "post_reduce": 822351,
+    "removed": 1618994,
+    "removed_fraction": 0.6632,
+    "removed_by_filter": {
+      "reconstruction_uncertainty_30": 105839,
+      "projection_accuracy_3p5": 1363893,
+      "reprojection_error_0p3": 149262
+    }
+  },
+  "scale_bars": {
+    "reference_distance_m": 0.25,
+    "count": 4,
+    "all_enabled": true,
+    "transform_scale": 0.23695915854055985,
+    "transform_scale_locked": true,
+    "residuals_m": {
+      "marker25_marker26": 0.015132,
+      "marker13_marker14": -0.004809,
+      "marker15_marker16": -0.006950,
+      "marker19_marker20": -0.004580
+    },
+    "residuals_mm": {
+      "marker25_marker26": 15.1,
+      "marker13_marker14": -4.8,
+      "marker15_marker16": -6.9,
+      "marker19_marker20": -4.6
+    },
+    "worst_bar": "marker25_marker26",
+    "worst_bar_status": "documented_outlier_not_held_out",
+    "case_b_holdout_run": false,
+    "esm_max_horizontal_accuracy_mm": 3.41,
+    "root_cause": "imagery-limited marker centering on grainy diver imagery (auto coded-target detection poor; manual placement better but pixel-limited); ~2x ESM 3.41 mm. Tie-point px RMS unaffected (depends on reconstruction geometry, not marker centering).",
+    "decision": "Case B hold-out NOT run: scale is locked from Update Transform (locked=true, 0.236959), so re-optimizing on 3 control bars cannot move it, and the cause is imagery-limited not optimize-fixable. 25-26 recorded as documented worst bar. Scale refinement (unlock + bundle-refine, or re-place markers) deferred to T1/production."
+  },
+  "cameras": {"total": 522, "enabled": 517, "aligned": 515, "alignment_rate": 0.996},
+  "saved_utc": "2026-06-02T01:23:50Z",
+  "rollback_backup": "/data/edr_work/backups/edr_t3_20260602T003736Z"
+}

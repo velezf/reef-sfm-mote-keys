@@ -486,20 +486,33 @@ Recorded as the run progresses; the authoritative machine-readable record is
   | 13‑14 | 0.250 m | **−5.2 mm** (pre-reduction) |
   | 15‑16 | 0.250 m | **−6.9 mm** (pre-reduction) |
   | 19‑20 | 0.250 m | **−4.3 mm** (pre-reduction) |
-  | *(all bars, post-Step-8)* | 0.250 m | **TBD — fill in after `--stage reduce`** |
+  | **all bars, post-Step-8** | 0.250 m | **25‑26 +15.1 · 13‑14 −4.8 · 15‑16 −6.9 · 19‑20 −4.6 mm** |
 
-  These are the **single-global-scale fit** residuals from Update Transform; no
-  scalebar-constrained `optimizeCameras` has run yet (confirmed from the open
-  project: only the align-stage optimize is recorded —
-  `fit_flags = f cx cy k1 k2 k3 p1 p2`, no fit-additional; no `esm.reduce`).
-  **The ESM ≤1 mm accuracy target applies to the POST-reduction residuals, not
-  to these pre-reduction values.** Re-read the bars after Step 8 and record them
-  in the TBD row. Project saved.
+  Update Transform fits a single global scale; the per-bar residuals are the
+  spread around it. **Post-Step-8 update (reduce run 2026-06-02):** the
+  scale-constrained `optimizeCameras` (RU→PA→RE + final fit-additional) **did not
+  move the bars** — they stayed at +15.1 / −4.8 / −6.9 / −4.6 mm. Tie-point
+  reprojection RMS dropped **0.9361 → 0.3499 px** (within the ESM 0.27–0.52
+  envelope; QC artifact `data/qc/chat5/edr_t3_step8_px.json`).
 
-  **Watched outlier — pair 25‑26 (+15.2 mm):** the only positive bar and 2–3× the
-  magnitude of the others. Expected to tighten after Step 8 error reduction + the
-  scale-constrained optimize; **if it stays high, re-inspect markers 25/26 in
-  DCV** (likely weak end-of-transect geometry or a slightly mis-placed target).
+  **Scale-bar decision — Case B hold-out NOT run; 25‑26 recorded as the
+  documented worst bar.** Pair 25‑26 stayed a 2–3× outlier (+15.1 mm vs the other
+  three at 4.6–6.9 mm). Root cause is **imagery-limited**: automatic coded-target
+  detection performed poorly on the grainy diver imagery, so markers were placed
+  and re-centered manually — better than auto, but centering is pixel-limited,
+  giving scale-bar accuracy ~2× the ESM's 3.41 mm. This is **not** fixable by a
+  re-optimize: the chunk scale is **locked** from Update Transform (`locked=true`,
+  0.236959), so re-optimizing on the 3 control bars cannot move it, and the error
+  is in the imagery, not the bundle. The tie-point px RMS (0.35 px, in envelope)
+  is unaffected — it depends on reconstruction geometry, not marker centering.
+  Scale refinement (unlock + bundle-refine, or re-place markers) is **deferred to
+  T1/production**.
+
+  **Limitation (writeup-ready):** EDR_T3 scale-bar accuracy is imagery-limited at
+  ~5–15 mm (worst bar 25‑26 at 15.1 mm, ~2× ESM's reported 3.41 mm) because the
+  grainy diver imagery does not support sub-pixel coded-target centering. The
+  reconstruction's reprojection accuracy (0.35 px, within the published envelope)
+  is independent of this and is unaffected.
 - **Error reduction (NEXT — not yet run):** path builtin_fallback (Logan not
   vendored); scale-constrained (4 bars present, so the zero-bar hard-stop
   passes). Run `--stage reduce`, then `probes/reprojection_rms_px.py` for the
@@ -514,27 +527,48 @@ Recorded as the run progresses; the authoritative machine-readable record is
   `data/qc/chat5/t3_monitor_summary.txt`. Dense is the real VRAM/RAM stressor
   and is still to come — restart `scripts/monitor.sh start` before it.
 
-### Session state — RESUME HERE (paused 2026-05-29, hard stop)
+### Session state — RESUME HERE (paused 2026-06-02, hard stop; fresh session next)
 
-Done & committed: pipeline hardened (import/step4/markers/reduce/filter stages,
-sanity alarms, extended manifest); ADR-0017 + ADR-0015 amendment + docs/05
-fidelity register; quality-threshold A/B (floor 0.30 adopted, artifacts in
-`data/qc/chat5/`); DCV grey-screen re-fixed (autologin); T3 aligned at 0.30
-(515/517) with **8 markers (7 auto-detected + 1 manual)**; 4 scale bars placed
-in GUI (**pre-Step-8 residuals +15.2 / −5.2 / −6.9 / −4.3 mm — the "1 mm" was the
-accuracy_scalebars input weight, not a residual; ESM ≤1 mm target is
-post-reduction**; saved).
+Self-contained T3 state — a fresh session can orient from this block alone.
 
-Next steps, in order, on `/data/edr_work/edr_t3.psx`:
-1. `metashape.sh -platform offscreen -r scripts/metashape/run_pipeline.py
-   --project /data/edr_work/edr_t3.psx --stage reduce` (scale-constrained Step 8).
-2. `metashape.sh -platform offscreen -r scripts/metashape/probes/reprojection_rms_px.py`
-   → report pixel RMS vs 0.27–0.52 px envelope.
-3. GUI touch 2 (DCV): Jenkins coordinate frame + resize region to ~10×1 m AOI;
-   File → Save.
-4. Restart monitor, then dense back-half: `--stage dense`, `filter`, `dsm`
-   (ADR-0016 buildDem test — no region clip), `ortho`, `report`.
-5. EBS snapshot tagged `Transect=EDR_T3`; produce the T1 go/no-go gate table.
+- **Project:** `/data/edr_work/edr_t3.psx` (chunk `EDR_T3`).
+- **Pre-reduce rollback:** backup `/data/edr_work/backups/edr_t3_20260602T003736Z`.
+- **Trial clock:** Metashape Pro trial activated 2026-05-27, **expires 2026-06-27
+  → ~25 days remaining** at this pause. Not a constraint on tomorrow's dense run.
+
+**DONE (committed + saved):**
+- `import` → `step4` (0.30 floor, 5 disabled) → `align` (515/517 enabled = 99.6%;
+  2,441,345 tie points; focal mode `fallback`).
+- `markers`: **8 total** (7 auto-detected headless + 1 placed manually in DCV; all
+  manually re-centered) → **4 scale bars @ 0.25 m** → chunk **scale locked
+  0.236959** (Update Transform).
+- `reduce` complete (ESM Step 8, `builtin_fallback`, RU30 / PA3.5 / RE0.3 + final
+  fit-additional): px RMS **0.9361 → 0.3499** (within ESM 0.27–0.52); **822,351**
+  tie points surviving (66.3% removed); `esm.reduce` written; **saved 2026-06-02
+  01:23:50**. QC: `data/qc/chat5/edr_t3_step8_px.{json,md}`.
+- **Scale-bar decision:** Case B hold-out NOT run; pair 25‑26 (+15.1 mm) recorded
+  as the documented worst bar — imagery-limited, scale locked, not
+  optimize-fixable; scale refinement deferred to T1/production. (See the
+  GUI-touch-1 bullet above for the full rationale + writeup-ready limitation.)
+
+**RESUME HERE (not done), in order, on `/data/edr_work/edr_t3.psx`:**
+1. **ESM Step 11 — Jenkins Alignment Helper** (DCV GUI session): place the local
+   zero-point coordinate frame; resize region to the ~10×1 m AOI; File → Save.
+2. **`dense`** — depth maps + dense cloud at HIGH (**~4–8 h; the irreversible
+   compute step**). Restart `scripts/monitor.sh start` first (dense is the real
+   VRAM/RAM stressor). This also sets up the **ADR-0016 buildDem test**.
+3. **`filter`** — ESM Step 13 confidence noise filter (smoke EDR_T8 ref
+   30.9M→23.5M, ~24%), sequenced strictly **before** `dsm`.
+4. **`dsm`** — `buildDem` at **1 cm** (`dsm_resolution_m = 0.01`; **NOT 1 mm** —
+   1 mm was the PIFSC misattribution ADR-0017 corrected), **no region clip**.
+   **WATCH for OOM on this scaled chunk:** if `buildDem` OOMs, that is ADR-0018
+   territory — do **NOT** silently re-apply the smoke BBox region clip; capture
+   the log and open ADR-0018.
+5. **`ortho`** — `buildOrthomosaic` (Mosaic + hole-fill) from the DSM. (Resolution
+   derives from the DSM/native GSD; no separate sub-mm parameter is set in the
+   pipeline.)
+6. **`report`** → exports → EBS snapshot tagged `Transect=EDR_T3`; then the T1
+   go/no-go gate table.
 
 ## Trial-clock discipline
 
