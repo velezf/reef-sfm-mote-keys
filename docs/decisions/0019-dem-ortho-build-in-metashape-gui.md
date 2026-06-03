@@ -1,8 +1,13 @@
 # ADR 0019 — DEM and Orthomosaic build (ESM Steps 14–15) move to the Metashape GUI; the rest of the pipeline stays headless
 
-Status: Accepted
+Status: Superseded by ADR-0020 (2026-06-03)
 Date: 2026-06-02
 Chat: 5 (T3 production DSM)
+
+> **Superseded.** The premise here — that headless Steps 14–15 were unfixable — was
+> falsified on day 2: declaring `chunk.crs` LOCAL removes the WGS84 backfill and both
+> steps run cleanly headless. See ADR-0020. This ADR is retained as history (the GUI
+> decision and the orphan-forensic counterfactual remain useful writeup/PFP material).
 
 ## Context
 

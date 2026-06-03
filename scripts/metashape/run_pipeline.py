@@ -148,6 +148,12 @@ PARAMS = ESMParameters()
 ALARM_MAX_DISABLED = 200          # of ~522: more than this disabled in Step 4 is suspect
 ALARM_MIN_ALIGN_RATE = 0.70       # < 70% aligned of enabled => something beyond Step 4
 ALARM_MAX_DSM_CELLS = 100_000_000  # a 10x1 m transect at 1 cm is ~10^5 cells; 10^8 is wrong
+# ADR-0020 pre-flight tripwire: a correct local-planar 10x1 m AOI at 1 cm is
+# ~1000x100 (~1e5 cells). If the PREDICTED grid (from the scaled region) blows
+# past these, the projection regressed to a geographic plane (WGS84 backfill) and
+# buildDem would OOM (ADR-0018) -- abort BEFORE allocation.
+TRIPWIRE_MAX_PRED_CELLS = 5_000_000
+TRIPWIRE_MAX_AXIS = 1_000_000
 
 # Map our string names to Metashape enums in one place so the dataclass stays
 # pure data (and serialisable straight into the provenance manifest).
@@ -827,7 +833,37 @@ def stage_filter(doc: Metashape.Document, noise_confidence: float,
 
 
 # --------------------------------------------------------------------------- #
-# Stage: dsm  (ESM Step 14) — DSM at 1 cm; NO smoke region-clip workaround
+# ADR-0020: the LOCAL-CRS + identity-Planar lever that makes Steps 14-15 build
+# headless. Shared by the dsm and ortho stages so the ortho co-registers exactly.
+# --------------------------------------------------------------------------- #
+
+
+def _local_planar_projection(chunk: "Metashape.Chunk") -> "Metashape.OrthoProjection":
+    """Declare the chunk's CRS LOCAL (metre) and return a top-down Planar
+    projection in that frame. THIS is the lever (ADR-0020): a LOCAL output CRS
+    stops buildDem/buildOrthomosaic backfilling the spurious WGS 84 (EPSG:4326)
+    that otherwise rasterizes the whole geographic plane -> std::bad_alloc OOM
+    (orphan_1857_note.md / ADR-0018). The Planar matrix is identity for a
+    LOCAL_CS (localframe rotation is identity). Idempotent: re-asserting an
+    already-LOCAL chunk.crs is harmless, so dsm and ortho can each call it."""
+    chunk.crs = Metashape.CoordinateSystem(
+        'LOCAL_CS["Local Coordinates (m)",LOCAL_DATUM["Local Datum",0],'
+        'UNIT["metre",1]]')
+    top_xy = Metashape.Matrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    origin = chunk.transform.matrix.mulp(Metashape.Vector([0, 0, 0]))
+    lf = chunk.crs.localframe(origin)
+    proj = Metashape.OrthoProjection()
+    proj.crs = chunk.crs
+    proj.type = Metashape.OrthoProjection.Type.Planar
+    proj.matrix = (Metashape.Matrix.Rotation(top_xy)
+                   * Metashape.Matrix.Rotation(lf.rotation()))
+    log(f"{chunk.label}: chunk.crs set LOCAL + top-down Planar projection "
+        f"(ADR-0020; proj.crs={proj.crs})")
+    return proj
+
+
+# --------------------------------------------------------------------------- #
+# Stage: dsm  (ESM Step 14) — DSM at 1 cm, headless via the ADR-0020 recipe
 # --------------------------------------------------------------------------- #
 
 
@@ -841,24 +877,43 @@ def stage_dsm(doc: Metashape.Document, ignore_sanity: bool) -> None:
         if pc is not None:
             log(f"{chunk.label}: dense point_count={pc.point_count:,} "
                 f"before buildDem")
-        log(f"{chunk.label}: building DSM at {PARAMS.dsm_resolution_m} m "
-            f"(NO region clip — ADR-0016 test: does a scaled chunk + 1 cm "
-            f"build the DSM WITHOUT the smoke workaround?)")
+        # ADR-0020: LOCAL chunk.crs + identity Planar projection — the lever that
+        # makes Step 14 build headless without the WGS84 degree-plane OOM.
+        proj = _local_planar_projection(chunk)
+        res = PARAMS.dsm_resolution_m
+
+        # PRE-FLIGHT TRIPWIRE — predicted raster from the SCALED region. A correct
+        # local-planar 10x1 m AOI at 1 cm is ~1000x100 (~1e5 cells). A huge
+        # prediction means the projection regressed to a geographic plane; abort
+        # BEFORE buildDem allocates. This closes the ADR-0018 OOM in code, not
+        # just by convention (replaces the old no-region auto-infer path).
+        R, T = chunk.region, chunk.transform
+        s = T.scale or 1.0
+        pcols, prows = (R.size.x * s) / res, (R.size.y * s) / res
+        log(f"{chunk.label}: predicted DEM ~ {pcols:.0f} x {prows:.0f} cells "
+            f"({pcols * prows:.3e}) over {R.size.x * s:.2f} x {R.size.y * s:.2f} m")
+        if pcols * prows > TRIPWIRE_MAX_PRED_CELLS or max(pcols, prows) > TRIPWIRE_MAX_AXIS:
+            alarm(f"{chunk.label}: predicted DEM {pcols:.0f}x{prows:.0f} exceeds the "
+                  f"tripwire ({TRIPWIRE_MAX_PRED_CELLS:,} cells / {TRIPWIRE_MAX_AXIS:,} "
+                  f"per axis). Projection is NOT local-planar (WGS84 backfill?). "
+                  f"Refusing buildDem to avoid the ADR-0018 OOM (see ADR-0020).",
+                  critical=True, ignore=ignore_sanity)
+            continue
+
+        log(f"{chunk.label}: building DSM at {res} m (ADR-0020 local-planar "
+            f"headless recipe; source=point cloud, interpolation ENABLED)")
         t0 = time.time()
         try:
-            # No region= argument: let buildDem auto-infer extent. This is the
-            # faithful ESM Step 14 call and the explicit ADR-0016 test. We do
-            # NOT silently re-apply the smoke's BBox region clip.
             chunk.buildDem(
                 source_data=Metashape.PointCloudData,
                 interpolation=Metashape.EnabledInterpolation,
-                resolution=PARAMS.dsm_resolution_m,
+                projection=proj,
+                resolution=res,
             )
         except (MemoryError, RuntimeError) as exc:
-            alarm(f"{chunk.label}: buildDem FAILED on the scaled chunk WITHOUT "
-                  f"the region clip ({type(exc).__name__}: {exc}). This is the "
-                  f"ADR-0016 failure case (b) — do NOT re-apply the smoke "
-                  f"workaround silently. Capture the log and open ADR-0018.",
+            alarm(f"{chunk.label}: buildDem FAILED ({type(exc).__name__}: {exc}) "
+                  f"despite the LOCAL-CRS projection and a passing tripwire. "
+                  f"Capture the log; do NOT fall back to ad-hoc builds (ADR-0020).",
                   critical=True, ignore=ignore_sanity)
             continue
 
@@ -866,26 +921,26 @@ def stage_dsm(doc: Metashape.Document, ignore_sanity: bool) -> None:
         dims = [getattr(dem, "width", None), getattr(dem, "height", None)]
         cells = (dims[0] or 0) * (dims[1] or 0)
         stats = {
-            "resolution_m": PARAMS.dsm_resolution_m,
+            "resolution_m": res,
             "width": dims[0],
             "height": dims[1],
             "cells": cells,
-            "region_clip_workaround_applied": False,
+            "projection": "local_planar_identity",   # ADR-0020
+            "predicted_cells": round(pcols * prows),
             "seconds": round(time.time() - t0, 1),
             **scale_info,
         }
         _meta_set(chunk, "esm.dsm", stats)
         log(f"{chunk.label}: DSM built {dims[0]}x{dims[1]} = {cells:,} cells "
-            f"at {PARAMS.dsm_resolution_m} m (ADR-0016 case (a): succeeded "
-            f"without workaround)")
+            f"at {res} m (ADR-0020 headless local-planar)")
         if cells == 0:
             alarm(f"{chunk.label}: DSM has 0 cells — all-NoData or degenerate. "
-                  f"ADR-0016 case (c). Surface and investigate.",
+                  f"Surface and investigate.",
                   critical=True, ignore=ignore_sanity)
         elif cells > ALARM_MAX_DSM_CELLS:
             alarm(f"{chunk.label}: DSM is {cells:,} cells (> "
                   f"{ALARM_MAX_DSM_CELLS:,}). Extent looks wrong for a ~10x1 m "
-                  f"transect at 1 cm. ADR-0016 case (c).",
+                  f"transect at 1 cm — projection regression?",
                   critical=True, ignore=ignore_sanity)
         save(doc)
 
@@ -905,18 +960,26 @@ def stage_ortho(doc: Metashape.Document, ignore_sanity: bool) -> None:
                   f"elevation surface. Run the dsm stage first.",
                   critical=True, ignore=ignore_sanity)
             continue
-        log(f"{chunk.label}: building orthomosaic")
+        # ADR-0020: same LOCAL-CRS top-down Planar projection as the DEM, so the
+        # ortho co-registers with it exactly (dx=dy=0). Idempotent if the dsm
+        # stage already set chunk.crs LOCAL in this session.
+        proj = _local_planar_projection(chunk)
+        log(f"{chunk.label}: building orthomosaic on the DEM surface "
+            f"(blend={PARAMS.ortho_blend}, fill_holes={PARAMS.ortho_hole_filling}; "
+            f"resolution=0 -> image GSD)")
         t0 = time.time()
         chunk.buildOrthomosaic(
             surface_data=Metashape.ElevationData,
             blending_mode=_BLEND[PARAMS.ortho_blend],
             fill_holes=PARAMS.ortho_hole_filling,
+            projection=proj,
         )
         ortho = chunk.orthomosaic
         _meta_set(chunk, "esm.ortho", {
             "width": getattr(ortho, "width", None),
             "height": getattr(ortho, "height", None),
             "blend": PARAMS.ortho_blend,
+            "projection": "local_planar_identity",   # ADR-0020
             "seconds": round(time.time() - t0, 1),
         })
         log(f"{chunk.label}: orthomosaic "
