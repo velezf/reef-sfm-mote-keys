@@ -389,7 +389,8 @@ _TRANSECT_RE = re.compile(r"(EDR_T\d+)", re.IGNORECASE)
 
 
 def group_images_by_transect(image_root: Path,
-                             transect: str | None) -> dict[str, list[str]]:
+                             transect: str | None,
+                             exclude: "set[str] | None" = None) -> dict[str, list[str]]:
     """Return {transect_label: [image_paths]} for the EDR dataset.
 
     Handles two on-disk layouts transparently:
@@ -401,8 +402,13 @@ def group_images_by_transect(image_root: Path,
     dataset scoping so a dev run does not import every transect. Flat is grouped
     in memory only — no files are moved or copied, so the per-image provenance
     from Chat 4 stays valid and the ~5 GB isn't duplicated.
+
+    `exclude` is a set of image BASENAMES dropped before import (transect-
+    agnostic intake QC) — e.g. files with corrupt encoded strips that decode-fail
+    in libtiff/GDAL and would crash analyzeImages/matchPhotos mid-run.
     """
     want = transect.upper() if transect else None
+    excl = exclude or set()
     subdirs = [p for p in image_root.iterdir() if p.is_dir()]
     groups: dict[str, list[str]] = {}
 
@@ -411,7 +417,8 @@ def group_images_by_transect(image_root: Path,
             if want and d.name.upper() != want:
                 continue
             imgs = sorted(str(p) for p in
-                          list(d.glob("*.tif")) + list(d.glob("*.tiff")))
+                          list(d.glob("*.tif")) + list(d.glob("*.tiff"))
+                          if p.name not in excl)
             if imgs:
                 groups[d.name] = imgs
         if groups:
@@ -422,7 +429,11 @@ def group_images_by_transect(image_root: Path,
     # Flat layout — group by filename token.
     flat = sorted(list(image_root.glob("*.tif")) + list(image_root.glob("*.tiff")))
     unmatched = 0
+    n_excluded = 0
     for p in flat:
+        if p.name in excl:
+            n_excluded += 1
+            continue
         m = _TRANSECT_RE.search(p.name)
         if not m:
             unmatched += 1
@@ -431,6 +442,9 @@ def group_images_by_transect(image_root: Path,
         if want and label != want:
             continue
         groups.setdefault(label, []).append(str(p))
+    if n_excluded:
+        log(f"Excluded {n_excluded} image(s) by --exclude-images "
+            f"(intake QC): {', '.join(sorted(excl))}")
     for label in groups:
         groups[label].sort()
     log(f"Flat layout: grouped {sum(len(v) for v in groups.values())} images "
@@ -483,8 +497,9 @@ def _hash_images(label: str, photos: list[str], project: Path) -> dict:
 
 
 def stage_import(doc: Metashape.Document, image_root: Path,
-                 transect: str | None, project: Path) -> None:
-    groups = group_images_by_transect(image_root, transect)
+                 transect: str | None, project: Path,
+                 exclude: "set[str] | None" = None) -> None:
+    groups = group_images_by_transect(image_root, transect, exclude)
     existing = {c.label for c in doc.chunks}
     for label, photos in sorted(groups.items()):
         if label in existing:
@@ -500,6 +515,7 @@ def stage_import(doc: Metashape.Document, image_root: Path,
         _meta_set(chunk, "esm.import", {
             "images_imported": len(photos),
             "image_hashes": hashes,
+            "excluded_images": sorted(exclude or []),
             "seconds": round(time.time() - t0, 1),
         })
         save(doc)
@@ -1791,6 +1807,11 @@ def main() -> None:
                          "check 8 (reference-patch overlap). GATE ONLY, never a "
                          "level/aoi input; the core gate (checks 1-7) is "
                          "self-contained so reference-less sites still gate.")
+    ap.add_argument("--exclude-images", default=None,
+                    help="Comma-separated image BASENAMES to drop at import "
+                         "(intake QC). Use for files that decode-fail in "
+                         "libtiff/GDAL (corrupt encoded strips) and would crash "
+                         "analyzeImages/matchPhotos. Recorded in esm.import.")
     ap.add_argument("--expected-marker-ids", default=None,
                     help="Comma-separated expected coded-target IDs (e.g. "
                          "'13,14,15,16,19,20,25,26'). The marker stage stops at the "
@@ -1820,6 +1841,10 @@ def main() -> None:
                          "critical alarm so a dev run surfaces and iterates.")
     args = ap.parse_args()
 
+    exclude_images = set()
+    if args.exclude_images:
+        exclude_images = {x.strip() for x in args.exclude_images.split(",") if x.strip()}
+
     expected_ids = None
     if args.expected_marker_ids:
         try:
@@ -1843,7 +1868,8 @@ def main() -> None:
         if st == "import":
             if not args.image_root:
                 sys.exit("--image-root required for the import stage.")
-            stage_import(doc, args.image_root, args.transect, args.project)
+            stage_import(doc, args.image_root, args.transect, args.project,
+                         exclude_images)
         elif st == "step4":
             stage_step4(doc, args.ignore_sanity, args.quality_threshold)
         elif st == "align":

@@ -1,0 +1,21 @@
+{
+  "title": "EDR_T1 intake QC \u2014 excluded images (corrupt source TIFFs)",
+  "transect": "EDR_T1",
+  "total_images": 2424,
+  "excluded_count": 2,
+  "excluded_fraction": "0.08%",
+  "decision": "EXCLUDE via run_pipeline.py --exclude-images; do NOT repair.",
+  "reason": "Corrupt LZW encoded strips in the source USGS P1WHKTRD release (not our copy). Confirmed unrecoverable by BOTH libtiff (Metashape: 'Using code not yet in table' -> OSError Can't load image) and GDAL (gdal_translate: 'Using code not yet in table' -> TIFFReadEncodedStrip() failed at strip offset 8/16). addPhotos reads headers OK but analyzeImages/matchPhotos crash on decode. 2 of 2424 = 0.08%, covered by heavy reef overlap. Flagged in docs/04 (Chat-4 contact-sheet LZW failures); this is the Chat-5 verify-before-dense catch.",
+  "excluded": [
+    {
+      "name": "20230711_EDR_T1_C2_000197.tif",
+      "bytes": 16991318,
+      "sha256": "8fb346d0aff61b39a5735ed5b5cc84f480ff276bc2eac86944a18a8e25896a82"
+    },
+    {
+      "name": "20230711_EDR_T1_C2_000218.tif",
+      "bytes": 17460340,
+      "sha256": "2e33f0b3d4a7e331f5815cdcdc4e8d57dc163d7998138a982c11ceb2bc16960f"
+    }
+  ]
+}
