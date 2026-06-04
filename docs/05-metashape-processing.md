@@ -61,19 +61,21 @@ The chat opener asks for a clear split. Here it is, after the ADR-0010 changes.
 | 3 | Import, one chunk per transect | `Create chunk from each subfolder` |
 | 5 | Match + align (High, 60k keypoints) | downscale 1 == High accuracy |
 | 6 | Optimize cameras (bundle adjustment) | ESM "use defaults" |
-| 7 | **Marker detection** (Circular 12-bit, tol 20) | detection only — see below |
+| 7 | **Marker detection** (Circular 12-bit, auto-tolerance by ID) | detection only — see below |
 | 8 | Error reduction (Logan, threshold mode) | the big automation win |
+| 11 | **Level** (marker-plane roll+pitch) | `stage_level`, ADR-0021 — was a GUI step |
 | 12 | Depth maps + dense cloud (High, Mild) | the long step (24–48 h) |
-| 14 | DSM (1 cm) | from dense cloud |
-| 15 | Orthomosaic (Mosaic, hole-fill) | from DSM |
-| 16 | Export products + report | PLY / TIFF / JSON / PDF |
 | 13 (part) | Confidence noise filter | `segment_pointcloud.py`, all transects |
+| 14 | **AOI framing** (footprint-PCA + crop) + DSM (1 cm) | `stage_aoi` + `dsm`, ADR-0021 — bbox was a GUI step |
+| 15 | Orthomosaic (Mosaic, hole-fill) | from DSM, co-registered |
+| QC | **Permanent 8-check gate** | `stage_gate`, ADR-0021 — fails a 24° mis-level/sign-flip |
+| 16 | Export products + report | PLY / TIFF / JSON / PDF |
 
-### Manual (GUI via Amazon DCV)
+### Manual (GUI via Amazon DCV) — now a single touch
 
 | ESM step | Task | Why it can't be (fully) automated here |
 |---|---|---|
-| 7 | **Scale-bar assignment** | The API detects coded targets reliably, but pairing the right two markers and setting the 25 cm distance — and confirming the targets weren't mis-detected on reflective sand — is a judgement step. Detection runs first so you start from placed targets. |
+| 7 | **Scale-bar assignment** | The API detects coded targets reliably (auto-tolerance by identity), but pairing the right two markers and setting the 25 cm distance — and confirming the targets weren't mis-detected on reflective sand — is a judgement step. Detection runs first so you start from placed targets. The **only** remaining GUI touch (the Step-11 coordinate frame + region resize are now headless: `level` + `aoi`, ADR-0021). |
 | 13 | **Canopy / outplant / reef-base lasso** | Semantic 3D segmentation; no off-the-shelf model. One transect this chat (reference reproduction). |
 | — | **Manual QA review** | Eyeball alignment gaps, doming, and marker residuals against the report before committing to the 24–48 h dense run. |
 
@@ -99,49 +101,46 @@ This register supersedes the looser automated/manual split above.
 | 4 | Estimate image quality; disable blurred (< 0.5) | `analyzeImages` + disable `Image/Quality < 0.50` before matching | Faithful | `step4` / ADR-0017 |
 | 5 | Align: High, 60k keypoints, generic preselection, exclude stationary | `matchPhotos(downscale=1, …)` with Toth's values | Faithful | `align` |
 | 6 | Optimize cameras (defaults) | `optimizeCameras()` | Faithful | `align` |
-| 7 | Detect coded targets; build 25 cm scale bars | **Detection** headless (`detectMarkers`, Circular 12-bit, tol 20); **scale-bar assignment** in GUI. Detection is its own stage BEFORE the handoff | Faithful (detect) + GUI (assign) | `markers` + DCV |
+| 7 | Detect coded targets; build 25 cm scale bars | **Detection** headless (`detectMarkers`, Circular 12-bit) with **AUTO-TOLERANCE by IDENTITY** (start 20, bump to 100; accept at the lowest tolerance where the expected `--expected-marker-ids` set is present; flag false positives; FAIL if incomplete); **scale-bar assignment** in GUI | Faithful (detect) + GUI (assign) | `markers` + DCV / ADR-0021 |
 | 8 | Gradual selection: RU 20–40, PA 3–4, RE 0.3, re-optimize | Logan script in threshold mode **preferred**; built-in faithful transcription is the fallback (currently used — Logan not yet vendored), logged as a per-run departure. Runs AFTER scale bars exist (see Corrected step order) | Faithful (values) — see note | `reduce` / ADR-0010 |
 | 9 | Color correction (Hatcher) — *optional* | **Skipped** (optional, visualization-only) | Departure (documented) | — / ADR-0010 |
 | 10 | Dehaze — *optional* | **Skipped** (optional, visualization-only) | Departure (documented) | — |
-| 11 | Jenkins Alignment Helper — local zero-point 1 m grid frame | GUI, over DCV (populates `chunk.transform.scale`) | GUI | DCV / ADR-0010 |
-| 12 | Depth maps + dense cloud (High, Mild); resize region to AOI | `buildDepthMaps(downscale=2)` + `buildPointCloud`; region (10×1 m AOI) confirmed/set in GUI at handoff | Faithful | `dense` |
+| 11 | Jenkins Alignment Helper — local zero-point 1 m grid frame | **`stage_level`** (ADR-0021): deterministic marker-PLANE roll+pitch, headless — robust LS plane to the vetted scale-bar markers (scale-bar-residual MAD outlier rejection), normal→+Z, scale preserved. Runs BEFORE dense (ESM 11<12). Replaces the GUI helper whose 2-marker-midline roll-blindness caused the day-1 24.26° defect. Scale comes from the scale-bar-constrained `reduce`, not a separate frame | Departure (documented) | `level` / ADR-0021 |
+| 12 | Depth maps + dense cloud (High, Mild); resize region to AOI | `buildDepthMaps(downscale=2)` + `buildPointCloud`; **the 10×1 m AOI is set headless by `stage_aoi`, not the GUI** (see Step 14) | Faithful | `dense` (+ `aoi`) |
 | 13 | Segment into 4 classes (noise/canopy/outplant/base), classify-and-keep via lasso | **Confidence noise filter only**, and **destructive** (`cleanPointCloud(Confidence,2)` + `compactPoints`) not classify-and-keep; 4-class split deferred to v2 | Departure (documented) | `filter` / ADR-0015 |
-| 14 | Build DSM from dense cloud | `buildDem` at **1 cm**, no region-clip workaround (ADR-0016 test) | Faithful (1 cm; 1 mm was PIFSC) | `dsm` / ADR-0017 |
-| 15 | Build orthomosaic (Mosaic, hole-fill) | `buildOrthomosaic(ElevationData, Mosaic, fill_holes)` | Faithful | `ortho` |
+| 14 | Build DSM from dense cloud (10×1 bounding box) | **`stage_aoi`** (ADR-0021): footprint-PCA yaw (baked into `chunk.transform`) + camera-track +X anchor + footprint-centroid centre + 10×1×5 m crop, AFTER `filter`; then `buildDem` at **1 cm** (ADR-0020 local-planar, no region-clip workaround) | Faithful (1 cm; 1 mm was PIFSC) | `aoi` + `dsm` / ADR-0021, ADR-0017 |
+| 15 | Build orthomosaic (Mosaic, hole-fill) | `buildOrthomosaic(ElevationData, Mosaic, fill_holes)`, same local-planar projection as the DSM (co-registers dx=dy=0) | Faithful | `ortho` |
+| QC | *(no ESM analog)* | **Permanent 8-check gate** (`stage_gate`, ADR-0021): long-axis flat ≤0.5°, total tilt ≤6.0°, coverage ≥95%, scale/extent, DEM/ortho co-reg=0, footprint evr≥0.95 & aspect≥5, **+X orientation sign-flip guard**; +additive reference check 8. FAILs the build so a 24° mis-level or a reversed product cannot ship | Departure (added safeguard) | `gate` / ADR-0021 |
 | 16 | Export products | sparse.ply, dense.ply, dsm.tif, ortho.tif, cameras.json, scalebars.json, processing_report.pdf + `pipeline_summary.json`. **No mesh** (ESM has no mesh step; the ortho surface is the DSM) | Faithful (scripted, vs USGS Export Helper) | `report` |
 
-**Headless → GUI → headless split — TWO GUI touches, not one.** The `--stage`
-model expresses the split by *which stages run*, not by extra CLI flags
-(ADR-0017 declined `--chunk`/`--stop-after`/`--start-from` as redundant). The
-order is `scale-bars → reduce → coord-frame → dense`, which forces two separate
-GUI touches with a short headless `reduce` between them:
+**Headless → GUI → headless split — now ONE GUI touch (was two).** ADR-0021
+codified ESM Step 11 (orientation) and the Step-14 AOI bounding box as the
+headless `level` and `aoi` stages, which **eliminates GUI touch 2** (the Jenkins
+coordinate frame + region resize). The only remaining GUI step is scale-bar
+*pairing*. The full order is `align → markers → [GUI: scale bars] → reduce →
+level → dense → filter → aoi → dsm → ortho → gate → report`:
 
 1. **Headless align portion:** `import` → `step4` → `align` → `markers`
-   (ESM Step 7 *detection*). Surfaces Step 4 disabled count, alignment rate,
-   RMS, and the detected-marker count.
-2. **GUI touch 1 (DCV):** confirm marker detection; assign 25 cm scale bars to
-   marker pairs (ESM Step 7); **File → Save**. *Do not place the coordinate
-   frame yet.*
-3. **Headless `reduce`:** ESM Step 8 error reduction, now scale-constrained
-   because the scale bars exist. Minutes, not hours — so touch 2 comes fast.
-4. **GUI touch 2 (DCV):** place the Jenkins zero-point coordinate frame
-   (ESM Step 11, sets `transform.scale`); resize the region to the ~10×1 m area
-   of interest (ESM Step 12); eyeball alignment QA; **File → Save**.
-5. **Headless dense portion:** `dense` → `filter` → `dsm` → `ortho` → `report`.
-   `filter` (ESM Step 13) is sequenced strictly between `dense` and `dsm` so the
-   DSM is never built on an unfiltered cloud (ADR-0015 + ADR-0017).
+   (ESM Step 7 *detection*, auto-tolerance by identity). Surfaces Step 4 disabled
+   count, alignment rate, RMS, and the detected-marker IDs.
+2. **GUI touch 1 (DCV) — the only one:** confirm marker detection; assign 25 cm
+   scale bars to marker pairs (ESM Step 7); **File → Save**. (Headless scale-bar
+   pairing from `--expected-marker-ids` is the remaining automation target; the
+   pairing judgement on reflective sand is why it is still GUI today.)
+3. **Headless remainder:** `reduce` (ESM Step 8, scale-constrained) → `level`
+   (ESM Step 11, marker-plane roll+pitch) → `dense` → `filter` (ESM Step 13,
+   strictly between dense and the DSM) → `aoi` (ESM Step 14 bbox, footprint-PCA)
+   → `dsm` → `ortho` → `gate` (the permanent QC gate) → `report`.
 
-**Why two touches, why this order.** Toth's ESM runs Step 7 (scale bars) before
-Step 8 (error reduction), so the final `optimizeCameras` inside reduce is
-scale-constrained — our earlier single-handoff order ran reduce *before* any
-scale bars and is corrected here. And the coordinate frame (Step 11) goes
-*after* reduce, not bundled with the scale bars: reduce's final bundle
-adjustment perturbs the camera/point geometry, so placing the zero-point frame
-before reduce would let that optimize shift the placement out from under it.
-Scale bars are a metric *constraint* the optimize should honour; the coordinate
-frame is a *datum* that must be pinned to the final, post-reduce geometry. The
-`reduce` stage enforces this with a critical alarm if it runs with zero scale
-bars present.
+**Why this order.** Toth's ESM runs Step 7 (scale bars) before Step 8 (error
+reduction), so the final `optimizeCameras` inside reduce is scale-constrained —
+the `reduce` stage fires a critical alarm if it runs with zero scale bars. The
+metric scale therefore comes from the scale-bar-constrained `reduce`, which is
+why no separate Jenkins "scale" frame is needed: `level` only sets orientation
+(roll+pitch, scale preserved) and `aoi` only sets the datum/centre — both run
+*after* `reduce`, pinned to the final post-reduce geometry. `level` runs before
+`dense` (ESM 11<12); `aoi` runs after `filter` so the footprint PCA sees the
+denoised cloud (ESM 14, after 13).
 
 **Note on Step 8 fidelity vs Logan.** The *thresholds* (RU 30, PA 3.5, RE 0.3)
 are faithful to Toth either way. ADR-0010 marks the Logan USGS script itself as
@@ -551,24 +550,115 @@ Self-contained T3 state — a fresh session can orient from this block alone.
   optimize-fixable; scale refinement deferred to T1/production. (See the
   GUI-touch-1 bullet above for the full rationale + writeup-ready limitation.)
 
-**RESUME HERE (not done), in order, on `/data/edr_work/edr_t3.psx`:**
-1. **ESM Step 11 — Jenkins Alignment Helper** (DCV GUI session): place the local
-   zero-point coordinate frame; resize region to the ~10×1 m AOI; File → Save.
-2. **`dense`** — depth maps + dense cloud at HIGH (**~4–8 h; the irreversible
-   compute step**). Restart `scripts/monitor.sh start` first (dense is the real
-   VRAM/RAM stressor). This also sets up the **ADR-0016 buildDem test**.
-3. **`filter`** — ESM Step 13 confidence noise filter (smoke EDR_T8 ref
-   30.9M→23.5M, ~24%), sequenced strictly **before** `dsm`.
-4. **`dsm`** — `buildDem` at **1 cm** (`dsm_resolution_m = 0.01`; **NOT 1 mm** —
-   1 mm was the PIFSC misattribution ADR-0017 corrected), **no region clip**.
-   **WATCH for OOM on this scaled chunk:** if `buildDem` OOMs, that is ADR-0018
-   territory — do **NOT** silently re-apply the smoke BBox region clip; capture
-   the log and open ADR-0018.
-5. **`ortho`** — `buildOrthomosaic` (Mosaic + hole-fill) from the DSM. (Resolution
-   derives from the DSM/native GSD; no separate sub-mm parameter is set in the
-   pipeline.)
-6. **`report`** → exports → EBS snapshot tagged `Transect=EDR_T3`; then the T1
-   go/no-go gate table.
+The day-2 GUI dense build then surfaced a **24.26° plane tilt** in the T3 product,
+traced to the GUI Step-11 frame. Chat 5 resolved it — see the next section.
+
+## Chat 5 — re-level codification: `stage_level` + `stage_aoi` + permanent gate (ADR-0021)
+
+The day-1 24.26° tilt came from ESM Step 11 run through the GUI **USGS
+AlignmentHelper** (`vendor/usgs/AlignmentHelper_v1.py`): its refine derives
+yaw/pitch from a **2-marker midline** and **always sets roll = 0**; a line cannot
+define roll, so the cross-axis came from the operator's visual bounding-box
+orientation — unreliable for a 1 m-wide underwater strip. A second defect: a
+marker-placed 10×1 box clipped the reef band (48% coverage), because markers
+14/20 sit ~0.5 m off-centre and ~3° angled to the band.
+
+**The validated method (two jobs, two references, two stages).** Leveling and
+framing have different inputs and different natural phases, so they are **two
+separate stages**:
+
+- **`stage_level` (ESM Step 11, before dense).** Robust least-squares plane fit to
+  the *scale-bar markers* (input = markers), with scale-bar-residual MAD outlier
+  rejection (auto-excludes a bad bar — T3's 25/26, +15.13 mm), then rotate the
+  plane normal → world +Z (roll+pitch only; scale preserved). A plane from ≥3
+  fiducials fixes the roll DOF the 2-marker midline cannot. Reduced the tilt
+  24.26° → ~1.9°; the residual ~2° **cross** tilt is the 0.85 m marker-Y-spread
+  precision floor (documented, not chased — the reference cross is ~1.3°).
+- **`stage_aoi` (ESM Step 14 bbox, after filter).** PCA on the *dense footprint*
+  (input = footprint, via a transient interp-OFF DEM): major axis → AOI yaw (baked
+  into `chunk.transform`), footprint centroid → AOI centre, 10×1×5 m crop. The
+  orientation sign uses a **camera-track anchor** (first-N vs last-N camera
+  centroids on PC1, +X toward the first-image-number cameras) — transect-agnostic
+  and present on fresh raw data; the named-marker check is additive.
+
+**Permanent QC gate (`stage_gate`).** Eight checks; the core (1–7) is
+self-contained (no reference) so reference-less belt sites still gate: long-axis
+flat ≤0.5°, total tilt ≤6.0° (a gross-mislevel bound *above* the 2–4° cross floor
+and ~4× below the 24° defect — the bound is `--max-total-tilt-deg` and the
+per-transect marker-Y-spread is logged every run), coverage ≥95%, scale/extent,
+DEM/ortho co-reg dx=dy=0, footprint evr≥0.95 & aspect≥5 (the belt precondition),
+and an **orientation sign-flip guard** (coverage/co-reg/scale are all invariant
+under a 180° yaw flip of a centred symmetric AOI — without this a PCA-sign bug
+ships a reversed product silently). Check 8 (reference-patch overlap) is additive
+where a P13HMEON DEM exists. The gate **FAILs the build** so a 24° mis-level or a
+reversed product cannot ship.
+
+**Generalization (no T3 constants).** Marker detection is auto-tolerance **by
+identity** (`--expected-marker-ids`; false positives flagged, missing FAIL loud) —
+a count criterion can stop on a wrong mix (7 real + 1 spurious). `stage_level`
+pre-guards on alignment ≥90%, ≥2 bars / ≥3 vetted markers, and a planarity check
+(`eig2/eig1`, which passes a thin belt but STOPs a collinear set). Runs unchanged
+on EDR belt transects (T1/T3/T8 + other offshore belt sites) and fresh
+belt-transect data; **square-plot sites (Summerland Ledges / IC_U) are out of
+scope by survey design and gate #6 hard-fails them** rather than mis-framing.
+
+**Codified vs manual reconciliation (the product decision).** The codified
+pipeline (run via `run_pipeline.py`) was validated on a fresh pristine copy
+(`level→aoi→dsm→ortho→gate`, no re-dense): **gate PASS** — long 0.39° / total
+1.64° / coverage 97.9% / co-reg (0,0) / scale 10.000 m / evr 0.989 / +X True;
+roughness 0.0918 m (reference raw 0.08–0.10 m) and tilt **closer to the reference
+(~1.3°) than the hand-made pilot's 1.88°**. Regression confirmed the gate TRIPS on
+the day-1 transform (DEM tilt 24.21° → checks 1 & 2 FAIL) and on a forced 180° sign
+flip (check 7). The codified DEM differs from the pilot artifact
+(`edr_t3_relevel_final`) by a **165.7 mm Z-datum offset + 45 mm RMS horizontal
+residual** — this is **benign and non-structural**: absolute Z is arbitrary in a
+LOCAL frame (the offset is the 0.23° level-R cross-DOF × the AOI lever arm), and
+the 45 mm RMS is the ~3–7 cm centroid/cross-DOF frame difference sampled on a
+92 mm-roughness reef; removing the datum + a best-fit plane reveals no shape/tilt
+mismatch and no axis error. Because the deliverable is a **reproducible headless
+pipeline**, the shipped T3 product is the **codified re-run**, not the hand-made
+artifact. `edr_t3_relevel_final` stays tagged `chat5-day3-stop-20260603` as the
+validated *pilot* that proved the method; nothing is lost.
+
+**Divergence ledger (every deviation from ESM Table S2, with rationale).**
+
+| # | ESM Table S2 | Pipeline | Class / rationale |
+|---|---|---|---|
+| 1 | Step 11 GUI AlignmentHelper | `stage_level`: deterministic marker-plane, outlier-rejecting | Methodological — fixes the roll-blind 24° defect; headless & reproducible |
+| 2 | Step 14 manual 10×1 bbox | `stage_aoi`: footprint-PCA + camera-track anchor | Methodological — markers off-centre/angled; footprint is the robust frame |
+| 3 | GUI Batch Process | headless `run_pipeline.py` | Mechanical |
+| 4 | (all-points covariance for footprint) | interp-OFF DEM occupied-cell PCA, pinned to DSM res | Implementation — MS 2.3.1 dense API has no point iterator / no numpy |
+| 5 | Step 7 fixed tolerance | auto-tolerance **by marker identity** | Generalization — more faithful to ESM "increase until detected"; rejects false positives |
+| 6 | Steps 9–10 colour / dehaze (optional) | **skipped** | Optional, visualization-only; not in the validated recipe |
+| 7 | Step 13 classify-and-keep (4-class) | destructive confidence filter only | Departure (ADR-0015); 4-class deferred to v2 |
+| 8 | Step 8 Gradual Selection (Logan tool) | Logan preferred; built-in transcription fallback (Logan not yet vendored) | Faithful values; per-run documented departure (ADR-0010) |
+| 9 | DSM 1 mm (PIFSC) | **1 cm (ESM)** | Corrected to ESM (ADR-0017) |
+| 10 | (no gate in ESM) | permanent 8-check QC gate | Added safeguard (ADR-0021) |
+| — | Keypoint 40k / dense Medium (PIFSC SOP) | **60k / High (ESM)** | ESM wins where PIFSC conflicts (ADR-0010) |
+
+### Completion log — Chat 5 (2026-06-04, first person)
+
+I came in to fix a leveling error and leave with a pipeline. The thing that finally
+clicked: leveling and framing are *two different problems* — markers tell you which
+way is up (the substrate plane), the dense footprint tells you where the reef strip
+actually is. Trying to do both from the two scale-bar markers was the original sin
+(off-centre, angled, roll-blind). Splitting them, and deriving each from its proper
+input, is what made it both correct and general. I'm proud the gate has teeth — it
+re-fails the exact 24° defect on demand, and the orientation sign-flip guard closes
+a hole I wouldn't have seen (every reference-free metric is blind to a 180° flip).
+Open questions I'm carrying forward: (1) headless scale-bar *pairing* is the last
+GUI touch — worth closing with `--expected-marker-ids` next; (2) Logan is still not
+vendored, so `reduce` runs the faithful transcription; (3) T1/T8 P13HMEON references
+aren't fetched, so those transects gate on the self-contained core until I pull
+them. The codified-vs-pilot 166 mm datum offset taught me to trust *relative*
+product metrics in a local frame and not chase a number that's arbitrary by
+construction.
+
+**Forward (T1 production):** the from-scratch ordering `…reduce → level → dense →
+filter → aoi → dsm → ortho → gate` gets its first real exercise on T1 (the
+preserved-dense T3 validation never ran level-before-dense or the overnight dense).
+Surface the T1 run config tracked to ESM Table S2 and the finalized ledger, then
+launch only on explicit go.
 
 ## Trial-clock discipline
 
