@@ -75,6 +75,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 import statistics
 import sys
@@ -233,6 +234,14 @@ class PipelineSanityError(RuntimeError):
     """Raised when a critical sanity check fails (unless --ignore-sanity)."""
 
 
+class PipelineSaveError(RuntimeError):
+    """Raised when doc.save() does not verifiably persist to disk (the
+    2026-06-04 T1 incident: a read-only open let ~2 h of align run, then the
+    final save raised in read-only mode and the work was lost). A loud,
+    non-zero exit here is the whole point — never let a stage report success
+    when its output did not land on disk."""
+
+
 # --------------------------------------------------------------------------- #
 # Focal-length decision — read the smoke test's structured artifact.
 # This is the programmatic handoff: the full run does NOT re-decide and does NOT
@@ -367,11 +376,78 @@ def gpu_check() -> list[str]:
     return names
 
 
+def _metashape_lock_holder_alive() -> bool:
+    """True if another LIVE Metashape run_pipeline process exists on this host.
+
+    Metashape's project lock file records host/user (e.g. 'reef-ec2/ubuntu'),
+    NOT a pid, so a lock alone cannot tell us whether a holder is still alive.
+    We resolve that by scanning /proc for OTHER processes running this pipeline
+    under Metashape, excluding our own session (the detached launcher ->
+    metashape.sh -> python tree all share one session id via setsid). No such
+    process => the lock is orphaned (a crashed/killed run), i.e. stale.
+
+    Conservative by design: any error reading /proc is treated as 'cannot prove
+    stale' for that pid and skipped; if we cannot prove a holder is alive we
+    report False (stale) only when NO candidate is found."""
+    try:
+        my_sid = os.getsid(0)
+    except OSError:
+        my_sid = -1
+    me = os.getpid()
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if pid == me:
+            continue
+        try:
+            if my_sid != -1 and os.getsid(pid) == my_sid:
+                continue  # part of this run's own process tree
+        except (OSError, ProcessLookupError):
+            pass  # cannot determine session; fall through to cmdline check
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                cmd = fh.read().replace(b"\0", b" ").decode("utf-8", "replace").lower()
+        except (OSError, ValueError):
+            continue
+        if "metashape" in cmd and "run_pipeline.py" in cmd:
+            log(f"Live Metashape holder found: pid {pid} -> {cmd.strip()}")
+            return True
+    return False
+
+
 def open_or_create(project_path: Path) -> Metashape.Document:
     doc = Metashape.Document()
     if project_path.exists():
+        # --- Stale-lock detection BEFORE open (2026-06-04 T1 incident guard) ---
+        # Metashape SILENTLY downgrades to read-only if a lock is present, then a
+        # multi-hour stage fails only at the final save. Refuse to gamble on it:
+        # if a lock exists, prove there is no live holder, then clear it loudly;
+        # if a holder IS alive, abort clearly rather than risk a clobber.
+        lock_path = project_path.with_suffix(".files") / "lock"
+        if lock_path.exists():
+            if _metashape_lock_holder_alive():
+                sys.exit(
+                    f"ABORT: {lock_path} present AND another live Metashape "
+                    f"run_pipeline process exists. Refusing to open — another "
+                    f"run is in progress (opening now would either fail or "
+                    f"clobber it). Stop the other run, then retry.")
+            log(f"WARNING: stale lock {lock_path} present but NO live Metashape "
+                f"holder found — removing it (orphaned by a crashed/killed run). "
+                f"This is the failure mode that cost ~2 h on 2026-06-04.")
+            lock_path.unlink()
         log(f"Opening existing project {project_path}")
         doc.open(str(project_path), read_only=False)
+        # --- Read-only fail-fast (the most important guard) ---
+        # Even with the lock cleared, if the open still came back read-only
+        # (permissions, a race, a lock re-grabbed), ABORT NOW — before any
+        # compute — so we fail in ~1 s instead of after a full stage.
+        if doc.read_only:
+            sys.exit(
+                f"ABORT: {project_path} opened READ-ONLY. Refusing to run any "
+                f"stage — a read-only save raises only AFTER the compute "
+                f"completes (the 2026-06-04 ~2 h loss). Resolve the lock / file "
+                f"permissions and retry.")
     else:
         log(f"Creating new project {project_path}")
         project_path.parent.mkdir(parents=True, exist_ok=True)
@@ -379,9 +455,88 @@ def open_or_create(project_path: Path) -> Metashape.Document:
     return doc
 
 
+def _project_state_mtime(project_path: Path) -> float:
+    """Newest mtime across the on-disk pieces doc.save() rewrites (the .psx
+    pointer and .files/project.zip). Used to PROVE a save actually landed."""
+    newest = -1.0
+    for p in (project_path, project_path.with_suffix(".files") / "project.zip"):
+        try:
+            newest = max(newest, p.stat().st_mtime)
+        except OSError:
+            pass
+    return newest
+
+
 def save(doc: Metashape.Document) -> None:
-    doc.save()
-    log("Project saved.")
+    """Save AND verify the save persisted: no exception, the project files
+    exist, and their mtime advanced. A read-only/failed save must raise loudly
+    here, never be swallowed (2026-06-04 T1 incident)."""
+    project_path = Path(doc.path)
+    before = _project_state_mtime(project_path)
+    doc.save()  # raises in read-only mode — that exception MUST propagate
+    after = _project_state_mtime(project_path)
+    if after < 0:
+        raise PipelineSaveError(
+            f"doc.save() returned but no project files exist at {project_path} "
+            f"(.psx / .files/project.zip missing) — save did NOT persist.")
+    if after <= before:
+        raise PipelineSaveError(
+            f"doc.save() returned but on-disk mtime did not advance for "
+            f"{project_path} (before={before}, after={after}) — the save did "
+            f"NOT land. Refusing to continue on unsaved state.")
+    log(f"Project saved + verified persisted (mtime advanced to {after:.0f}).")
+
+
+def verify_project(project_path: Path, expect: "set[str]") -> int:
+    """Reopen the project READ-ONLY and confirm the requested artifacts are
+    persisted on disk. Returns 0 (PASS) / 1 (FAIL). This is the on-disk half of
+    the honest completion signal: the launcher writes its COMPLETE sentinel ONLY
+    when this passes, so a stage that ran but did not save can never look done.
+
+    expect is a subset of {'aligned', 'markers'}:
+      * 'aligned' -> each chunk has esm.align meta AND tie points on disk
+      * 'markers' -> each chunk has esm.markers meta AND detected markers
+    Opening read-only here takes NO lock, so it is safe to call right after a run."""
+    if not project_path.exists():
+        log(f"VERIFY FAIL: {project_path} does not exist.")
+        return 1
+    doc = Metashape.Document()
+    try:
+        doc.open(str(project_path), read_only=True)
+    except Exception as exc:  # noqa: BLE001 — any reopen failure is a verify fail
+        log(f"VERIFY FAIL: cannot reopen {project_path}: {exc}")
+        return 1
+    if not doc.chunks:
+        log("VERIFY FAIL: project has no chunks.")
+        return 1
+    ok = True
+    for chunk in doc.chunks:
+        if "aligned" in expect:
+            align = _meta_get(chunk, "esm.align")
+            n_tp = len(chunk.tie_points.points) if chunk.tie_points else 0
+            if align is None or n_tp == 0:
+                log(f"VERIFY FAIL: {chunk.label}: alignment NOT persisted "
+                    f"(esm.align={'present' if align else 'MISSING'}, "
+                    f"tie_points={n_tp}).")
+                ok = False
+            else:
+                log(f"VERIFY: {chunk.label}: align persisted "
+                    f"({align.get('cameras_aligned')}/{align.get('cameras_enabled')} "
+                    f"aligned, {n_tp:,} tie points).")
+        if "markers" in expect:
+            mk = _meta_get(chunk, "esm.markers")
+            n_mk = len(chunk.markers)
+            if mk is None or n_mk == 0:
+                log(f"VERIFY FAIL: {chunk.label}: markers NOT persisted "
+                    f"(esm.markers={'present' if mk else 'MISSING'}, "
+                    f"markers={n_mk}).")
+                ok = False
+            else:
+                log(f"VERIFY: {chunk.label}: markers persisted "
+                    f"({n_mk} detected, ids={mk.get('detected_ids')}).")
+    log("VERIFY PASS: requested artifacts are persisted on disk."
+        if ok else "VERIFY FAIL: on-disk state does not match the requested artifacts.")
+    return 0 if ok else 1
 
 
 # Filename pattern: 20230711_EDR_T1_C2_000000.tif -> transect "EDR_T1".
@@ -1852,7 +2007,25 @@ def main() -> None:
                     help="Downgrade critical sanity alarms from hard-stop to "
                          "loud-warn. Off by default: the pipeline stops on a "
                          "critical alarm so a dev run surfaces and iterates.")
+    ap.add_argument("--verify", action="store_true",
+                    help="Reopen the project READ-ONLY, confirm the artifacts in "
+                         "--verify-expect are persisted on disk, and exit 0/1. "
+                         "Runs NO stage and takes NO lock. The launcher gates its "
+                         "completion sentinel on this so a stage that ran but did "
+                         "not save can never look done (2026-06-04 T1 incident).")
+    ap.add_argument("--verify-expect", default="aligned,markers",
+                    help="Comma list of artifacts --verify must find: any of "
+                         "'aligned','markers'. Default 'aligned,markers'.")
     args = ap.parse_args()
+
+    # Verification mode short-circuits everything else: no GPU, no lock, no stage.
+    if args.verify:
+        expect = {x.strip() for x in args.verify_expect.split(",") if x.strip()}
+        unknown = expect - {"aligned", "markers"}
+        if unknown:
+            sys.exit(f"--verify-expect: unknown artifact(s) {sorted(unknown)}; "
+                     f"allowed: aligned, markers")
+        sys.exit(verify_project(args.project, expect))
 
     exclude_images = set()
     if args.exclude_images:
