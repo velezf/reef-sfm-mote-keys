@@ -634,6 +634,7 @@ validated *pilot* that proved the method; nothing is lost.
 | 8 | Step 8 Gradual Selection (Logan tool) | Logan preferred; built-in transcription fallback (Logan not yet vendored) | Faithful values; per-run documented departure (ADR-0010) |
 | 9 | DSM 1 mm (PIFSC) | **1 cm (ESM)** | Corrected to ESM (ADR-0017) |
 | 10 | (no gate in ESM) | permanent 8-check QC gate | Added safeguard (ADR-0021) |
+| 11 | Step 6/12 tie-point covariance: Yes | `optimizeCameras(tiepoint_covariance=True)` — **wired T1 onward**; the T3 pilot ran pre-wiring (covariance is an uncertainty output, not geometry; T3 already gate-passed, NOT re-run) | Faithful T1+; documented T3 gap |
 | — | Keypoint 40k / dense Medium (PIFSC SOP) | **60k / High (ESM)** | ESM wins where PIFSC conflicts (ADR-0010) |
 
 ### Completion log — Chat 5 (2026-06-04, first person)

@@ -605,8 +605,9 @@ def stage_align(doc: Metashape.Document, focal_mode: str,
             filter_stationary_points=PARAMS.exclude_stationary_tie_points,
         )
         chunk.alignCameras()
-        # ESM Step 6: optimize with default params (bundle adjustment).
-        chunk.optimizeCameras()
+        # ESM Step 6: optimize (bundle adjustment) + tie-point covariance (ESM
+        # Table S2 dense setting; ADR-0021 — wired T1 onward, T3 pilot ran pre-wiring).
+        chunk.optimizeCameras(tiepoint_covariance=PARAMS.tiepoint_covariance)
         n_aligned = sum(1 for c in chunk.cameras if c.transform)
         rate = n_aligned / n_enabled if n_enabled else 0.0
         rms, n_resid = _reprojection_rms(chunk)
@@ -843,9 +844,11 @@ def _run_builtin_reduction(chunk: Metashape.Chunk) -> None:
 
     _apply(Filter.ReconstructionUncertainty, PARAMS.reconstruction_uncertainty)
     _apply(Filter.ProjectionAccuracy, PARAMS.projection_accuracy)
-    # Reprojection error last, then final optimize with additional corrections.
+    # Reprojection error last, then final optimize with additional corrections +
+    # tie-point covariance (ESM Table S2; ADR-0021 — wired T1 onward).
     _apply(Filter.ReprojectionError, PARAMS.reprojection_error, optimize=False)
-    chunk.optimizeCameras(fit_corrections=PARAMS.fit_additional_after_reduction)
+    chunk.optimizeCameras(fit_corrections=PARAMS.fit_additional_after_reduction,
+                          tiepoint_covariance=PARAMS.tiepoint_covariance)
 
 
 # --------------------------------------------------------------------------- #
