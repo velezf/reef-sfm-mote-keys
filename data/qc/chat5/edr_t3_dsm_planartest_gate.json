@@ -1,0 +1,31 @@
+{
+  "raster": {
+    "width": 1000,
+    "height": 100,
+    "res_m": 0.01,
+    "extent_m": {
+      "x": 10.0,
+      "y": 1.0
+    }
+  },
+  "predicted_vs_actual": {
+    "predicted": "1000 x 100",
+    "actual": "1000 x 100",
+    "match": true
+  },
+  "elevation_m": {
+    "min": -1.031800627708435,
+    "max": 1.5307855606079102,
+    "span": 2.5625863075256348,
+    "mean": 0.14227763511617678
+  },
+  "coverage_pct": {
+    "interp_on": 98.9,
+    "interp_off": 96.94
+  },
+  "scale_check": {
+    "x_axis_cells": 1000,
+    "x_axis_m": 10.0,
+    "metric_retained": true
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "title": "EDR_T3 re-level — Phase-1 diagnosis + proposed independent fix (read-only; NO mutation)",
+  "date": "2026-06-03",
+  "bright_line": "Leveling derived ONLY from our own markers. P13HMEON reference is the Phase-3 GATE, never a leveling input.",
+  "defect_mechanism": {
+    "tool": "USGS AlignmentHelper v1.0.1 (Jenkins & Kupfner Johnson 2024, DOI 10.5066/P9YN4KDX), vendored at vendor/usgs/AlignmentHelper_v1.py",
+    "how_it_levels": "alignButtonClicked sets chunk.transform = S * T_bbox.inv() -> the BOUNDING-BOX rotation defines the level frame INCLUDING roll. refineButtonClicked computes yaw=atan(dY/dX) and pitch=atan(dZ/dX) from the 2-marker MIDLINE and applies euler2mat([yaw, pitch, 0]) only if 'Zero pitch' is checked, else [yaw,0,0]. The 3rd Euler angle (ROLL) is ALWAYS 0.",
+    "why_it_failed": [
+      "Long-axis (+11.92): 'Zero pitch' was NOT applied on day 1 -> the marker midline (14-20) retains a +9.69 pitch in the current frame (confirmed).",
+      "Cross-axis (+21.71): a 2-marker midline is a LINE and cannot define roll; refine never corrects roll; roll came only from the operator's visual bbox orientation, which was mis-rolled (hard to judge for a 1 m-wide underwater strip).",
+      "residual midline yaw is also -5.94 (not perfectly parallel to X)."
+    ]
+  },
+  "marker_vetting": {
+    "outlier": "marker 25 / marker 26",
+    "evidence": "scale-bar 25_26 = +15.13 mm (+6%), the largest residual by far; AND including 25/26 corrupts the level-plane fit.",
+    "all8_plane": {"long": 10.18, "cross": 4.20, "total": 10.98},
+    "vetted6_plane": {"long": 11.61, "cross": 19.65, "total": 22.39},
+    "decision": "EXCLUDE 25/26 from the level-plane fit. With them, leveling leaves the DEM at 17.23 (FAIL); without them, 2.03 (PASS). Likely shared bad-marker root cause -> FLAG for the EDR_T1 production transect. Do NOT re-detect markers or re-derive scale (scale validated at 10.00 m, must be preserved)."
+  },
+  "consistency_check": {
+    "vetted_marker_normal": [-0.19, -0.3302, 0.9246],
+    "vetted_marker_tilt_from_Z_deg": 22.39,
+    "dem_surface_tilt_from_Z_deg": 24.26,
+    "angle_vetted_marker_normal_to_DEM_normal_deg": 2.03,
+    "angle_vetted_marker_normal_to_tiepoint_surface_normal_deg": 5.95,
+    "interpretation": "The vetted-marker substrate plane normal sits ~22 off current Z (close to the surface's 24) and within ~2 of the DEM normal -> correcting to it should flatten the gated DEM to ~2."
+  },
+  "corroborators": {
+    "tie_point_surface": {"long": 10.68, "cross": 13.62, "total": 17.07},
+    "camera_centers": {"long": 9.32, "cross": 12.40, "total": 15.34},
+    "mean_camera_optical_axis_off_vertical_deg": 17.0,
+    "note": "long-axis ~10-12 is robust across ALL sources; cross-axis is the under-constrained DOF (varies 4-22 by subset), exactly matching the 2-marker roll-blindness."
+  },
+  "proposed_fix": {
+    "method": "Fit a least-squares plane to the VETTED 6 markers; compute rotation R that maps that plane normal -> world Z; apply R to chunk.transform (orientation only). This is the data-driven generalization of the AlignmentHelper method (a plane from >=3 fiducials defines all 3 axes, fixing the roll DOF the 2-marker midline cannot).",
+    "preserve": "transform.scale unchanged (10.00 m); NO re-align / optimize / marker-detect / dense; region reset to 10x1x5 m in the new frame so the pipeline tripwire + extent stay correct.",
+    "expected_result": "DEM residual tilt ~2.0 (within the <=2-3 gate); scale 10.00 m; co-reg dx=dy=0; detrended roughness ~0.10 m ~= raw (tilt removed).",
+    "caveats": "marker Y-spread is only 0.85 m (1 m transect) -> the cross-axis estimate has limited precision; ~2 is an estimate. Phase-3 reference comparison (GATE) will confirm.",
+    "headless_vs_gui": "HEADLESS programmatic re-level (reproducible, data-driven roll). GUI AlignmentHelper fallback available but NOT preferred: its roll relies on error-prone visual bbox judgment (the day-1 failure mode)."
+  }
+}

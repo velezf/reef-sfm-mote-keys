@@ -1,0 +1,26 @@
+{
+  "pipeline_dem": {
+    "width": 1000,
+    "height": 100,
+    "coverage_pct": 98.9,
+    "elev_min": -1.031800627708435,
+    "elev_max": 1.5307855606079102,
+    "elev_mean": 0.14227763511617678
+  },
+  "day2_interpON": {
+    "coverage_pct": 98.9
+  },
+  "day2_interpOFF": {
+    "coverage_pct": 96.94
+  },
+  "pipeline_vs_day2_interpON": {
+    "max_abs_diff_m": 0.0,
+    "rms_diff_m": 0.0,
+    "reproduces": true
+  },
+  "scale_check": {
+    "x_cells": 1000,
+    "x_m": 10.0,
+    "metric_retained": true
+  }
+}

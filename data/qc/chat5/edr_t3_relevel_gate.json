@@ -1,0 +1,64 @@
+{
+  "title": "EDR_T3 re-level \u2014 Phase-3 gate",
+  "date": "2026-06-03",
+  "bright_line": "leveling from OUR vetted markers only; P13HMEON used as GATE only.",
+  "before_tilt_deg": {
+    "long": 11.92,
+    "cross": 21.71,
+    "total": 24.26
+  },
+  "after_tilt_deg": {
+    "interp_on": {
+      "long": 0.14,
+      "cross": 4.33,
+      "total": 4.34
+    },
+    "interp_off": {
+      "long": 0.18,
+      "cross": 3.92,
+      "total": 3.93
+    }
+  },
+  "roughness_m": {
+    "relevel_detrended": 0.0956,
+    "relevel_raw": 0.0997,
+    "ref_T3_C1_raw": 0.1026,
+    "ref_T3_R1_raw": 0.08
+  },
+  "reference_gate_tilt_deg": {
+    "T3_C1_total": 0.91,
+    "T3_R1_total": 1.32
+  },
+  "scale": {
+    "transform_scale": 0.23695915854055985,
+    "preserved": true,
+    "pixel_m": 0.01
+  },
+  "extent": {
+    "dem_cells": [
+      1023,
+      151
+    ],
+    "dem_m": [
+      10.23,
+      1.51
+    ],
+    "note": "true leveled footprint; cross-extent inflated by uncorrected yaw + outlier scatter"
+  },
+  "coregistration": {
+    "dx": 0.0,
+    "dy": -0.015
+  },
+  "coverage_interp_off_pct": 34.09,
+  "gate_targets": {
+    "tilt_deg": "<=2-3",
+    "coverage_pct": "~97",
+    "scale_m": "10.00 preserved",
+    "coreg": "dx=dy=0",
+    "roughness_m": "~0.10"
+  },
+  "verdict": "FAIL (product gate) \u2014 but leveling METHOD validated: tilt 24.26->4.34, roughness now matches reference raw (~0.10).",
+  "likely_cause": "Confirmed method (vetted-marker plane -> Z) correctly fixed the level PLANE (roll+pitch). The orientation-only application left YAW uncorrected (transect runs diagonally -> 34% coverage, inflated 1.51 m cross-extent) and did not trim the AOI (outlier dense-cloud scatter widens the raw extent). NOT an outlier-marker or wrong-plane issue (handled); NOT necessarily GUI.",
+  "recommended_completion": "Add (still OUR-data-only): (1) yaw correction = rotate about new Z so the 14-20 marker midline is parallel to X (AlignmentHelper refine-yaw); (2) AOI trim/region reset to the true ~10x1 transect to drop outlier scatter and clean the plane-fit + coverage. Then re-gate. Residual cross-tilt may settle ~2-4 deg (marker Y-spread 0.85 m limits cross precision); reference (~1 deg) is the gate, never the input.",
+  "coreg_note": "dy=-0.015 m (1.5 cm) DEM-vs-ortho offset; minor, re-check after AOI reset."
+}

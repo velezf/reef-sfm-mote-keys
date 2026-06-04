@@ -1,0 +1,1 @@
+DEM 0.01 m + ortho DEM-derived per ADR-0017 (ADR-0010 ESM-binding; the session prompt's 1 mm / 0.5 mm are PIFSC reference-only, not used).

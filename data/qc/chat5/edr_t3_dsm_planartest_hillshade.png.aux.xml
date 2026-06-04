@@ -1,0 +1,4 @@
+<PAMDataset>
+  <SRS dataAxisToSRSAxisMapping="1,2">LOCAL_CS["Local Coordinates (m)",UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH]]</SRS>
+  <GeoTransform> -5.0000000000000018e+00,  1.0000000000000000e-02,  0.0000000000000000e+00,  4.9999999999999967e-01,  0.0000000000000000e+00, -1.0000000000000000e-02</GeoTransform>
+</PAMDataset>

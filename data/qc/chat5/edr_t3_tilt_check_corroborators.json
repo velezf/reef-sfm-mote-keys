@@ -1,0 +1,42 @@
+{
+  "frame": "leveled local world (chunk.transform applied; Z=up as leveled)",
+  "day2_dem_planefit": {
+    "long_axis_deg": 11.9,
+    "cross_axis_deg": 21.7,
+    "total_deg": 24.3
+  },
+  "markers_planefit": {
+    "a": 0.17949644058435354,
+    "b": 0.07342634232414598,
+    "c": 0.38055961908283387,
+    "long_axis_deg": 10.1760249031899,
+    "cross_axis_deg": 4.1994832700407825,
+    "total_tilt_deg": 10.975357834074478,
+    "n": 8
+  },
+  "camera_centers_planefit": {
+    "a": 0.16407227858172327,
+    "b": 0.2198507220503434,
+    "c": 1.890105056529051,
+    "long_axis_deg": 9.317631654463431,
+    "cross_axis_deg": 12.399260129496277,
+    "total_tilt_deg": 15.340274668660353,
+    "n": 515
+  },
+  "tiepoints_planefit": {
+    "a": 0.18861582162333138,
+    "b": 0.24236386979781474,
+    "c": 0.22387545000002376,
+    "long_axis_deg": 10.681403370929614,
+    "cross_axis_deg": 13.623727723406883,
+    "total_tilt_deg": 17.072213456380535,
+    "n": 20058
+  },
+  "mean_camera_optical_axis_world": [
+    0.16118496803556354,
+    0.24389052245973752,
+    -0.956314184321079
+  ],
+  "mean_axis_angle_from_vertical_deg": 16.998152237005606,
+  "mean_axis_angle_from_straight_down_deg": 16.998152237005606
+}

@@ -1,0 +1,75 @@
+{
+  "title": "EDR_T3 re-level \u2014 Phase-A re-gate (complete method: level + yaw + AOI)",
+  "date": "2026-06-03",
+  "bright_line": "leveling from OUR vetted markers; reference gate-only.",
+  "method_applied": "robust scale-bar-MAD outlier rejection (auto-excluded 25/26) -> vetted-6 plane normal->Z (roll+pitch); yaw-align 14-20 midline||X (+4.19 deg); center midline midpoint->origin; AOI crop dense cloud to 10x1x5 m (17.52M->7.92M); rebuild DEM+ortho via run_pipeline.py.",
+  "PASS_metrics": {
+    "tilt_interp_on_deg": {
+      "long": -0.25,
+      "cross": 3.55,
+      "total": 3.55
+    },
+    "tilt_interp_off_deg": {
+      "long": 0.47,
+      "cross": 1.83,
+      "total": 1.89
+    },
+    "note_tilt": "down from 24.26; long-axis flat; within accepted 2-4 deg envelope (marker Y-spread 0.85m floor).",
+    "roughness_detrended_m": 0.1006,
+    "roughness_raw_m": 0.103,
+    "ref_raw_m": [
+      0.1026,
+      0.08
+    ],
+    "roughness_match": true,
+    "scale": 0.2369591585405599,
+    "scale_preserved": true,
+    "coregistration_dx_dy": [
+      0.0,
+      0.0
+    ],
+    "coreg_fixed": true
+  },
+  "FAIL_metric": {
+    "coverage_interp_off_pct": 47.7,
+    "target_pct": 97,
+    "cause": "AOI mis-placed relative to the actual dense reef band. The reef footprint is a wedge: Y-center drifts +0.98 m (X=0) -> +0.49 m (X=9.5) and the band PCA major-axis is -3.03 deg off the X-grid. The AOI was centered/aligned to the 14-20 marker midline (Y=0, 0 deg), but markers 14/20 sit ~0.75 m to one side of the reef band AND ~3 deg angled to it. So the 1 m crop clips a diagonal/offset reef band -> 48% fill.",
+    "key_insight": "Markers define the LEVEL PLANE well (substrate normal); they do NOT define the AOI position/heading (14/20 are off-center and angled vs the reef strip)."
+  },
+  "verdict": "LEVELING VALIDATED (tilt 24.26->~2-4, roughness matches ref, co-reg dx=dy=0, scale exact). PRODUCT GATE FAILS on coverage due to AOI placement from markers instead of from the dense reef footprint.",
+  "recommended_fix": "Keep leveling (roll+pitch) from vetted markers. Derive the AOI from the DENSE CLOUD footprint instead of the 2 markers: yaw-align to the cloud footprint PCA major axis (~-3 deg correction) and center the 10x1 AOI on the cloud centroid (Y ~ +0.75 m shift), then re-crop + re-gate. Predicted coverage ~97%. Still 100% our-data; reference stays gate-only.",
+  "do_not": "register to reference; chase sub-2 deg cross; codify (Phase B) until AOI fix gates.",
+  "phaseA2_footprint_framed_result": {
+    "verdict": "PASS \u2014 full product gate met after footprint-derived AOI placement.",
+    "method_delta": "leveling (roll+pitch) from vetted markers UNCHANGED; AOI yaw from dense-footprint PCA major axis (-2.03 deg) + center from footprint centroid (NOT the 2 markers); 10x1 crop (17.52M->16.11M).",
+    "dem": "1000x100 @ 1cm, extent [-5,5]x[-0.5,0.5] m (canonical)",
+    "coverage_interp_off_pct": 96.7,
+    "coverage_interp_on_pct": 98.9,
+    "tilt_interp_on_deg": {
+      "long": 0.4,
+      "cross": 1.83,
+      "total": 1.88
+    },
+    "tilt_interp_off_deg": {
+      "long": 0.4,
+      "cross": 2.19,
+      "total": 2.23
+    },
+    "roughness_detrended_m": 0.0925,
+    "roughness_raw_m": 0.0952,
+    "ref_raw_m": [
+      0.1026,
+      0.08
+    ],
+    "coreg_dx_dy": [
+      0.0,
+      0.0
+    ],
+    "scale_preserved": true,
+    "footprint": {
+      "explained_var_ratio": 0.988,
+      "aspect": "8:1",
+      "width_uniform_m": "~0.95-1.00"
+    }
+  }
+}

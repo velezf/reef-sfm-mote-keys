@@ -1,0 +1,50 @@
+{
+  "title": "EDR_T3 TILT-NOW adjudication \u2014 verdict",
+  "date": "2026-06-03",
+  "method": "least-squares plane fit z=ax+by+c on local-planar DEMs (NOT pixel-differencing); long=atan(a) cross=atan(b)",
+  "reference": {
+    "doi": "10.5066/P13HMEON",
+    "bundle": "EasternDryRocks_SfMproducts.zip (5.67 GB)",
+    "fetched": "targeted range-GET of T3_C1+T3_R1 canopy+confidence DEMs only; 2.28 MB transferred (2485x saving)",
+    "frame": "local-planar, no CRS, 0.01 m, ~10x1 m, origin ~(-5,0.5) \u2014 SAME convention as our pipeline DEM"
+  },
+  "fits": {
+    "reference_T3_C1": {
+      "n": 98901,
+      "long_axis_deg": 0.23,
+      "cross_axis_deg": 0.881,
+      "total_tilt_deg": 0.911,
+      "z_range_m": 0.7392,
+      "raw_std_m": 0.1026,
+      "detrended_std_m": 0.1018
+    },
+    "reference_T3_R1": {
+      "n": 99953,
+      "long_axis_deg": -0.144,
+      "cross_axis_deg": -1.315,
+      "total_tilt_deg": 1.323,
+      "z_range_m": 0.5337,
+      "raw_std_m": 0.08,
+      "detrended_std_m": 0.0794
+    },
+    "ours_pipeline": {
+      "n": 98901,
+      "long_axis_deg": 11.916,
+      "cross_axis_deg": 21.71,
+      "total_tilt_deg": 24.257,
+      "z_range_m": 2.5626,
+      "raw_std_m": 0.6278,
+      "detrended_std_m": 0.104
+    }
+  },
+  "key_findings": [
+    "Published reference DEMs are ~FLAT: total tilt 0.91 deg (C1) / 1.32 deg (R1).",
+    "Our pipeline DEM is tilted 24.26 deg (long +11.92, cross +21.71) \u2014 reproduces day-2's 24.3 deg.",
+    "Long-axis: ref ~0 deg vs ours +11.9 deg. Cross-axis: ref <1.4 deg vs ours +21.7 deg. Neither grade is in the reference.",
+    "CLINCHER: our DETRENDED std (0.104 m) matches the reference RAW std (0.102 m C1 / 0.079 m R1) \u2014 same reef surface, rigidly rotated ~24 deg.",
+    "A 24 deg slope over a 10x1 m Keys patch-reef plot is implausible; ~1 deg (gently undulating) is realistic."
+  ],
+  "verdict": "LEVELING ERROR \u2014 the ~24 deg tilt is a day-1 Step-11 frame-placement defect, NOT genuine reef slope.",
+  "implication": "DEM/ortho are NOT product. Identity is already the flattest projection, so this CANNOT be fixed in the build; the fix is upstream (redo Step-11 leveling). Pilot SUCCEEDED: headless capability proven AND the defect was caught by the reference before shipping.",
+  "corroborators_file": "edr_t3_tilt_check_corroborators.json"
+}
