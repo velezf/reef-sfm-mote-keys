@@ -589,9 +589,27 @@ per-transect marker-Y-spread is logged every run), coverage ≥95%, scale/extent
 DEM/ortho co-reg dx=dy=0, footprint evr≥0.95 & aspect≥5 (the belt precondition),
 and an **orientation sign-flip guard** (coverage/co-reg/scale are all invariant
 under a 180° yaw flip of a centred symmetric AOI — without this a PCA-sign bug
-ships a reversed product silently). Check 8 (reference-patch overlap) is additive
-where a P13HMEON DEM exists. The gate **FAILs the build** so a 24° mis-level or a
-reversed product cannot ship.
+ships a reversed product silently). The gate **FAILs the build** on any breach of
+the reference-free core (1–7), so a 24° mis-level or a reversed product cannot
+ship.
+
+**P13HMEON reference firewall (comparison-only).** The reference is a
+**quality-check / reconciliation input, never a construction input.** All
+construction stages — import, step4, align, markers, reduce, **level** (markers
+only), dense, filter, **aoi** (own footprint only), dsm, ortho — are fully
+independent of it; scale comes from our own scale bars. The reference path
+(`--reference-dem`) is consumed **solely** by the advisory gate check 8 and the
+Chat-6 reconciliation (audited 2026-06-04: `--reference-dem`/`reference_dem`
+appears only in `stage_gate` + the `main()` arg/dispatch; the other "reference"
+tokens are `reference_preselection` and the scale-bar's own `sb.reference`). The
+fetched products live in a dedicated **read-only** store
+(`data/raw/P13HMEON/`, `chmod a-w`), separate from the imagery and the working
+project, so no stage can glob or mutate them. **Check 8 is ADVISORY** — it
+*reports* the reference-roughness overlap but is excluded from the hard-fail set;
+the ship/no-ship decision stays with the intrinsic core (1–7). A reference-based
+hard gate would only ever pass products that already match the published values,
+making the reconciliation **circular** — keeping #8 advisory is what makes the
+T1/T8 reconciliation *evidence* rather than a tautology.
 
 **Generalization (no T3 constants).** Marker detection is auto-tolerance **by
 identity** (`--expected-marker-ids`; false positives flagged, missing FAIL loud) —

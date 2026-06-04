@@ -213,5 +213,13 @@
     "residual_rms_mm": 45.4,
     "residual_max_mm": 590.9,
     "interpretation": "non-structural; absolute Z arbitrary in LOCAL frame; recon-predicted 0.23deg cross-DOF + 3.4cm centroid on a 92mm-roughness reef"
+  },
+  "reference_firewall": {
+    "policy": "P13HMEON reference is comparison-only; never a construction input.",
+    "independent_construction": "level=markers only; aoi=own footprint only; scale=own scale bars; dense/dsm/ortho=ESM params. None read the reference.",
+    "consumed_by": "advisory gate check 8 + Chat-6 reconciliation ONLY",
+    "audit_2026-06-04": "--reference-dem/reference_dem appears only in stage_gate + main() arg/dispatch; no construction stage reads it (other 'reference' tokens are reference_preselection + scale-bar sb.reference).",
+    "store": "data/raw/P13HMEON/ (chmod a-w, read-only), separate from imagery /data/raw/P1WHKTRD and working /data/edr_work",
+    "gate8": "ADVISORY \u2014 reported, excluded from the hard-fail core (1-7); a reference HARD gate would make reconciliation circular."
   }
 }

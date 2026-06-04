@@ -1479,31 +1479,44 @@ def stage_gate(doc: Metashape.Document, ignore_sanity: bool,
             "7_orientation_plus_x": {"v": aoi["orientation_plus_x_ok"],
                                      "pass": bool(aoi["orientation_plus_x_ok"])},
         }
-        # Check 8 (ADDITIVE) — reference overlap, only where a P13HMEON DEM exists.
-        # GATE only, never a level/aoi input. Full roughness/overlap comparison is a
-        # QC step (the core gate 1-7 is self-contained); recorded as available here.
-        checks["8_reference_dem"] = {"available": reference_dem is not None,
-                                     "path": str(reference_dem) if reference_dem else None,
-                                     "pass": True, "note": "additive; self-contained gate is 1-7"}
+        # The hard ship/no-ship decision is the INTRINSIC, reference-free core
+        # (checks 1-7). A reference-based hard gate would suppress legitimate
+        # divergence (we'd only ship products that already match the published
+        # values), making the Chat-6 reconciliation circular. So core_failed
+        # NEVER includes check 8.
+        core_failed = [k for k, c in checks.items() if not c["pass"]]
+        # Check 8 (ADVISORY) — reference-roughness overlap, only where a P13HMEON
+        # DEM exists. FIREWALL: the reference is COMPARISON-ONLY — consumed solely
+        # here (and the Chat-6 reconciliation), NEVER by any construction stage
+        # (level=markers only, aoi=own footprint only, scale=own scale bars only).
+        # It REPORTS a flag; it does NOT add to core_failed and cannot block a ship.
+        advisory_8 = {"available": reference_dem is not None,
+                      "path": str(reference_dem) if reference_dem else None,
+                      "advisory": True, "flag": None,   # roughness overlap wired w/ reconciliation
+                      "note": "comparison-only; advisory; the hard gate is the "
+                              "reference-free core (1-7)."}
+        checks["8_reference_dem_advisory"] = advisory_8
         cross_floor = {"cross_tilt_deg": round(cross_t, 3),
                        "note": "cross is the under-constrained DOF (marker Y-spread "
                                "0.85 m floor); within the documented 2-4 deg envelope, "
                                "not gated as a defect (ADR-0021)."}
-        failed = [k for k, c in checks.items() if not c["pass"]]
         verdict = {"chunk": chunk.label, "checks": checks, "cross": cross_floor,
-                   "failed": failed, "PASS": not failed}
+                   "core_failed": core_failed, "PASS": not core_failed,
+                   "reference_firewall": "comparison-only; not read by any "
+                                         "construction stage; advisory gate #8 only"}
         _meta_set(chunk, "esm.gate", verdict)
         log(f"{chunk.label}: GATE long={long_t:.2f} total={total_t:.2f} "
             f"cov={checks['3_coverage_interp_off']['v']*100:.1f}% "
             f"ext={long_ext:.3f}m coreg=({coreg_dx:.1e},{coreg_dy:.1e}) "
             f"evr={aoi['footprint_explained_var']} +X={aoi['orientation_plus_x_ok']} "
-            f"-> {'PASS' if not failed else 'FAIL ' + ','.join(failed)}")
+            f"ref8={'present(advisory)' if reference_dem else 'absent'} "
+            f"-> {'PASS' if not core_failed else 'FAIL ' + ','.join(core_failed)}")
         save(doc)
-        if failed:
-            alarm(f"{chunk.label}: PERMANENT QC GATE FAILED on {failed}. A mis-"
-                  f"leveled/clipped/reversed product will NOT ship (ADR-0021). "
-                  f"Tilt long={long_t:.2f} total={total_t:.2f} deg.",
-                  critical=True, ignore=ignore_sanity)
+        if core_failed:
+            alarm(f"{chunk.label}: PERMANENT QC GATE FAILED on {core_failed} "
+                  f"(reference-free core). A mis-leveled/clipped/reversed product "
+                  f"will NOT ship (ADR-0021). Tilt long={long_t:.2f} "
+                  f"total={total_t:.2f} deg.", critical=True, ignore=ignore_sanity)
 
 
 # --------------------------------------------------------------------------- #
