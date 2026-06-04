@@ -1,0 +1,27 @@
+{
+  "title": "EDR_T1 production run config (DRAFT — pre-dense)",
+  "date": "2026-06-04",
+  "entrypoint": "scripts/metashape/run_pipeline.py",
+  "project": "/data/edr_work/edr_t1.psx",
+  "image_root": "/data/raw/P1WHKTRD/EasternDryRocks",
+  "transect": "EDR_T1",
+  "images": {"total_on_disk": 2424, "excluded": 2, "imported": 2422, "disabled_step4_0.30": 65},
+  "stage_order": "import step4 align markers [GUI scale bars] reduce level dense filter aoi dsm ortho gate report",
+  "params_ESM_Table_S2": {
+    "focal_mode": "fallback",
+    "quality_threshold": 0.30,
+    "exclude_images": ["20230711_EDR_T1_C2_000197.tif", "20230711_EDR_T1_C2_000218.tif"],
+    "align": "High/downscale1, keypoint 60000, tiepoint 0, generic preselection, exclude stationary, tie-point covariance",
+    "reduce": "RU 30 / PA 3.5 / RE 0.3 + fit-additional (Logan not vendored -> built-in fallback, documented)",
+    "dense": "High/downscale2, Mild depth filter, point colors",
+    "filter": "confidence < 2 (ADR-0015)",
+    "dsm": "1 cm local-planar (ADR-0020)",
+    "ortho": "Mosaic + fill, co-registered"
+  },
+  "PENDING_before_dense": {
+    "expected_marker_ids": "TBD from align->markers discovery pass (confirm set)",
+    "reference_dem": "TBD — fetch T1 P13HMEON from EasternDryRocks_SfMproducts.zip AFTER AOI fixed; advisory gate #8 ONLY",
+    "aoi_strategy": "TBD — depends on belt-or-not from align footprint; if non-belt, reference-FREE strategy (markers/survey), gate #6 enforces belt precondition"
+  },
+  "firewall": "P13HMEON reference is comparison-only (advisory #8 + Chat-6 reconciliation); never construction, never AOI (commit 325dbc7)."
+}
