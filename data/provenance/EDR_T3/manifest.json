@@ -14,10 +14,18 @@
     "license": "Agisoft Metashape Pro TRIAL (activated 2026-05-27)"
   },
   "ebs_snapshot": {
-    "status": "BLOCKED \u2014 instance role reef-sfm-ec2-dcv lacks ec2:CreateSnapshot/DescribeVolumes",
-    "action_required": "run with a role that allows ec2:CreateSnapshot:",
-    "command": "aws ec2 create-snapshot --region us-east-1 --volume-id vol-08bcf0ab11df2c9ed --description 'EDR_T3 codified product promotion (chat5, HEAD 984acc8)' --tag-specifications 'ResourceType=snapshot,Tags=[{Key=Transect,Value=EDR_T3},{Key=Purpose,Value=chat5-product-promotion}]'",
-    "snapshot_id": null
+    "status": "DONE",
+    "snapshot_id": "snap-095e9e1895f967774",
+    "state_at_creation": "pending",
+    "volume_id": "vol-08bcf0ab11df2c9ed",
+    "volume_size_gb": 1000,
+    "created_utc": "2026-06-04T18:11:03Z",
+    "region": "us-east-1",
+    "tags": {
+      "Project": "reef-sfm-mote-keys",
+      "Stage": "edr-t3-promote"
+    },
+    "note": "Created after the role gained ec2:CreateSnapshot (3 prior attempts were IAM-denied). Closes the Phase-D snapshot item."
   },
   "inputs": {
     "images": {
