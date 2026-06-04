@@ -1,0 +1,209 @@
+{
+  "title": "EDR_T3 codified product \u2014 provenance manifest",
+  "generated_utc": "20260604T151642Z",
+  "git_head": "984acc8",
+  "pipeline": "run_pipeline.py (ADR-0021): level -> aoi -> dsm -> ortho -> gate -> report; NO re-dense (preserved post-filter dense)",
+  "product_decision": "shipped T3 = codified re-run via run_pipeline.py. Pilot artifact edr_t3_relevel_final stays tagged chat5-day3-stop-20260603. Codified-vs-pilot differ by a benign 165.7mm Z-datum offset + 45mm RMS horizontal residual (absolute Z arbitrary in a LOCAL frame; all gate/reference metrics relative).",
+  "environment": {
+    "instance_id": "i-06fe7879a0e713c2f",
+    "region": "us-east-1",
+    "az": "us-east-1c",
+    "data_volume_id": "vol-08bcf0ab11df2c9ed",
+    "data_mount": "/data",
+    "metashape_version": "2.3.1",
+    "license": "Agisoft Metashape Pro TRIAL (activated 2026-05-27)"
+  },
+  "ebs_snapshot": {
+    "status": "BLOCKED \u2014 instance role reef-sfm-ec2-dcv lacks ec2:CreateSnapshot/DescribeVolumes",
+    "action_required": "run with a role that allows ec2:CreateSnapshot:",
+    "command": "aws ec2 create-snapshot --region us-east-1 --volume-id vol-08bcf0ab11df2c9ed --description 'EDR_T3 codified product promotion (chat5, HEAD 984acc8)' --tag-specifications 'ResourceType=snapshot,Tags=[{Key=Transect,Value=EDR_T3},{Key=Purpose,Value=chat5-product-promotion}]'",
+    "snapshot_id": null
+  },
+  "inputs": {
+    "images": {
+      "transect": "EDR_T3",
+      "count": 522,
+      "aggregate_sha256": "090916826c627e23d0d9d7d9f6ac8624a38e4078febcea4772e4ca651faf3a75"
+    },
+    "pristine_source_backup": "/data/edr_work/backups/edr_t3_prepromote_20260604T151642Z/edr_t3.psx (pristine ed86a3b4...; .files preserved)"
+  },
+  "working_project": {
+    "path": "/data/edr_work/edr_t3.psx",
+    "psx_sha256": "ed86a3b4b8a65ee77e207bfcf5d5e17a86a6d07fe4fdd38a7c428b487f80182f",
+    "files_dir": "/data/edr_work/edr_t3.files",
+    "files_bytes": 1078743669,
+    "crs": "<CoordinateSystem 'Local Coordinates (m)'>",
+    "transform_scale": 0.23695915854055985,
+    "dense_point_count": 16135734,
+    "dsm": [
+      1000,
+      100,
+      0.01
+    ],
+    "ortho": [
+      2000,
+      200
+    ]
+  },
+  "products": {
+    "cameras.json": {
+      "path": "/data/edr_work/products/EDR_T3/cameras.json",
+      "bytes": 48038,
+      "sha256": "31f9dadaaaff9897e34aae411ccc3d0f8685a94e5d93d246c7f4caf00ed8ccfb"
+    },
+    "dense.ply": {
+      "path": "/data/edr_work/products/EDR_T3/dense.ply",
+      "bytes": 467936573,
+      "sha256": "473c92fee629058b4732855a9f62bf58267d13e96c9aea19d2b4a942fd31e793"
+    },
+    "dsm.tif": {
+      "path": "/data/edr_work/products/EDR_T3/dsm.tif",
+      "bytes": 554494,
+      "sha256": "82e79ea8b7a4f0df35620171fd7b921a6513e47911305ac5a889f5c60ec0663b"
+    },
+    "ortho.tif": {
+      "path": "/data/edr_work/products/EDR_T3/ortho.tif",
+      "bytes": 1654222,
+      "sha256": "851159cd74e966b35601ac44c3b19a3c229c370364bf2543871fcb0c2601593b"
+    },
+    "processing_report.pdf": {
+      "path": "/data/edr_work/products/EDR_T3/processing_report.pdf",
+      "bytes": 944029,
+      "sha256": "12dd4860fd112516016fe07688af99ca5597ed349b62634081ecf283a0067687"
+    },
+    "scalebars.json": {
+      "path": "/data/edr_work/products/EDR_T3/scalebars.json",
+      "bytes": 402,
+      "sha256": "7464612084946ac17702b1b2fb69c0aaff3244c2bbf19d66be2d5b4c84b632e0"
+    },
+    "sparse.ply": {
+      "path": "/data/edr_work/products/EDR_T3/sparse.ply",
+      "bytes": 22203717,
+      "sha256": "e83b64a086280d50815fdc282e96ea5bf7d44ea5df9291ea7aebb6c02a13539e"
+    }
+  },
+  "esm_level": {
+    "vetted_markers": [
+      "marker 13",
+      "marker 14",
+      "marker 15",
+      "marker 16",
+      "marker 19",
+      "marker 20"
+    ],
+    "excluded_bars": [
+      {
+        "bar": "marker 25_marker 26",
+        "resid_mm": 15.13,
+        "mad_z": 11.29
+      }
+    ],
+    "plane_normal_before": [
+      -0.19001,
+      -0.33395,
+      0.92324
+    ],
+    "plane_flatness_eig2_eig1": 0.01075,
+    "marker_plane_tilt_before_deg": 22.5955,
+    "marker_plane_tilt_after_deg": 0.0,
+    "marker_y_spread_m": 0.6012,
+    "marker_z_rms_m": 0.01067,
+    "implied_cross_floor_deg": 2.034,
+    "scale_before": 0.23695915854055985,
+    "scale_after": 0.23695915854055985,
+    "scale_preserved": true
+  },
+  "esm_aoi": {
+    "footprint_major_angle_deg": 2.0369,
+    "applied_yaw_deg": -2.0369,
+    "footprint_explained_var": 0.9885,
+    "footprint_aspect": 9.29,
+    "centroid_world_xy": [
+      -0.03534,
+      0.04154
+    ],
+    "z_mid": 0.20543,
+    "points_before": 17519650,
+    "points_after": 16135734,
+    "coverage_interp_off": 0.979,
+    "anchor_firstN_X": 3.487,
+    "anchor_lastN_X": -3.5684,
+    "orientation_plus_x_ok": true,
+    "scale_preserved": true
+  },
+  "gate": {
+    "PASS": true,
+    "checks": {
+      "1_long_tilt_deg": {
+        "v": 0.387,
+        "max": 0.5,
+        "pass": true
+      },
+      "2_total_tilt_deg": {
+        "v": 1.64,
+        "max": 6.0,
+        "pass": true
+      },
+      "3_coverage_interp_off": {
+        "v": 0.979,
+        "min": 0.95,
+        "pass": true
+      },
+      "4_long_extent_m": {
+        "v": 10.0,
+        "target": 10.0,
+        "pass": true
+      },
+      "5_coreg_dx_dy_m": {
+        "v": [
+          0.0,
+          0.0
+        ],
+        "pass": true
+      },
+      "6_footprint": {
+        "evr": 0.9885,
+        "aspect": 9.29,
+        "pass": true
+      },
+      "7_orientation_plus_x": {
+        "v": true,
+        "pass": true
+      },
+      "8_reference_dem": {
+        "available": true,
+        "path": "/data/reef-sfm-mote-keys/data/raw/P13HMEON/20230711_T3_C1_DEM_canopy.tif",
+        "pass": true,
+        "note": "additive; self-contained gate is 1-7"
+      }
+    },
+    "cross": {
+      "cross_tilt_deg": 1.593,
+      "note": "cross is the under-constrained DOF (marker Y-spread 0.85 m floor); within the documented 2-4 deg envelope, not gated as a defect (ADR-0021)."
+    }
+  },
+  "scalebars": [
+    {
+      "label": "marker 25_marker 26",
+      "defined_m": 0.25
+    },
+    {
+      "label": "marker 13_marker 14",
+      "defined_m": 0.25
+    },
+    {
+      "label": "marker 15_marker 16",
+      "defined_m": 0.25
+    },
+    {
+      "label": "marker 19_marker 20",
+      "defined_m": 0.25
+    }
+  ],
+  "codified_vs_pilot": {
+    "z_datum_offset_mm": 165.7,
+    "residual_rms_mm": 45.4,
+    "residual_max_mm": 590.9,
+    "interpretation": "non-structural; absolute Z arbitrary in LOCAL frame; recon-predicted 0.23deg cross-DOF + 3.4cm centroid on a 92mm-roughness reef"
+  }
+}

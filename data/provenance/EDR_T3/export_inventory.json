@@ -1,0 +1,33 @@
+{
+  "products_dir": "/data/edr_work/products/EDR_T3",
+  "files": {
+    "cameras.json": {
+      "bytes": 48038,
+      "sha256": "31f9dadaaaff9897e34aae411ccc3d0f8685a94e5d93d246c7f4caf00ed8ccfb"
+    },
+    "dense.ply": {
+      "bytes": 467936573,
+      "sha256": "473c92fee629058b4732855a9f62bf58267d13e96c9aea19d2b4a942fd31e793"
+    },
+    "dsm.tif": {
+      "bytes": 554494,
+      "sha256": "82e79ea8b7a4f0df35620171fd7b921a6513e47911305ac5a889f5c60ec0663b"
+    },
+    "ortho.tif": {
+      "bytes": 1654222,
+      "sha256": "851159cd74e966b35601ac44c3b19a3c229c370364bf2543871fcb0c2601593b"
+    },
+    "processing_report.pdf": {
+      "bytes": 944029,
+      "sha256": "12dd4860fd112516016fe07688af99ca5597ed349b62634081ecf283a0067687"
+    },
+    "scalebars.json": {
+      "bytes": 402,
+      "sha256": "7464612084946ac17702b1b2fb69c0aaff3244c2bbf19d66be2d5b4c84b632e0"
+    },
+    "sparse.ply": {
+      "bytes": 22203717,
+      "sha256": "e83b64a086280d50815fdc282e96ea5bf7d44ea5df9291ea7aebb6c02a13539e"
+    }
+  }
+}

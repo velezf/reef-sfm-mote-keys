@@ -1,0 +1,51 @@
+{
+  "PASS": true,
+  "checks": {
+    "1_long_tilt_deg": {
+      "v": 0.387,
+      "max": 0.5,
+      "pass": true
+    },
+    "2_total_tilt_deg": {
+      "v": 1.64,
+      "max": 6.0,
+      "pass": true
+    },
+    "3_coverage_interp_off": {
+      "v": 0.979,
+      "min": 0.95,
+      "pass": true
+    },
+    "4_long_extent_m": {
+      "v": 10.0,
+      "target": 10.0,
+      "pass": true
+    },
+    "5_coreg_dx_dy_m": {
+      "v": [
+        0.0,
+        0.0
+      ],
+      "pass": true
+    },
+    "6_footprint": {
+      "evr": 0.9885,
+      "aspect": 9.29,
+      "pass": true
+    },
+    "7_orientation_plus_x": {
+      "v": true,
+      "pass": true
+    },
+    "8_reference_dem": {
+      "available": true,
+      "path": "/data/reef-sfm-mote-keys/data/raw/P13HMEON/20230711_T3_C1_DEM_canopy.tif",
+      "pass": true,
+      "note": "additive; self-contained gate is 1-7"
+    }
+  },
+  "cross": {
+    "cross_tilt_deg": 1.593,
+    "note": "cross is the under-constrained DOF (marker Y-spread 0.85 m floor); within the documented 2-4 deg envelope, not gated as a defect (ADR-0021)."
+  }
+}

@@ -1,0 +1,22 @@
+[
+  {
+    "label": "marker 25_marker 26",
+    "defined_distance_m": 0.25,
+    "accuracy_m": null
+  },
+  {
+    "label": "marker 13_marker 14",
+    "defined_distance_m": 0.25,
+    "accuracy_m": null
+  },
+  {
+    "label": "marker 15_marker 16",
+    "defined_distance_m": 0.25,
+    "accuracy_m": null
+  },
+  {
+    "label": "marker 19_marker 20",
+    "defined_distance_m": 0.25,
+    "accuracy_m": null
+  }
+]
