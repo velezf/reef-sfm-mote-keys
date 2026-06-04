@@ -74,6 +74,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import statistics
 import sys
@@ -199,7 +200,10 @@ GATE_COREG_TOL_M = 1e-6           # check 5: DEM/ortho dx,dy (0 by construction)
 GATE_FOOTPRINT_EVR_MIN = 0.95     # check 6: PC1 explained-variance (belt precondition)
 GATE_FOOTPRINT_ASPECT_MIN = 5.0   # check 6: major/minor aspect (belt precondition)
 GATE_MIN_ALIGN_RATE_FOR_LEVEL = 0.90   # stage_level pre-guard: align >= this to level
-GATE_PLANE_COLLINEAR_RATIO = 0.02      # vetted markers: 2nd/1st scatter eigenvalue floor
+# Planarity guard: out-of-plane vs in-plane-minor scatter eigenvalue ratio
+# (eig[2]/eig[1]). A clean (even thin belt) plane is << this; ~1 means the markers
+# are collinear / non-planar (roll ill-defined). T3 belt = 0.011; threshold 0.5.
+GATE_PLANE_FLATNESS_MAX = 0.5
 # NoData sentinel returned by Elevation.altitude() outside the data footprint.
 DEM_NODATA_SENTINEL = -1000.0     # real reef Z is ~[-1.5, 2]; holes return -32767
 
@@ -1011,14 +1015,16 @@ def stage_level(doc: Metashape.Document, ignore_sanity: bool) -> None:
             continue
         vlist = sorted(vetted)
         normal, _, eig = _fit_plane_normal([_world_xyz(T, mk[lab]) for lab in vlist])
-        # Non-collinearity guard: the two in-plane scatter eigenvalues must both be
-        # non-negligible, else the markers are ~collinear and the plane (its roll
-        # DOF especially) is ill-defined — STOP rather than fit a garbage plane.
-        collinear_ratio = (eig[1] / eig[0]) if eig[0] > 0 else 0.0
-        if collinear_ratio < GATE_PLANE_COLLINEAR_RATIO:
-            alarm(f"{chunk.label}: vetted markers are ~collinear "
-                  f"(eigratio {collinear_ratio:.4f} < {GATE_PLANE_COLLINEAR_RATIO}) "
-                  f"— plane roll is ill-defined. Need non-collinear targets.",
+        # Planarity / non-collinearity guard: out-of-plane scatter (eig[2]) must be
+        # small vs the in-plane minor axis (eig[1]); ~1 means the markers are
+        # collinear / non-planar and the plane (roll especially) is ill-defined.
+        # A thin belt is still a clean plane (T3 = 0.011) — this passes belts and
+        # STOPs only on a degenerate set, rather than fitting a garbage plane.
+        flatness = (eig[2] / eig[1]) if eig[1] > 0 else float("inf")
+        if flatness > GATE_PLANE_FLATNESS_MAX:
+            alarm(f"{chunk.label}: vetted markers are ~collinear / non-planar "
+                  f"(eig2/eig1 {flatness:.4f} > {GATE_PLANE_FLATNESS_MAX}) — plane "
+                  f"roll is ill-defined. Need non-collinear targets.",
                   critical=True, ignore=ignore_sanity)
         tilt_before = _tilt_from_z(normal)
         R = _rot_normal_to_z(normal)
@@ -1041,7 +1047,7 @@ def stage_level(doc: Metashape.Document, ignore_sanity: bool) -> None:
             "vetted_markers": vlist,
             "excluded_bars": excluded,
             "plane_normal_before": [round(x, 5) for x in normal],
-            "plane_eig_ratio": round(collinear_ratio, 5),
+            "plane_flatness_eig2_eig1": round(flatness, 5),
             "marker_plane_tilt_before_deg": round(tilt_before, 4),
             "marker_plane_tilt_after_deg": round(tilt_after, 4),
             "marker_y_spread_m": round(y_spread, 4),
@@ -1314,6 +1320,7 @@ def stage_aoi(doc: Metashape.Document, ignore_sanity: bool) -> None:
         n_before = pc.point_count
         pc.selectPointsByRegion(region)
         pc.cropSelectedPoints()                   # keep selected (inside region)
+        pc.compactPoints()                        # finalize removal so count refreshes
         n_after = pc.point_count
         # --- 6) Coverage from a transient interp-OFF DEM of the CROPPED cloud -----
         el2 = _build_interp_off_dem(chunk)

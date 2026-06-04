@@ -1,0 +1,43 @@
+{
+  "title": "Phase C — codified (run_pipeline.py) vs manual relevel_final, T3 copy, NO re-dense",
+  "date": "2026-06-04",
+  "method": "Fresh copy of pristine edr_t3.psx -> edr_t3_pcvalidate.psx; ran level->aoi->dsm->ortho->gate via the run_pipeline.py entrypoint (import..dense..filter self-skip; preserved post-filter dense 17.52M). Pristine ed86a3b4 untouched throughout.",
+  "codified_run": {
+    "level": "6 vetted markers, excluded 1 bar (25/26), marker-plane tilt 22.60->0.000 deg, scale preserved",
+    "aoi": {"yaw_deg": -2.04, "footprint_evr": 0.989, "aspect": 9.29,
+            "crop": "17,519,650 -> 16,135,734", "coverage_interp_off": 0.979, "plus_x_ok": true},
+    "dsm": "1000x100 @ 1cm", "ortho": "2000x200",
+    "gate": "PASS — long=0.39 total=1.64 cov=97.9% ext=10.000m coreg=(0,0) evr=0.9885 +X=True"
+  },
+  "vs_manual_relevel_final": {
+    "dense": [16135734, 16110912, "+0.15%"],
+    "dem_dims": ["1000x100", "1000x100", "identical"],
+    "ortho_dims": ["2000x200", "1999x200", "1px width"],
+    "yaw_deg": [-2.04, -2.03],
+    "coverage_interp_off": [0.979, 0.967],
+    "tilt_total_deg": [1.64, 1.88],
+    "tilt_long_deg": [0.39, 0.40],
+    "coreg_dx_dy": [[0,0],[0,0]],
+    "scale_extent_m": [10.0, 10.0],
+    "roughness_detrended_m": [0.0918, 0.0925],
+    "evr": [0.9885, 0.988]
+  },
+  "per_cell_dem_diff": {
+    "z_datum_offset_mm": 165.7,
+    "residual_after_offset_rms_mm": 45.4,
+    "residual_after_plane_rms_mm": 45.4,
+    "max_mm": 590.9,
+    "interpretation": "NON-STRUCTURAL, NOT bit-comparable (as the recon-check + the Phase-C brief warned). The 165.7mm constant is an absolute-Z DATUM offset between two independently-leveled LOCAL frames (the recon's 0.23deg level-R cross-DOF difference x the lever arm to the AOI) — product-irrelevant (all metrics are relative). The 45mm RMS residual is the ~3-7cm HORIZONTAL frame offset (0.23deg cross + 3.4cm centroid placement) sampled on a 92mm-roughness reef. Removing the datum + a best-fit plane reveals no shape/tilt mismatch, no Y-flip, no wrong axis. NOT a codification bug."
+  },
+  "acceptance": "PASS at the corroboration bar. Real bar met: (a) deterministic method (no RNG) -> codified==codified bit-identical by construction; (b) codified product PASSES the permanent gate AND matches the P13HMEON reference (roughness 0.0918 in 0.08-0.10; tilt 1.64 closer to ref ~1.3 than the manual's 1.88). Manual is a validated INTERMEDIATE, not ground truth; codified-vs-manual is corroboration and is non-bit-comparable by design.",
+  "regression": {
+    "day1_tilt": "PASS — day-1 transform DEM tilt long=11.91 cross=21.66 total=24.21 deg; gate #1 FAIL & #2 FAIL -> 24deg mis-level cannot ship",
+    "sign_flip": "PASS — forced 180deg yaw flip: plus_x_ok True->False -> gate #7 TRIPS on the reversed product"
+  },
+  "bugs_found_and_fixed": [
+    "missing 'import math' (NameError on first run)",
+    "missing pc.compactPoints() after cropSelectedPoints() — crop was geometrically correct (16.14M) but point_count showed a stale pre-compaction value",
+    "collinearity guard used eig1/eig0 (false-fails any thin belt: T3=0.0009); corrected to eig2/eig1 (out-of-plane vs in-plane-minor; T3=0.011; threshold 0.5)"
+  ],
+  "guardrails": "copy-only; pristine ed86a3b4 untouched; no re-dense (preserved dense reused); reference gate-only (#8 additive); throwaway regr copy removed."
+}
