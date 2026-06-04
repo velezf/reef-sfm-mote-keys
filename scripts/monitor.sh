@@ -30,7 +30,7 @@
 # they will otherwise sample quietly while the instance idles.
 set -euo pipefail
 
-LOGDIR="/data/edr_work/logs"
+LOGDIR="${MONITOR_LOGDIR:-/data/edr_work/logs}"   # env-overridable (default unchanged)
 INTERVAL=5                       # seconds between samples
 PIDFILE="$LOGDIR/.monitor_pids"
 
@@ -53,7 +53,7 @@ _cpu_pct() {
     awk -v a="$s1" -v b="$s2" 'BEGIN {
         split(a, A); split(b, B)
         dt = B[1]-A[1]; di = B[2]-A[2]
-        printf "%.1f", dt > 0 ? 100*(dt-di)/dt : 0
+        printf "%.1f", (dt > 0 ? 100*(dt-di)/dt : 0)
     }'
 }
 
