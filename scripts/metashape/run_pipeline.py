@@ -44,12 +44,19 @@ Stages (run in this order for --stage all)
     reduce  — error reduction (ESM Step 8; Logan preferred, built-in fallback);
               runs AFTER scale bars are assigned, so the final optimize is
               scale-constrained — Toth's order (Step 7 precedes Step 8)
+    level   — ESM Step 11 analog (ADR-0021): deterministic marker-PLANE roll+pitch
+              level with scale-bar-residual outlier rejection; BEFORE dense
     dense   — depth maps + dense point cloud (ESM Step 12)
     filter  — ESM Step 13 confidence noise filter (ADR-0015), sequenced
-              BETWEEN dense and dsm so the DSM is NEVER built on an
+              BETWEEN dense and aoi/dsm so the DSM is NEVER built on an
               unfiltered cloud
+    aoi     — ESM Step 14 bbox analog (ADR-0021): footprint-PCA yaw + centroid
+              auto-placement + camera-track orientation anchor + 10x1x5 m crop;
+              AFTER filter, BEFORE dsm
     dsm     — build DSM at 1 cm (ESM Step 14) — NO smoke region-clip workaround
     ortho   — build orthomosaic (ESM Step 15)
+    gate    — PERMANENT QC gate (ADR-0021): tilt/coverage/scale/co-reg/footprint/
+              orientation checks; FAILs the build so a 24 deg mis-level can't ship
     report  — export products + assemble pipeline_summary.json (ESM Step 16)
 
 Usage
@@ -109,9 +116,14 @@ class ESMParameters:
     tiepoint_limit: int = 0
     exclude_stationary_tie_points: bool = True   # Toth: yes (PIFSC: unspecified)
 
-    # Step 7 — Markers
+    # Step 7 — Markers. ESM is manual-iterative ("start at 20, increase until all
+    # detected"); stage_markers does that headless (auto-tolerance), so no
+    # per-transect tolerance is pinned. The expected coded-target count is a
+    # per-transect/survey argument (--expected-markers), not a constant.
     marker_type: str = "Circular12bit"
-    marker_tolerance: int = 20              # ESM: "start with 20", raise if misses
+    marker_tolerance: int = 20              # ESM start value; auto-bumped from here
+    marker_tolerance_step: int = 5          # ESM "increase in increments"
+    marker_tolerance_max: int = 100         # cap; FAIL LOUD if expected not reached
     scalebar_length_m: float = 0.25         # 25 cm coded targets
 
     # Step 8 — Error reduction (Logan script, threshold mode)
@@ -119,6 +131,20 @@ class ESMParameters:
     projection_accuracy: float = 3.5           # Toth 3-4   -> midpoint 3.5
     reprojection_error: float = 0.3            # Toth fixed 0.3 (PIFSC 0.3-0.5)
     fit_additional_after_reduction: bool = True
+
+    # Step 11 — Orientation / LEVEL (stage_level). ESM Step 11 analog. ADR-0021.
+    # Divergence-ledger: replaces the GUI USGS AlignmentHelper (2-marker midline,
+    # roll-blind -> the day-1 24.26 deg defect) with a deterministic, headless,
+    # outlier-rejecting marker-PLANE level (roll+pitch, scale preserved).
+    scalebar_mad_z: float = 3.5             # robust |z| on scale-bar residuals; >this excluded
+
+    # Step 14 — AOI framing (stage_aoi). ESM Step 14 bounding-box analog. ADR-0021.
+    # Divergence-ledger: replaces the manual 10x1 bbox with footprint-PCA yaw +
+    # centroid auto-placement + a camera-track orientation anchor (transect-agnostic).
+    aoi_length_m: float = 10.0             # long axis (X) extent
+    aoi_width_m: float = 1.0               # cross axis (Y) extent
+    aoi_height_m: float = 5.0             # vertical (Z) crop extent
+    aoi_anchor_cameras: int = 20           # first-N vs last-N camera centroids for the +X sign
 
     # Step 12 — Dense (point) cloud
     dense_quality: str = "High"             # Toth High (PIFSC Medium) — big runtime cost
@@ -154,6 +180,28 @@ ALARM_MAX_DSM_CELLS = 100_000_000  # a 10x1 m transect at 1 cm is ~10^5 cells; 1
 # buildDem would OOM (ADR-0018) -- abort BEFORE allocation.
 TRIPWIRE_MAX_PRED_CELLS = 5_000_000
 TRIPWIRE_MAX_AXIS = 1_000_000
+
+# --------------------------------------------------------------------------- #
+# PERMANENT QC GATE (ADR-0021) — the guarantee a 24 deg mis-level cannot ship.
+# Bounds are grounded in the Phase-A PASS (data/qc/chat5/edr_t3_relevel_final_gate
+# .json) and the recon-check (data/qc/chat5/recon_check_20260604.json). The gate
+# is self-contained (checks 1-7 need NO reference) so reference-less belt sites
+# still gate; the P13HMEON reference is an ADDITIVE check (8), never an input.
+# Derivation of the gross-tilt bound: the 0.85 m marker-Y-spread on a 1 m transect
+# makes a ~2-4 deg CROSS tilt physics, not a defect (observed PASS 1.88-2.23 deg;
+# reference cross ~1.3 deg is the truth, not a target our markers can hit). 6.0 deg
+# = that floor + margin, and ~4x below the 24.26 deg day-1 defect it must catch.
+GATE_LONG_TILT_MAX_DEG = 0.5      # check 1: long axis (X) must be flat
+GATE_TOTAL_TILT_MAX_DEG = 6.0     # check 2: gross-mislevel bound (catches 24 deg)
+GATE_COVERAGE_MIN = 0.95          # check 3: interp-OFF coverage of the AOI
+GATE_SCALE_EXTENT_TOL_M = 0.02    # check 4: |AOI long extent - aoi_length_m|
+GATE_COREG_TOL_M = 1e-6           # check 5: DEM/ortho dx,dy (0 by construction)
+GATE_FOOTPRINT_EVR_MIN = 0.95     # check 6: PC1 explained-variance (belt precondition)
+GATE_FOOTPRINT_ASPECT_MIN = 5.0   # check 6: major/minor aspect (belt precondition)
+GATE_MIN_ALIGN_RATE_FOR_LEVEL = 0.90   # stage_level pre-guard: align >= this to level
+GATE_PLANE_COLLINEAR_RATIO = 0.02      # vetted markers: 2nd/1st scatter eigenvalue floor
+# NoData sentinel returned by Elevation.altitude() outside the data footprint.
+DEM_NODATA_SENTINEL = -1000.0     # real reef Z is ~[-1.5, 2]; holes return -32767
 
 # Map our string names to Metashape enums in one place so the dataclass stays
 # pure data (and serialisable straight into the provenance manifest).
@@ -585,41 +633,101 @@ def stage_align(doc: Metashape.Document, focal_mode: str,
 # --------------------------------------------------------------------------- #
 
 
-def stage_markers(doc: Metashape.Document, ignore_sanity: bool) -> None:
-    """Detect coded targets headless (ESM Step 7, detection only). Scale-bar
-    ASSIGNMENT (pairing markers + setting the 25 cm distance) is the GUI step
-    that follows. Detection runs here so the operator starts the GUI handoff
-    from placed targets rather than a blank slate.
+def _marker_id(label: str) -> int | None:
+    """Coded-target numeric ID from a Metashape marker label ('marker 13' -> 13)."""
+    m = re.findall(r"(\d+)", label)
+    return int(m[-1]) if m else None
 
-    Ordering matters: this is Step 7, which precedes Step 8 (error reduction).
-    The sequence is markers (here) -> [GUI: assign scale bars] -> reduce, so the
-    final optimizeCameras in `reduce` runs with scale constraints active, as in
-    Toth ESM Table S2. See docs/05 'Corrected step order'."""
+
+def stage_markers(doc: Metashape.Document, ignore_sanity: bool,
+                  expected_ids: "set[int] | None",
+                  expected_markers: int | None) -> None:
+    """Detect coded targets headless (ESM Step 7, detection only) with
+    AUTO-TOLERANCE — the headless form of ESM's manual "start at 20, increase
+    until all detected" (start strict, loosen). Tolerance starts at
+    marker_tolerance and bumps by marker_tolerance_step up to marker_tolerance_max.
+
+    ACCEPT BY IDENTITY, not count: because increasing tolerance adds detections
+    MONOTONICALLY (including false positives), `count == expected` can stop on a
+    wrong mix (7 real + 1 spurious). A spurious marker corrupts the level-plane fit
+    and scale-bar pairing, and MAD rejection (stage_level) only catches outliers,
+    not a false positive sitting near the plane. So:
+      * --expected-marker-ids: stop at the LOWEST tolerance where the full expected
+        coded-ID set (the same pairs that feed the 0.25 m residual check) is
+        present; FAIL LOUD at the cap if incomplete; flag any unexpected detected
+        IDs as possible false positives.
+      * else --expected-markers N: weaker COUNT criterion (stop at >= N), warns.
+      * else: plateau (heuristic), warns.
+    No per-transect tolerance is pinned. Scale-bar ASSIGNMENT is the GUI step that
+    follows; this is Step 7 (precedes Step 8 error reduction)."""
     for chunk in doc.chunks:
         if _meta_get(chunk, "esm.markers") is not None and chunk.markers:
             log(f"{chunk.label}: markers already detected; skipping.")
             continue
         t0 = time.time()
-        log(f"{chunk.label}: detecting {PARAMS.marker_type} markers "
-            f"(tolerance={PARAMS.marker_tolerance})")
-        chunk.detectMarkers(
-            target_type=Metashape.CircularTarget12bit,
-            tolerance=PARAMS.marker_tolerance,
-        )
-        n_markers = len(chunk.markers)
-        _meta_set(chunk, "esm.markers", {
-            "markers_detected": n_markers,
-            "tolerance": PARAMS.marker_tolerance,
+        tol = PARAMS.marker_tolerance
+        best, plateau, history = -1, 0, []
+        while tol <= PARAMS.marker_tolerance_max:
+            if chunk.markers:                       # clear before re-detecting
+                chunk.remove(chunk.markers)
+            chunk.detectMarkers(target_type=Metashape.CircularTarget12bit,
+                                tolerance=tol)
+            ids = {i for i in (_marker_id(m.label) for m in chunk.markers)
+                   if i is not None}
+            n = len(chunk.markers)
+            history.append({"tolerance": tol, "detected": n,
+                            "ids": sorted(ids)})
+            log(f"{chunk.label}: tolerance={tol} -> {n} markers ids={sorted(ids)}")
+            if expected_ids is not None:
+                if expected_ids <= ids:
+                    break
+            elif expected_markers is not None:
+                if n >= expected_markers:
+                    break
+            else:
+                plateau = plateau + 1 if n <= best else 0
+                if plateau >= 2:
+                    break
+            best = max(best, n)
+            tol += PARAMS.marker_tolerance_step
+        detected_ids = {i for i in (_marker_id(m.label) for m in chunk.markers)
+                        if i is not None}
+        missing = sorted(expected_ids - detected_ids) if expected_ids else []
+        unexpected = sorted(detected_ids - expected_ids) if expected_ids else []
+        stats = {
+            "markers_detected": len(chunk.markers),
+            "final_tolerance": tol,
+            "detected_ids": sorted(detected_ids),
+            "expected_ids": sorted(expected_ids) if expected_ids else None,
+            "missing_ids": missing,
+            "unexpected_ids": unexpected,
+            "expected_markers": expected_markers,
+            "tolerance_history": history,
             "seconds": round(time.time() - t0, 1),
-        })
-        log(f"{chunk.label}: {n_markers} markers detected. NEXT (GUI handoff): "
-            f"assign 25 cm scale bars to marker pairs + place the Jenkins "
-            f"coordinate frame, then run --stage reduce.")
-        if n_markers == 0:
-            alarm(f"{chunk.label}: 0 coded targets detected at tolerance "
-                  f"{PARAMS.marker_tolerance}. Raise tolerance in increments of "
-                  f"5, or check the targets weren't mis-detected — no scale bars "
-                  f"can be assigned without markers.",
+        }
+        _meta_set(chunk, "esm.markers", stats)
+        log(f"{chunk.label}: {len(chunk.markers)} markers (final tolerance {tol}); "
+            f"missing={missing} unexpected={unexpected}. NEXT (GUI handoff): assign "
+            f"25 cm scale bars to marker pairs + place the Jenkins frame, then reduce.")
+        if expected_ids is not None and missing:
+            alarm(f"{chunk.label}: expected coded targets {missing} NOT detected up "
+                  f"to tolerance {PARAMS.marker_tolerance_max}. A marker-poor "
+                  f"transect feeds a weak level plane — refusing to proceed. Check "
+                  f"target visibility/quality.", critical=True, ignore=ignore_sanity)
+        if unexpected:
+            alarm(f"{chunk.label}: unexpected coded IDs {unexpected} detected — "
+                  f"possible FALSE POSITIVES that would corrupt the level-plane fit "
+                  f"/ scale-bar pairing. Review before --stage reduce.",
+                  critical=False, ignore=ignore_sanity)
+        if expected_ids is None and expected_markers is not None and \
+                len(chunk.markers) < expected_markers:
+            alarm(f"{chunk.label}: only {len(chunk.markers)}/{expected_markers} "
+                  f"markers detected (count criterion). Prefer --expected-marker-ids "
+                  f"so identity, not count, gates.", critical=True, ignore=ignore_sanity)
+        elif expected_ids is None and expected_markers is None:
+            alarm(f"{chunk.label}: {len(chunk.markers)} markers by plateau, NOT "
+                  f"validated against expected IDs. Pass --expected-marker-ids for a "
+                  f"production run so a wrong mix FAILs loudly.",
                   critical=False, ignore=ignore_sanity)
         save(doc)
 
@@ -734,6 +842,230 @@ def _run_builtin_reduction(chunk: Metashape.Chunk) -> None:
     # Reprojection error last, then final optimize with additional corrections.
     _apply(Filter.ReprojectionError, PARAMS.reprojection_error, optimize=False)
     chunk.optimizeCameras(fit_corrections=PARAMS.fit_additional_after_reduction)
+
+
+# --------------------------------------------------------------------------- #
+# Stage: level  (ESM Step 11 analog, ADR-0021) — deterministic marker-PLANE
+# roll+pitch level with scale-bar-residual outlier rejection. Runs BEFORE dense
+# (like ESM Step 11 before Step 12). Marker-only; reference is NEVER an input.
+# --------------------------------------------------------------------------- #
+
+
+def _vec3(p) -> "Metashape.Vector":
+    return Metashape.Vector([p.x, p.y, p.z])
+
+
+def _world_xyz(T: "Metashape.Matrix", p) -> list[float]:
+    """Internal marker/camera coord -> world-metric [x,y,z] (scale applied)."""
+    w = T.mulp(_vec3(p))
+    return [w.x, w.y, w.z]
+
+
+def _median(xs: list[float]) -> float:
+    s = sorted(xs)
+    n = len(s)
+    return s[n // 2] if n % 2 else 0.5 * (s[n // 2 - 1] + s[n // 2])
+
+
+def _jacobi_eig_sym3(A: list[list[float]]):
+    """Eigen-decomposition of a symmetric 3x3 (cyclic Jacobi). Deterministic,
+    dependency-free. Returns (eigvals[3], eigvecs[3] as columns). Used for the
+    least-squares plane normal (smallest-eigenvalue eigenvector)."""
+    a = [row[:] for row in A]
+    V = [[1.0 if i == j else 0.0 for j in range(3)] for i in range(3)]
+    for _ in range(100):
+        p, q = 0, 1
+        if abs(a[0][2]) > abs(a[p][q]):
+            p, q = 0, 2
+        if abs(a[1][2]) > abs(a[p][q]):
+            p, q = 1, 2
+        if abs(a[p][q]) < 1e-18:
+            break
+        app, aqq, apq = a[p][p], a[q][q], a[p][q]
+        phi = 0.5 * math.atan2(2 * apq, aqq - app) if (aqq - app) != 0 else math.pi / 4
+        c, s = math.cos(phi), math.sin(phi)
+        for k in range(3):
+            akp, akq = a[k][p], a[k][q]
+            a[k][p] = c * akp - s * akq
+            a[k][q] = s * akp + c * akq
+        for k in range(3):
+            apk, aqk = a[p][k], a[q][k]
+            a[p][k] = c * apk - s * aqk
+            a[q][k] = s * apk + c * aqk
+        for k in range(3):
+            vkp, vkq = V[k][p], V[k][q]
+            V[k][p] = c * vkp - s * vkq
+            V[k][q] = s * vkp + c * vkq
+    eig = [a[i][i] for i in range(3)]
+    vecs = [[V[r][c] for r in range(3)] for c in range(3)]
+    return eig, vecs
+
+
+def _fit_plane_normal(points: list[list[float]]):
+    """Least-squares plane normal (unit, +Z-oriented), centroid, and the scatter
+    eigenvalues sorted descending (for the collinearity guard) for >=3 points."""
+    n = len(points)
+    cen = [sum(p[i] for p in points) / n for i in range(3)]
+    C = [[0.0] * 3 for _ in range(3)]
+    for p in points:
+        d = [p[i] - cen[i] for i in range(3)]
+        for i in range(3):
+            for j in range(3):
+                C[i][j] += d[i] * d[j]
+    eig, vecs = _jacobi_eig_sym3(C)
+    k = min(range(3), key=lambda i: eig[i])
+    nrm = vecs[k]
+    L = math.sqrt(sum(x * x for x in nrm)) or 1.0
+    nrm = [x / L for x in nrm]
+    if nrm[2] < 0:                       # deterministic +Z-up orientation
+        nrm = [-x for x in nrm]
+    return nrm, cen, sorted(eig, reverse=True)
+
+
+def _rot_normal_to_z(n: list[float]) -> "Metashape.Matrix":
+    """Shortest-arc rotation mapping unit normal n -> world +Z (Rodrigues), as a
+    3x3 Metashape.Matrix. roll+pitch only (no yaw); preserves scale (pure rot)."""
+    z = [0.0, 0.0, 1.0]
+    axis = [n[1] * z[2] - n[2] * z[1], n[2] * z[0] - n[0] * z[2], n[0] * z[1] - n[1] * z[0]]
+    s = math.sqrt(sum(a * a for a in axis))
+    c = sum(n[i] * z[i] for i in range(3))
+    if s < 1e-15:                        # already aligned (or anti-aligned)
+        return (Metashape.Matrix.Diag([1, 1, 1]) if c > 0
+                else Metashape.Matrix([[1, 0, 0], [0, -1, 0], [0, 0, -1]]))
+    ux, uy, uz = (a / s for a in axis)
+    ang = math.atan2(s, c)
+    C, S, t = math.cos(ang), math.sin(ang), 1 - math.cos(ang)
+    return Metashape.Matrix([
+        [C + ux * ux * t, ux * uy * t - uz * S, ux * uz * t + uy * S],
+        [uy * ux * t + uz * S, C + uy * uy * t, uy * uz * t - ux * S],
+        [uz * ux * t - uy * S, uz * uy * t + ux * S, C + uz * uz * t]])
+
+
+def _apply_world_rotation(chunk: "Metashape.Chunk", R: "Metashape.Matrix") -> None:
+    """Left-multiply a 3x3 world rotation onto chunk.transform (orientation only;
+    translation and scale preserved). world' = R . world."""
+    R4 = Metashape.Matrix([
+        [R[i, j] if (i < 3 and j < 3) else (1.0 if i == j else 0.0)
+         for j in range(4)] for i in range(4)])
+    chunk.transform.matrix = R4 * chunk.transform.matrix
+
+
+def _tilt_from_z(n: list[float]) -> float:
+    L = math.sqrt(sum(x * x for x in n)) or 1.0
+    return math.degrees(math.acos(max(-1.0, min(1.0, abs(n[2]) / L))))
+
+
+def stage_level(doc: Metashape.Document, ignore_sanity: bool) -> None:
+    """ESM Step 11 analog (ADR-0021): level the chunk on the scale-bar marker
+    PLANE (roll+pitch), with robust outlier rejection on scale-bar residuals so a
+    bad bar (T3: 25/26, +15.13 mm) cannot corrupt the fit. Scale preserved. This
+    is the deterministic, headless generalization of the GUI USGS AlignmentHelper
+    (a plane from >=3 fiducials fixes the roll DOF the 2-marker midline cannot —
+    the day-1 24.26 deg failure mode). The AOI yaw is NOT set here (stage_aoi)."""
+    for chunk in doc.chunks:
+        if _meta_get(chunk, "esm.level") is not None:
+            log(f"{chunk.label}: already leveled; skipping.")
+            continue
+        # Pre-level alignment quality guard: a poorly-aligned transect feeds a weak
+        # marker geometry and a garbage level plane — STOP before leveling.
+        align = _meta_get(chunk, "esm.align") or {}
+        rate = align.get("alignment_rate")
+        if rate is not None and rate < GATE_MIN_ALIGN_RATE_FOR_LEVEL:
+            alarm(f"{chunk.label}: alignment rate {rate*100:.1f}% < "
+                  f"{GATE_MIN_ALIGN_RATE_FOR_LEVEL*100:.0f}% — too poor to level "
+                  f"reliably. Resolve alignment before stage_level.",
+                  critical=True, ignore=ignore_sanity)
+        T = chunk.transform.matrix
+        mk = {m.label: m.position for m in chunk.markers if m.position is not None}
+        scale_before = chunk.transform.scale
+        # Scale-bar residuals (measured world distance - defined distance) + MAD.
+        bars = []
+        for sb in chunk.scalebars:
+            try:
+                a, b = sb.point0.label, sb.point1.label
+                wa, wb = _world_xyz(T, mk[a]), _world_xyz(T, mk[b])
+            except (AttributeError, KeyError):
+                continue
+            dist = math.sqrt(sum((wa[i] - wb[i]) ** 2 for i in range(3)))
+            bars.append({"bar": sb.label, "a": a, "b": b, "dist": dist,
+                         "resid": dist - sb.reference.distance})
+        if len(bars) < 2:
+            alarm(f"{chunk.label}: only {len(bars)} usable scale bar(s) — cannot "
+                  f"robustly level. Need >=2 (>=3 markers) for a plane.",
+                  critical=True, ignore=ignore_sanity)
+            continue
+        med = _median([d["resid"] for d in bars])
+        mad = _median([abs(d["resid"] - med) for d in bars])
+        vetted, excluded = set(), []
+        for d in bars:
+            z = 0.6745 * (d["resid"] - med) / mad if mad > 0 else 0.0
+            if abs(z) > PARAMS.scalebar_mad_z:
+                excluded.append({"bar": d["bar"], "resid_mm": round(d["resid"] * 1000, 2),
+                                 "mad_z": round(z, 2)})
+            else:
+                vetted.update([d["a"], d["b"]])
+        if len(vetted) < 3:
+            alarm(f"{chunk.label}: only {len(vetted)} vetted markers after outlier "
+                  f"rejection — cannot fit a plane. Review scale bars.",
+                  critical=True, ignore=ignore_sanity)
+            continue
+        vlist = sorted(vetted)
+        normal, _, eig = _fit_plane_normal([_world_xyz(T, mk[lab]) for lab in vlist])
+        # Non-collinearity guard: the two in-plane scatter eigenvalues must both be
+        # non-negligible, else the markers are ~collinear and the plane (its roll
+        # DOF especially) is ill-defined — STOP rather than fit a garbage plane.
+        collinear_ratio = (eig[1] / eig[0]) if eig[0] > 0 else 0.0
+        if collinear_ratio < GATE_PLANE_COLLINEAR_RATIO:
+            alarm(f"{chunk.label}: vetted markers are ~collinear "
+                  f"(eigratio {collinear_ratio:.4f} < {GATE_PLANE_COLLINEAR_RATIO}) "
+                  f"— plane roll is ill-defined. Need non-collinear targets.",
+                  critical=True, ignore=ignore_sanity)
+        tilt_before = _tilt_from_z(normal)
+        R = _rot_normal_to_z(normal)
+        _apply_world_rotation(chunk, R)
+        # Verify: the vetted plane normal now maps to ~+Z (post-level tilt ~0).
+        Tn = chunk.transform.matrix
+        leveled = [_world_xyz(Tn, mk[lab]) for lab in vlist]
+        normal_after, cen_after, _ = _fit_plane_normal(leveled)
+        tilt_after = _tilt_from_z(normal_after)
+        scale_after = chunk.transform.scale
+        # Per-transect cross-precision context (NOT a hard-coded 0.85 m): the cross
+        # (Y) lever arm and the marker Z-scatter about the fitted plane. Logged for
+        # the gate's tilt-bound trend; the bound itself is --max-total-tilt-deg.
+        y_spread = (max(p[1] for p in leveled) - min(p[1] for p in leveled))
+        z_resid = [p[2] - cen_after[2] for p in leveled]
+        z_rms = (sum(z * z for z in z_resid) / len(z_resid)) ** 0.5
+        cross_floor_deg = round(math.degrees(math.atan2(
+            2 * z_rms, y_spread)), 3) if y_spread > 0 else None
+        stats = {
+            "vetted_markers": vlist,
+            "excluded_bars": excluded,
+            "plane_normal_before": [round(x, 5) for x in normal],
+            "plane_eig_ratio": round(collinear_ratio, 5),
+            "marker_plane_tilt_before_deg": round(tilt_before, 4),
+            "marker_plane_tilt_after_deg": round(tilt_after, 4),
+            "marker_y_spread_m": round(y_spread, 4),
+            "marker_z_rms_m": round(z_rms, 5),
+            "implied_cross_floor_deg": cross_floor_deg,
+            "scale_before": scale_before,
+            "scale_after": scale_after,
+            "scale_preserved": abs(scale_after - scale_before) < 1e-12,
+        }
+        _meta_set(chunk, "esm.level", stats)
+        log(f"{chunk.label}: leveled on {len(vlist)} vetted markers "
+            f"(excluded {len(excluded)} bar(s)); marker-plane tilt "
+            f"{tilt_before:.2f} -> {tilt_after:.3f} deg; scale {scale_after:.8g} "
+            f"(preserved={stats['scale_preserved']}).")
+        if not stats["scale_preserved"]:
+            alarm(f"{chunk.label}: leveling changed transform.scale "
+                  f"({scale_before} -> {scale_after}). A pure rotation must "
+                  f"preserve scale — fit/rotation bug.",
+                  critical=True, ignore=ignore_sanity)
+        if tilt_after > GATE_LONG_TILT_MAX_DEG:
+            alarm(f"{chunk.label}: vetted marker-plane is still tilted "
+                  f"{tilt_after:.3f} deg from Z after leveling — R was not applied "
+                  f"correctly.", critical=True, ignore=ignore_sanity)
+        save(doc)
 
 
 # --------------------------------------------------------------------------- #
@@ -860,6 +1192,292 @@ def _local_planar_projection(chunk: "Metashape.Chunk") -> "Metashape.OrthoProjec
     log(f"{chunk.label}: chunk.crs set LOCAL + top-down Planar projection "
         f"(ADR-0020; proj.crs={proj.crs})")
     return proj
+
+
+# --------------------------------------------------------------------------- #
+# Stage: aoi  (ESM Step 14 bounding-box analog, ADR-0021) — footprint-PCA yaw +
+# centroid auto-placement + camera-track orientation anchor + 10x1x5 m crop.
+# Runs AFTER filter (footprint PCA on the denoised cloud), BEFORE dsm. Footprint-
+# only; reference is NEVER an input.
+#
+# PRECONDITION (divergence ledger): this assumes an ELONGATED belt-transect
+# footprint. Gate check 6 (aspect >= 5:1) hard-fails a degenerate/square footprint
+# rather than mis-framing it. Square-plot sites (Summerland Ledges / IC_U: 10x10 m
+# plots, no dominant axis, different cameras) are OUT OF SCOPE by survey design and
+# trip check 6 — Toth treats them separately too.
+# --------------------------------------------------------------------------- #
+
+
+def _rot_z(theta: float) -> "Metashape.Matrix":
+    c, s = math.cos(theta), math.sin(theta)
+    return Metashape.Matrix([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+
+def _occupied_cells_world(el: "Metashape.Elevation"):
+    """Read an interp-OFF DEM: yield (world_x, world_y, z) for non-NoData cells.
+    altitude() bilinearly samples and returns the -32767 sentinel outside the data
+    footprint (DEM_NODATA_SENTINEL guards it)."""
+    res, left, top = el.resolution, el.left, el.top
+    for j in range(el.height):
+        y = top - (j + 0.5) * res
+        for i in range(el.width):
+            x = left + (i + 0.5) * res
+            z = el.altitude(Metashape.Vector([x, y]))
+            if z > DEM_NODATA_SENTINEL:
+                yield x, y, z
+
+
+def _pca2d(xy: list[tuple]):
+    """2x2 covariance PCA of (x,y) points. Returns (major_angle_rad_from_+X,
+    centroid_xy, explained_var_ratio, aspect_ratio)."""
+    n = len(xy)
+    cx = sum(p[0] for p in xy) / n
+    cy = sum(p[1] for p in xy) / n
+    sxx = sum((p[0] - cx) ** 2 for p in xy) / n
+    syy = sum((p[1] - cy) ** 2 for p in xy) / n
+    sxy = sum((p[0] - cx) * (p[1] - cy) for p in xy) / n
+    tr = sxx + syy
+    disc = math.sqrt(max(0.0, (tr / 2) ** 2 - (sxx * syy - sxy * sxy)))
+    l1, l2 = tr / 2 + disc, tr / 2 - disc
+    ang = 0.5 * math.atan2(2 * sxy, sxx - syy)
+    evr = l1 / (l1 + l2) if (l1 + l2) > 0 else 0.0
+    aspect = math.sqrt(l1 / l2) if l2 > 1e-12 else float("inf")
+    return ang, (cx, cy), evr, aspect
+
+
+def _build_interp_off_dem(chunk: "Metashape.Chunk") -> "Metashape.Elevation":
+    """Build a transient interp-OFF DEM at DSM resolution via the ADR-0020 local-
+    planar recipe. Caller MUST chunk.remove([el]) it (so stage_dsm's idempotency
+    is not broken). chunk.crs is set LOCAL by _local_planar_projection."""
+    proj = _local_planar_projection(chunk)
+    chunk.buildDem(source_data=Metashape.PointCloudData,
+                   interpolation=Metashape.DisabledInterpolation,
+                   projection=proj, resolution=PARAMS.dsm_resolution_m)
+    return chunk.elevation
+
+
+def _camera_track_sign(chunk: "Metashape.Chunk", centroid_xy, u) -> float:
+    """Project aligned camera centres (ordered by image label) onto the footprint
+    major axis u; return +1 if the FIRST-N cameras lie toward +u, else -1. This is
+    the transect-agnostic orientation anchor (ADR-0021 amendment): deterministic,
+    present on every belt transect and on fresh raw data, robust to the lawnmower
+    zigzag. Calibrated so +X = toward the first-image-number cameras reproduces
+    the validated T3 frame (marker-20 end)."""
+    T = chunk.transform.matrix
+    cams = sorted((c for c in chunk.cameras if c.transform is not None),
+                  key=lambda c: c.label)
+    n = min(PARAMS.aoi_anchor_cameras, len(cams) // 2) or 1
+    def proj(c):
+        w = T.mulp(c.center)
+        return (w.x - centroid_xy[0]) * u[0] + (w.y - centroid_xy[1]) * u[1]
+    first = sum(proj(c) for c in cams[:n]) / n
+    last = sum(proj(c) for c in cams[-n:]) / n
+    return 1.0 if first >= last else -1.0
+
+
+def stage_aoi(doc: Metashape.Document, ignore_sanity: bool) -> None:
+    for chunk in doc.chunks:
+        if _meta_get(chunk, "esm.aoi") is not None:
+            log(f"{chunk.label}: AOI already framed; skipping.")
+            continue
+        if chunk.point_cloud is None:
+            alarm(f"{chunk.label}: no dense cloud — cannot frame the AOI. Run "
+                  f"dense first.", critical=True, ignore=ignore_sanity)
+            continue
+        scale = chunk.transform.scale
+        # --- 1) Footprint PCA from a transient interp-OFF DEM of the FULL cloud ---
+        chunk.resetRegion()                       # encompass the whole cloud first
+        el = _build_interp_off_dem(chunk)
+        cells = list(_occupied_cells_world(el))
+        z_mid = (min(c[2] for c in cells) + max(c[2] for c in cells)) / 2
+        ang, cen_xy, evr, aspect = _pca2d([(c[0], c[1]) for c in cells])
+        chunk.remove([el])                        # drop transient DEM (idempotency)
+        # --- 2) Orientation anchor: camera track (primary), +X toward first-N ----
+        u = (math.cos(ang), math.sin(ang))
+        sign = _camera_track_sign(chunk, cen_xy, u)
+        oriented = ang if sign > 0 else ang + math.pi
+        # --- 3) Apply the yaw about world Z so the oriented major axis -> +X ------
+        T_lev = chunk.transform.matrix
+        cen_world = Metashape.Vector([cen_xy[0], cen_xy[1], z_mid])
+        center_internal = T_lev.inv().mulp(cen_world)   # invariant under transform edits
+        _apply_world_rotation(chunk, _rot_z(-oriented))
+        # --- 4) Set the canonical 10x1x5 m region (world-axis-aligned, centroid) --
+        region = Metashape.Region()
+        region.center = center_internal
+        region.size = Metashape.Vector([PARAMS.aoi_length_m / scale,
+                                        PARAMS.aoi_width_m / scale,
+                                        PARAMS.aoi_height_m / scale])
+        region.rot = _region_rot_world_aligned(chunk)
+        chunk.region = region
+        # --- 5) Crop the dense cloud to the AOI ----------------------------------
+        pc = chunk.point_cloud
+        n_before = pc.point_count
+        pc.selectPointsByRegion(region)
+        pc.cropSelectedPoints()                   # keep selected (inside region)
+        n_after = pc.point_count
+        # --- 6) Coverage from a transient interp-OFF DEM of the CROPPED cloud -----
+        el2 = _build_interp_off_dem(chunk)
+        full = el2.width * el2.height
+        occ = sum(1 for _ in _occupied_cells_world(el2))
+        coverage = occ / full if full else 0.0
+        chunk.remove([el2])
+        # --- 7) Orientation check #7 in the FINAL frame (sign-flip guard) ---------
+        Tf = chunk.transform.matrix
+        cams = sorted((c for c in chunk.cameras if c.transform is not None),
+                      key=lambda c: c.label)
+        nN = min(PARAMS.aoi_anchor_cameras, len(cams) // 2) or 1
+        firstX = sum(Tf.mulp(c.center).x for c in cams[:nN]) / nN
+        lastX = sum(Tf.mulp(c.center).x for c in cams[-nN:]) / nN
+        plus_x_ok = firstX > lastX
+        stats = {
+            "footprint_major_angle_deg": round(math.degrees(ang), 4),
+            "applied_yaw_deg": round(math.degrees(-oriented), 4),
+            "footprint_explained_var": round(evr, 4),
+            "footprint_aspect": round(aspect, 3) if aspect != float("inf") else None,
+            "centroid_world_xy": [round(cen_xy[0], 5), round(cen_xy[1], 5)],
+            "z_mid": round(z_mid, 5),
+            "points_before": n_before, "points_after": n_after,
+            "coverage_interp_off": round(coverage, 4),
+            "anchor_firstN_X": round(firstX, 4), "anchor_lastN_X": round(lastX, 4),
+            "orientation_plus_x_ok": plus_x_ok,
+            "scale_preserved": abs(chunk.transform.scale - scale) < 1e-12,
+        }
+        _meta_set(chunk, "esm.aoi", stats)
+        log(f"{chunk.label}: AOI framed yaw={stats['applied_yaw_deg']:+.2f} deg, "
+            f"footprint evr={evr:.3f} aspect={stats['footprint_aspect']}, crop "
+            f"{n_before:,} -> {n_after:,}, coverage(interp-OFF)={coverage*100:.1f}%, "
+            f"+X anchor ok={plus_x_ok}.")
+        # Inline gate checks available pre-DSM (4, 6, 7). Tilt/co-reg are post-DSM.
+        if evr < GATE_FOOTPRINT_EVR_MIN or aspect < GATE_FOOTPRINT_ASPECT_MIN:
+            alarm(f"{chunk.label}: GATE#6 footprint not belt-shaped "
+                  f"(evr={evr:.3f} < {GATE_FOOTPRINT_EVR_MIN} or "
+                  f"aspect={stats['footprint_aspect']} < {GATE_FOOTPRINT_ASPECT_MIN}). "
+                  f"stage_aoi requires an elongated transect; square plots are out "
+                  f"of scope (ADR-0021).", critical=True, ignore=ignore_sanity)
+        if not plus_x_ok:
+            alarm(f"{chunk.label}: GATE#7 orientation sign flip — first-N cameras "
+                  f"(X={firstX:.2f}) are not on the +X half (last-N X={lastX:.2f}). "
+                  f"A reversed product would ship silently. Aborting.",
+                  critical=True, ignore=ignore_sanity)
+        if coverage < GATE_COVERAGE_MIN:
+            alarm(f"{chunk.label}: GATE#3 coverage(interp-OFF) {coverage*100:.1f}% < "
+                  f"{GATE_COVERAGE_MIN*100:.0f}%. AOI mis-placed vs the reef band.",
+                  critical=True, ignore=ignore_sanity)
+        if not stats["scale_preserved"]:
+            alarm(f"{chunk.label}: GATE#4 framing changed scale.",
+                  critical=True, ignore=ignore_sanity)
+        save(doc)
+
+
+def _region_rot_world_aligned(chunk: "Metashape.Chunk") -> "Metashape.Matrix":
+    """Region rotation for a WORLD-axis-aligned box: columns are the world axes
+    expressed in internal coords = (scale-stripped transform rotation)^T."""
+    T = chunk.transform.matrix
+    cols = []
+    for j in range(3):                            # normalize each column (strip scale)
+        v = [T.row(i)[j] for i in range(3)]
+        L = math.sqrt(sum(x * x for x in v)) or 1.0
+        cols.append([x / L for x in v])
+    Rrot = Metashape.Matrix([[cols[j][i] for j in range(3)] for i in range(3)])
+    return Rrot.t()
+
+
+# --------------------------------------------------------------------------- #
+# Stage: gate  (ADR-0021) — PERMANENT QC gate on the built DEM/ortho. FAILs the
+# build loudly if a 24 deg mis-level (or a reversed/clipped product) would ship.
+# Reads the interp-ON product DEM for tilt; reuses esm.aoi for coverage/footprint/
+# orientation; builds NO DEM (no product clobber). Reference (8) is ADDITIVE.
+# --------------------------------------------------------------------------- #
+
+
+def _dem_plane_tilt(el: "Metashape.Elevation"):
+    """Fit z = a*x + b*y + c to a grid sample of the (interp-ON) product DEM.
+    Returns (long_tilt_deg about X, cross_tilt_deg about Y, total_tilt_deg)."""
+    res, left, top, w, h = el.resolution, el.left, el.top, el.width, el.height
+    sx, sy = max(1, w // 200), max(1, h // 40)
+    pts = []
+    for j in range(0, h, sy):
+        y = top - (j + 0.5) * res
+        for i in range(0, w, sx):
+            x = left + (i + 0.5) * res
+            z = el.altitude(Metashape.Vector([x, y]))
+            if z > DEM_NODATA_SENTINEL:
+                pts.append((x, y, z))
+    n = len(pts)
+    Sx = sum(p[0] for p in pts); Sy = sum(p[1] for p in pts); Sz = sum(p[2] for p in pts)
+    Sxx = sum(p[0] * p[0] for p in pts); Syy = sum(p[1] * p[1] for p in pts)
+    Sxy = sum(p[0] * p[1] for p in pts)
+    Sxz = sum(p[0] * p[2] for p in pts); Syz = sum(p[1] * p[2] for p in pts)
+    Mx = Metashape.Matrix([[Sxx, Sxy, Sx], [Sxy, Syy, Sy], [Sx, Sy, n]])
+    abc = Mx.inv() * Metashape.Vector([Sxz, Syz, Sz])
+    a, b = abc[0], abc[1]
+    long_t = math.degrees(math.atan(abs(a)))
+    cross_t = math.degrees(math.atan(abs(b)))
+    total = math.degrees(math.acos(1 / math.sqrt(a * a + b * b + 1)))
+    return long_t, cross_t, total
+
+
+def stage_gate(doc: Metashape.Document, ignore_sanity: bool,
+               reference_dem: "Path | None" = None,
+               max_total_tilt_deg: float = GATE_TOTAL_TILT_MAX_DEG) -> None:
+    for chunk in doc.chunks:
+        aoi = _meta_get(chunk, "esm.aoi")
+        if chunk.elevation is None or chunk.orthomosaic is None or aoi is None:
+            alarm(f"{chunk.label}: GATE cannot run — need stage_aoi + dsm + ortho "
+                  f"first (have aoi={aoi is not None}, dem={chunk.elevation is not None}, "
+                  f"ortho={chunk.orthomosaic is not None}).",
+                  critical=True, ignore=ignore_sanity)
+            continue
+        dem = chunk.elevation
+        long_t, cross_t, total_t = _dem_plane_tilt(dem)
+        long_ext = dem.width * dem.resolution            # AOI long extent (m)
+        ortho = chunk.orthomosaic
+        coreg_dx = abs(ortho.left - dem.left)
+        coreg_dy = abs(ortho.top - dem.top)
+        checks = {
+            "1_long_tilt_deg": {"v": round(long_t, 3), "max": GATE_LONG_TILT_MAX_DEG,
+                                "pass": long_t <= GATE_LONG_TILT_MAX_DEG},
+            "2_total_tilt_deg": {"v": round(total_t, 3), "max": max_total_tilt_deg,
+                                 "pass": total_t <= max_total_tilt_deg},
+            "3_coverage_interp_off": {"v": aoi["coverage_interp_off"],
+                                      "min": GATE_COVERAGE_MIN,
+                                      "pass": aoi["coverage_interp_off"] >= GATE_COVERAGE_MIN},
+            "4_long_extent_m": {"v": round(long_ext, 4), "target": PARAMS.aoi_length_m,
+                                "pass": abs(long_ext - PARAMS.aoi_length_m) <= GATE_SCALE_EXTENT_TOL_M},
+            "5_coreg_dx_dy_m": {"v": [round(coreg_dx, 8), round(coreg_dy, 8)],
+                                "pass": coreg_dx <= GATE_COREG_TOL_M and coreg_dy <= GATE_COREG_TOL_M},
+            "6_footprint": {"evr": aoi["footprint_explained_var"],
+                            "aspect": aoi["footprint_aspect"],
+                            "pass": (aoi["footprint_explained_var"] >= GATE_FOOTPRINT_EVR_MIN
+                                     and (aoi["footprint_aspect"] or 0) >= GATE_FOOTPRINT_ASPECT_MIN)},
+            "7_orientation_plus_x": {"v": aoi["orientation_plus_x_ok"],
+                                     "pass": bool(aoi["orientation_plus_x_ok"])},
+        }
+        # Check 8 (ADDITIVE) — reference overlap, only where a P13HMEON DEM exists.
+        # GATE only, never a level/aoi input. Full roughness/overlap comparison is a
+        # QC step (the core gate 1-7 is self-contained); recorded as available here.
+        checks["8_reference_dem"] = {"available": reference_dem is not None,
+                                     "path": str(reference_dem) if reference_dem else None,
+                                     "pass": True, "note": "additive; self-contained gate is 1-7"}
+        cross_floor = {"cross_tilt_deg": round(cross_t, 3),
+                       "note": "cross is the under-constrained DOF (marker Y-spread "
+                               "0.85 m floor); within the documented 2-4 deg envelope, "
+                               "not gated as a defect (ADR-0021)."}
+        failed = [k for k, c in checks.items() if not c["pass"]]
+        verdict = {"chunk": chunk.label, "checks": checks, "cross": cross_floor,
+                   "failed": failed, "PASS": not failed}
+        _meta_set(chunk, "esm.gate", verdict)
+        log(f"{chunk.label}: GATE long={long_t:.2f} total={total_t:.2f} "
+            f"cov={checks['3_coverage_interp_off']['v']*100:.1f}% "
+            f"ext={long_ext:.3f}m coreg=({coreg_dx:.1e},{coreg_dy:.1e}) "
+            f"evr={aoi['footprint_explained_var']} +X={aoi['orientation_plus_x_ok']} "
+            f"-> {'PASS' if not failed else 'FAIL ' + ','.join(failed)}")
+        save(doc)
+        if failed:
+            alarm(f"{chunk.label}: PERMANENT QC GATE FAILED on {failed}. A mis-"
+                  f"leveled/clipped/reversed product will NOT ship (ADR-0021). "
+                  f"Tilt long={long_t:.2f} total={total_t:.2f} deg.",
+                  critical=True, ignore=ignore_sanity)
 
 
 # --------------------------------------------------------------------------- #
@@ -1097,10 +1715,13 @@ def stage_report(doc: Metashape.Document, out_root: Path,
             "stage_align": _meta_get(chunk, "esm.align"),
             "stage_markers": _meta_get(chunk, "esm.markers"),
             "stage_reduce": _meta_get(chunk, "esm.reduce"),
+            "stage_level": _meta_get(chunk, "esm.level"),
             "stage_dense": _meta_get(chunk, "esm.dense"),
             "stage_filter": _meta_get(chunk, "esm.filter"),
+            "stage_aoi": _meta_get(chunk, "esm.aoi"),
             "stage_dsm": _meta_get(chunk, "esm.dsm"),
             "stage_ortho": _meta_get(chunk, "esm.ortho"),
+            "stage_gate": _meta_get(chunk, "esm.gate"),
             "products": products,
         })
 
@@ -1121,11 +1742,13 @@ def _file_stat(path: Path) -> dict:
 
 # Corrected step order (ADR-0017 + fidelity fix): marker detection (Step 7) is
 # its own stage BEFORE the GUI scale-bar handoff; error reduction (Step 8) runs
-# AFTER it. Sequence with handoffs:
+# AFTER it. ADR-0021 inserts level (ESM Step 11, marker-plane, BEFORE dense) and
+# aoi (ESM Step 14 bbox, footprint-PCA, AFTER filter) as two separate stages, and
+# a permanent gate after ortho. Sequence with handoffs:
 #   import step4 align markers [GUI: scale bars] reduce [GUI: coord frame]
-#   dense filter dsm ortho report
-STAGES = ["import", "step4", "align", "markers", "reduce", "dense", "filter",
-          "dsm", "ortho", "report"]
+#   level dense filter aoi dsm ortho gate report
+STAGES = ["import", "step4", "align", "markers", "reduce", "level", "dense",
+          "filter", "aoi", "dsm", "ortho", "gate", "report"]
 
 
 def main() -> None:
@@ -1153,6 +1776,28 @@ def main() -> None:
                     help="Importable module name of the vendored Logan script. "
                          "If omitted, the built-in transcription is used and "
                          "recorded as a per-run documented departure.")
+    ap.add_argument("--reference-dem", type=Path, default=None,
+                    help="Optional P13HMEON reference DEM for the gate's ADDITIVE "
+                         "check 8 (reference-patch overlap). GATE ONLY, never a "
+                         "level/aoi input; the core gate (checks 1-7) is "
+                         "self-contained so reference-less sites still gate.")
+    ap.add_argument("--expected-marker-ids", default=None,
+                    help="Comma-separated expected coded-target IDs (e.g. "
+                         "'13,14,15,16,19,20,25,26'). The marker stage stops at the "
+                         "lowest tolerance where this full ID set is present "
+                         "(identity, not count); FAILs if any are missing; flags "
+                         "unexpected IDs as possible false positives. PREFERRED over "
+                         "--expected-markers.")
+    ap.add_argument("--expected-markers", type=int, default=None,
+                    help="Weaker COUNT criterion for the marker stage if exact IDs "
+                         "are unknown. EDR belt transects deploy 4 scale bars = 8 "
+                         "coded targets. Prefer --expected-marker-ids.")
+    ap.add_argument("--max-total-tilt-deg", type=float, default=GATE_TOTAL_TILT_MAX_DEG,
+                    help="Gate check 2 gross-mislevel bound (deg). Default 6.0 is "
+                         "conservative for the EDR ~1 m-strip deployment (cross "
+                         "floor ~2-4 deg from the marker-Y-spread); override for a "
+                         "transect with materially different marker geometry. The "
+                         "per-transect marker-Y-spread is logged every run.")
     ap.add_argument("--focal-decision", type=Path,
                     default=Path("/data/edr_work/smoke/products/focal_decision.json"),
                     help="Path to the smoke test's focal_decision.json. The "
@@ -1164,6 +1809,14 @@ def main() -> None:
                          "loud-warn. Off by default: the pipeline stops on a "
                          "critical alarm so a dev run surfaces and iterates.")
     args = ap.parse_args()
+
+    expected_ids = None
+    if args.expected_marker_ids:
+        try:
+            expected_ids = {int(x) for x in args.expected_marker_ids.split(",") if x.strip()}
+        except ValueError:
+            sys.exit(f"--expected-marker-ids must be comma-separated integers, got "
+                     f"{args.expected_marker_ids!r}")
 
     gpu_names = gpu_check()
     doc = open_or_create(args.project)
@@ -1186,17 +1839,24 @@ def main() -> None:
         elif st == "align":
             stage_align(doc, focal_mode, args.ignore_sanity)
         elif st == "markers":
-            stage_markers(doc, args.ignore_sanity)
+            stage_markers(doc, args.ignore_sanity, expected_ids, args.expected_markers)
         elif st == "reduce":
             stage_reduce(doc, args.logan_module, args.ignore_sanity)
+        elif st == "level":
+            stage_level(doc, args.ignore_sanity)
         elif st == "dense":
             stage_dense(doc, args.ignore_sanity)
         elif st == "filter":
             stage_filter(doc, args.noise_confidence, args.ignore_sanity)
+        elif st == "aoi":
+            stage_aoi(doc, args.ignore_sanity)
         elif st == "dsm":
             stage_dsm(doc, args.ignore_sanity)
         elif st == "ortho":
             stage_ortho(doc, args.ignore_sanity)
+        elif st == "gate":
+            stage_gate(doc, args.ignore_sanity, args.reference_dem,
+                       args.max_total_tilt_deg)
         elif st == "report":
             stage_report(doc, args.out_root, gpu_names)
     log("Pipeline run complete.")

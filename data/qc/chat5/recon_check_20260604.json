@@ -1,0 +1,21 @@
+{
+  "title": "Phase-B recon-check (read-only): reproduce stage_level R + resolve AOI-yaw location",
+  "date": "2026-06-04",
+  "method": "Pristine markers -> scale-bar MAD outlier reject -> vetted-6 LS plane (pure-python Jacobi eigensolver) -> R: normal->+Z (Rodrigues). Diff vs stored edr_t3_relevel.psx (level-only) and edr_t3_relevel_final.psx (level+frame). No save; in-memory only.",
+  "level_reproduction": {
+    "excluded_scalebar": "marker 25_marker 26 (resid +15.13mm, MAD z=11.29 > 3.5)",
+    "vetted_markers": ["13","14","15","16","19","20"],
+    "fit_normal": [-0.19, -0.334, 0.9232], "fit_tilt_from_Z_deg": 22.595,
+    "diagnosis_ref_normal": [-0.19, -0.3302, 0.9246], "diagnosis_ref_tilt_deg": 22.39,
+    "vs_level_only_intermediate": {"D_minus_R_maxabs": 0.00376, "residual_rot_deg": 0.23, "residual_axis": "~+X (cross/roll DOF)"},
+    "verdict": "NON-STRUCTURAL. Vetted set exact; normal matches diagnosis to ~0.2 deg; R reproduces the stored leveling-only transform to 0.23 deg, residual on the under-constrained cross DOF the diagnosis flags as low-precision (0.85m marker-Y-spread). Sub-degree, same method, same axis -> proceed."
+  },
+  "yaw_location_RESOLVED": {
+    "relevel_final_vs_level_residual_rot_deg": 2.06,
+    "residual_axis": [0.298, 0.321, -0.899],
+    "finding": "relevel_final.transform = level(R) + ~2.06 deg rotation about world -Z ~= the -2.03 deg footprint yaw. The AOI YAW IS BAKED INTO chunk.transform (about world Z), not only region.rot. region is the 10x1x5 m box (both stored regions = exactly 10.0 x 1.0 x 5.0 m).",
+    "design_consequence": "stage_aoi: (1) footprint PCA -> yaw; (2) apply yaw rotation about world Z to chunk.transform; (3) set region center=centroid, size=10x1x5; (4) crop. Orientation assertion #7 checks marker 20 lands on +X half of the final frame."
+  },
+  "phase_c_bar_implication": "codified==manual max_abs_diff will be ~mm (cross-DOF level residual), NOT sub-mm/bit. Per the reframe this is corroboration-level (PASS-track), not structural. Real bar = determinism (codified==codified) + gate-vs-P13HMEON.",
+  "open_implementation_decision": "Dense PointCloud API (MS 2.3.1) exposes NO per-point coord iterator and NO numpy in-process -> the 'all-points 2x2 covariance' footprint isn't directly implementable in stage_aoi. Options: (A) ortho-render footprint (all points contribute) -> PCA occupied cells, in-process, resolution pinned to DSM 0.01m; (B) export dense PLY -> .venv numpy 2x2 covariance, true all-points parameter-free but subprocess+~300MB temp/run."
+}
