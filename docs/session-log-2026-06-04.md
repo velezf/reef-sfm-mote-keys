@@ -2,7 +2,77 @@
 
 Completion-log + resume file. First-person where it helps; disconnect-safe handoff.
 
-## STATE (what's done)
+---
+
+## ⭑ CLOSE-OUT UPDATE — end of 2026-06-04 (supersedes the STATE/RUNNING/RESUME below)
+
+**The first T1 align run FAILED and was recovered + hardened; the re-run was
+deliberately NOT started (stopped for the day).** See the postmortem in
+`docs/05-metashape-processing.md` → "Operational incident — 2026-06-04 T1 align
+lost to a stale lock".
+
+**Done today:**
+- **A1 — stale lock cleared.** `edr_t1.files/lock` (orphaned by the prep run,
+  mtime 18:22) removed after confirming no live holder. Recorded in
+  `logs/t1_recovery.log`.
+- **A2 — launcher + pipeline HARDENED (commit `a076af0`).** Read-only fail-fast
+  after `Document.open()`; stale-lock detection (live-holder scan, else clean
+  with log); honest completion sentinel (only on align rc==0 AND markers rc==0
+  AND `--verify` on-disk pass); verified saves (mtime-advanced or
+  `PipelineSaveError`). `--verify`/`--verify-expect` added; validated
+  (`py_compile`, `bash -n`, and `--verify` correctly FAILs on the unaligned
+  project). Incident log preserved as
+  `logs/t1_align_markers.incident-20260604T2043Z.log`.
+- **A3 — NOT started, by choice.** The align is ready to launch with the hardened
+  launcher.
+
+**Why the loss was operational only:** the lost in-memory align was excellent —
+**99.6% (2348/2357), 10.67M tie points, RMS 0.2322** — so the params are sound;
+expect ≈99.6% again on the re-run.
+
+### ⭑ RESUME POINT (do this first next session)
+Kick off the **hardened** `align → markers` detached, then STOP at the pre-dense
+stop and report. The hardened launcher now fails fast on a read-only/locked open
+and only writes `T1_ALIGN_MARKERS_COMPLETE` on verified success.
+```bash
+# from a clean instance, nothing running:
+tmux ls 2>/dev/null            # expect: no t1align
+ps -eo cmd | grep -iE 'metashape|run_pipeline' | grep -v grep   # expect: none
+tmux new-session -d -s t1align \
+  "bash /data/edr_work/run_t1_align_markers.sh > /data/edr_work/logs/t1_align_markers.log 2>&1"
+# monitor:
+tail -f /data/edr_work/logs/t1_align_markers.log
+# done when (honest now):
+grep -q T1_ALIGN_MARKERS_COMPLETE /data/edr_work/logs/t1_align_markers.log && echo VERIFIED-COMPLETE
+grep -q T1_ALIGN_MARKERS_FAILED   /data/edr_work/logs/t1_align_markers.log && echo FAILED
+```
+Then report: **alignment quality** (% of 2357 enabled), **footprint geometry →
+belt-or-not** (gate #6 aspect: 10×1 belt vs the flagged 9-pass C2–C6/R2–R5 2-D
+area survey — the key methodological fork), and **detected coded-marker IDs + the
+0.25 m scale-bar pairs** (candidate `--expected-marker-ids`).
+
+### Open items (carried)
+- **Part B** robustness/spot layer (fail-fast preconditions, verified
+  stage-boundary checkpointing, honest orchestration state file, IMDS
+  spot-interruption handler, auto-resume controller) — NOT started; build it,
+  then surface the dense-instance on-demand-vs-spot tradeoff and STOP for a call.
+- **belt-or-not** unresolved (needs the re-run + markers/footprint).
+- **`--expected-marker-ids`** TBD (from the discovery pass).
+- **T1 AOI strategy** if non-belt → reference-free (markers / survey convention),
+  NEVER P13HMEON.
+- **T1 reference fetch** deferred until the AOI is fixed.
+- **Dense needs explicit GO** — never auto-start.
+
+### Guardrails / firewall (unchanged, re-confirmed)
+P13HMEON reference is **comparison-only** (firewall `325dbc7`) — never
+construction, never the AOI. **T3 is shipped** — no re-dense, don't touch the
+promoted `edr_t3.psx`; pristine copy-only holds. Methods = **Combs 2021 + Toth
+2025 (ESM Table S2)**; PIFSC SOP is parameter-reference only. Dense only on
+explicit go.
+
+---
+
+## STATE (what's done)  — historical (pre-incident; see CLOSE-OUT above)
 - **EDR_T3 = SHIPPED.** The day-1 24.26° mis-level is fixed, codified (`stage_level` + `stage_aoi` +
   permanent 8-check gate, ADR-0021), and the working `/data/edr_work/edr_t3.psx` is the **codified
   product** (gate PASS: long 0.39° / total 1.64° / coverage 97.9% / co-reg 0 / scale 10.000 m / roughness

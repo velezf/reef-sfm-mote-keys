@@ -679,6 +679,53 @@ preserved-dense T3 validation never ran level-before-dense or the overnight dens
 Surface the T1 run config tracked to ESM Table S2 and the finalized ledger, then
 launch only on explicit go.
 
+### Operational incident — 2026-06-04 T1 align lost to a stale lock (postmortem)
+
+**Class: operational, NOT methodological.** The ESM Table S2 recipe is unchanged;
+this is an orchestration/discipline failure and its fix is orchestration code.
+
+**What happened.** The first detached T1 `align → markers` run computed a full,
+high-quality alignment and then lost all of it at the save:
+- A **stale lock** `edr_t1.files/lock` (content `reef-ec2/ubuntu`, mtime 18:22),
+  orphaned when the earlier prep/step4 Metashape process exited without releasing
+  it, was still present when align opened the project at 18:47.
+- Metashape **silently downgraded the open to read-only** (`Document.open(): ...
+  opened in read-only mode because it is already in use`).
+- Align ran the full **~1 h 56 m** anyway and succeeded in memory, then died at
+  the final `doc.save()`: `OSError: Document.save(): editing is disabled in
+  read-only mode`. Marker discovery never ran.
+- The launcher wrote the completion sentinel **unconditionally**, so the resume
+  check (`grep T1_ALIGN_MARKERS_COMPLETE … && echo FINISHED`) reported a
+  **false-positive FINISHED** over a failed run.
+
+**Evidence the loss is purely operational (params are sound).** The in-memory
+result, before it was lost, was excellent: **aligned 2348/2357 enabled = 99.6%**,
+**10,674,149 tie points**, **RMS 0.2322** (filter units). Nothing about the
+alignment configuration is in question — only that it was never persisted.
+(Incident log preserved: `logs/t1_align_markers.incident-20260604T2043Z.log`;
+stale-lock removal recorded in `logs/t1_recovery.log`.)
+
+**Root cause.** Two latent defects compounded: (1) Metashape's silent read-only
+downgrade on a stale lock, never asserted against; (2) a success sentinel not
+tied to actual stage success or to on-disk state.
+
+**Fix shipped — commit `a076af0`** (each guard independently catches this):
+- **Read-only fail-fast** — `open_or_create` asserts `not doc.read_only` right
+  after `Document.open()` and aborts in ~1 s, before any compute.
+- **Stale-lock detection** — before open, if a lock exists, scan `/proc` for a
+  live Metashape `run_pipeline` holder (the lock file carries no pid); abort if
+  one is alive, else remove the orphaned lock with a loud log line.
+- **Honest completion signal** — `run_t1_align_markers.sh` writes
+  `T1_ALIGN_MARKERS_COMPLETE` **only** when align rc==0 AND markers rc==0 AND a
+  read-only reopen (`--verify`) confirms align+markers persisted on disk;
+  otherwise it writes `T1_ALIGN_MARKERS_FAILED` and exits non-zero.
+- **Verified saves** — `save()` confirms `doc.save()` raised no exception AND the
+  on-disk mtime advanced, else raises `PipelineSaveError`.
+
+**Carry-forward.** Apply the same discipline to the dense and the Part-B spot
+layer: fail-fast preconditions before any long compute, and never a success
+marker that isn't tied to verified, on-disk state.
+
 ## Trial-clock discipline
 
 The dense reconstruction is the irreversible compute investment and the longest
