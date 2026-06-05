@@ -86,6 +86,19 @@ class _Doc:
         self.path = "/tmp/fake.psx"
 
 
+def _rec(mid, resid=0.2, pos=None, n_proj=12):
+    return {"id": mid, "label": f"marker {mid}", "reconstructed": True,
+            "projection_count": n_proj, "resid_px_median": resid,
+            "resid_px_max": resid,
+            "pos_local": pos if pos is not None else [float(mid), 0.0, 0.0],
+            "images": [f"i{mid}_{k}" for k in range(n_proj)]}
+
+
+def _bar(a, b, x0, length, resid=0.2):
+    return [_rec(a, resid=resid, pos=[x0, 0.0, 0.0]),
+            _rec(b, resid=resid, pos=[x0 + length, 0.0, 0.0])]
+
+
 def _t3_records():
     """4 clean consecutive-ID bars, ratio ~1.09, resid <=0.38 -> PASS."""
     recs = []
@@ -246,6 +259,136 @@ def test_passed_layer_is_idempotent_on_rerun(patched, tmp_path):
     assert calls["n"] == 1
     _run_markers(doc, tmp_path)              # already headless-pass -> skip
     assert calls["n"] == 1, "a passed layer must not re-validate"
+
+
+# --------------------------------------------------------------------------- #
+# Re-entry robustness (HARDENING)
+# --------------------------------------------------------------------------- #
+
+
+def _two_bar_records():
+    return _bar(13, 14, 0.0, 1.0, resid=0.2) + _bar(15, 16, 3.0, 1.0, resid=0.2)
+
+
+def _partial_fix_records():
+    """4 bars but marker 16 still incoherent (load-bearing) — a half-done GUI fix."""
+    recs = _t3_records()
+    for r in recs:
+        if r["id"] == 16:
+            r["resid_px_median"] = 5000.0
+    return recs
+
+
+def test_reentry_still_failing_escalates_again(patched, tmp_path):
+    chunk = _Chunk("EDR_T1", _markers_for([13, 15, 16, 19, 20, 24, 26]))
+    doc = _Doc([chunk])
+    patched.setattr(rp, "_extract_marker_records", lambda ch: _t1_records())
+    with pytest.raises(rp.PipelineSanityError):
+        _run_markers(doc, tmp_path)
+    # "human fix" that is still bad -> ESCALATE again (no infinite loop, no pass)
+    with pytest.raises(rp.PipelineSanityError):
+        _run_markers(doc, tmp_path)
+    assert rp._meta_get(chunk, "esm.markers_validation")["status"] == "escalated"
+    assert chunk.scalebars == []
+
+
+def test_partial_fix_escalates(patched, tmp_path):
+    chunk = _Chunk("EDR_T1", _markers_for([13, 15, 16, 19, 20, 24, 26]))
+    doc = _Doc([chunk])
+    patched.setattr(rp, "_extract_marker_records", lambda ch: _t1_records())
+    with pytest.raises(rp.PipelineSanityError):
+        _run_markers(doc, tmp_path)
+    # corrected set, but one flagged marker remains (16) -> ESCALATE
+    chunk.markers = _markers_for([13, 14, 15, 16, 19, 20, 25, 26])
+    patched.setattr(rp, "_extract_marker_records", lambda ch: _partial_fix_records())
+    with pytest.raises(rp.PipelineSanityError):
+        _run_markers(doc, tmp_path)
+    rep = json.loads((tmp_path / "EDR_T1" / "markers_escalation.json").read_text())
+    assert "b_coherence" in rep["failed_gates"]
+    assert 16 in rep["suspect_ids"]
+
+
+def test_insufficient_bars_escalates_at_stage(patched, tmp_path):
+    chunk = _Chunk("EDR_T3", _markers_for([13, 14, 15, 16]))
+    doc = _Doc([chunk])
+    patched.setattr(rp, "_extract_marker_records", lambda ch: _two_bar_records())
+    with pytest.raises(rp.PipelineSanityError):
+        _run_markers(doc, tmp_path)
+    rep = json.loads((tmp_path / "EDR_T3" / "markers_escalation.json").read_text())
+    assert "d_sufficiency" in rep["failed_gates"]
+    assert chunk.scalebars == []
+
+
+# --------------------------------------------------------------------------- #
+# Fail-closed on exception (HARDENING)
+# --------------------------------------------------------------------------- #
+
+
+def test_extraction_exception_escalates_never_passes(patched, tmp_path):
+    chunk = _Chunk("EDR_T1", _markers_for([13, 14, 15, 16, 19, 20, 25, 26]))
+    doc = _Doc([chunk])
+
+    def _boom(ch):
+        raise RuntimeError("metashape exploded mid-extract")
+    patched.setattr(rp, "_extract_marker_records", _boom)
+    with pytest.raises(rp.PipelineSanityError):
+        _run_markers(doc, tmp_path)
+    rep = json.loads((tmp_path / "EDR_T1" / "markers_escalation.json").read_text())
+    assert rep["status"] == "escalated"
+    assert rep["failed_gates"] == ["extraction_error"]
+    assert rep["error"]["type"] == "RuntimeError"
+    val = rp._meta_get(chunk, "esm.markers_validation")
+    assert val["status"] == "escalated"
+    assert chunk.scalebars == []
+    # stage_scale must still refuse
+    with pytest.raises(rp.PipelineSanityError):
+        rp.stage_scale(doc, ignore_sanity=False)
+
+
+# --------------------------------------------------------------------------- #
+# Provenance integrity (HARDENING)
+# --------------------------------------------------------------------------- #
+
+
+def test_zero_touch_pass_recorded_as_headless_auto(patched, tmp_path):
+    chunk = _Chunk("EDR_T3", _markers_for([13, 14, 15, 16, 19, 20, 25, 26]))
+    doc = _Doc([chunk])
+    patched.setattr(rp, "_extract_marker_records", lambda ch: _t3_records())
+    _run_markers(doc, tmp_path)
+    rec = json.loads((tmp_path / "EDR_T3" / "markers_validation.json").read_text())
+    assert rec["marker_source"] == "headless-auto"
+    assert rec["human_touch"] == "none"
+    assert rec["prior_escalation"] is None
+
+
+def test_human_corrected_pass_recorded_distinctly(patched, tmp_path):
+    chunk = _Chunk("EDR_T1", _markers_for([13, 15, 16, 19, 20, 24, 26]))
+    doc = _Doc([chunk])
+    patched.setattr(rp, "_extract_marker_records", lambda ch: _t1_records())
+    with pytest.raises(rp.PipelineSanityError):
+        _run_markers(doc, tmp_path)
+    # GUI fix -> re-enter -> PASS
+    chunk.markers = _markers_for([13, 14, 15, 16, 19, 20, 25, 26])
+    patched.setattr(rp, "_extract_marker_records", lambda ch: _t3_records())
+    _run_markers(doc, tmp_path)
+    rec = json.loads((tmp_path / "EDR_T1" / "markers_validation.json").read_text())
+    assert rec["marker_source"] == "human-corrected"
+    assert rec["human_touch"] == "gui-marker-fix"
+    assert rec["prior_escalation"] is not None
+    assert "a_parity" in rec["prior_escalation"]["failed_gates"]
+    # the manifest can now tell T3-zero-touch from T1-corrected-by-human
+    assert rec["prior_escalation"]["report"].endswith("markers_escalation.json")
+
+
+def test_validated_scalebars_are_deterministic(patched, tmp_path):
+    patched.setattr(rp, "_extract_marker_records", lambda ch: _t3_records())
+    out_a, out_b = tmp_path / "a", tmp_path / "b"
+    for out in (out_a, out_b):
+        chunk = _Chunk("EDR_T3", _markers_for([13, 14, 15, 16, 19, 20, 25, 26]))
+        _run_markers(_Doc([chunk]), out)
+    a = (out_a / "EDR_T3" / "validated_scalebars.json").read_text()
+    b = (out_b / "EDR_T3" / "validated_scalebars.json").read_text()
+    assert a == b, "same input must yield byte-identical validated_scalebars.json"
 
 
 if __name__ == "__main__":

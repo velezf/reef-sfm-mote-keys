@@ -48,9 +48,15 @@ Pure functions over per-marker records (`validate_markers`), Metashape-free and 
   ceiling; FAIL only if a flagged marker is **load-bearing** for a proposed bar (a flagged orphan is
   already gate (a)'s, and is reported as evidence, not double-counted). T3 → PASS (max 0.38, ~5× margin);
   T1 → FAIL (load-bearing 15/16/19/20 all ≫ ceiling, ~1000× past).
-- **(c) inter-bar consistency.** Proposed-bar **max/min local-length ratio ≤ 1.25**. Computed in
+- **(c) inter-bar consistency.** Candidate-bar **max/min local-length ratio ≤ 1.25**. Computed in
   internal pre-scale units — **scale-invariant, firewall-safe, never converted to metres**. T3 1.091 →
-  PASS; T1 1.352 → FAIL.
+  PASS; T1 1.352 → FAIL. Runs over **all candidate bars** (a wrong length is itself the mispairing
+  signal, so it must see a bar even when an endpoint is also coherence-flagged).
+- **(d) sufficiency (fail-closed floor).** A headless PASS requires **≥ 3 VALIDATED bars** (a validated
+  bar = a proposed pair whose both endpoints are coherent). **Why 3:** the floor must be ≥ 2 so gate (c)
+  has two bars to compare — with a single surviving bar the ratio is a vacuous 1.0 and the layer would
+  scale unchecked; 3 matches the EDR deployment norm (Toth ESM deploys 3–4 scale bars/transect), leaving
+  margin. T3 → PASS (4); T1 → FAIL (0). CLI-overridable via `--min-validated-bars`.
 
 Thresholds are **calibrated on the known-good transect (T3) with margin**; the bad transect (T1) is left
 to fall where it falls. **No threshold is tuned to make T1 fail** — it fails decisively on (a) and (c)
@@ -95,6 +101,41 @@ common (PASS) case and confirms it in the re-entry case.
 
 The `[GUI]` handoff is now **conditional** — entered only when validation escalates.
 
+### Fail-closed principle (robustness hardening)
+
+The gate **fails closed**: any state that is not a clean, complete, coherent layer ESCALATES — it never
+silently passes and never crashes. Concretely:
+
+- **Degenerate detection** — zero markers, one marker, all markers flagged, or zero proposable bars all
+  collapse to fewer than the gate-(d) minimum and escalate; an empty `validated_scalebars.json` is never
+  emitted.
+- **Malformed marker state** — an un-triangulated marker (no 3D position), a single-camera marker
+  (< 2 rays — structurally un-triangulable; this is a **minimum**, distinct from the falsified count-floor
+  *quality* heuristic), and a **NaN/inf** residual are each **flagged**. Non-finite is checked explicitly
+  because `NaN > ceiling` is `False` in Python — a coherence ceiling alone would let a NaN slip.
+- **Threshold boundaries are defined** — gate (b) is inclusive (`resid ≤ ceiling` passes; `> ceiling`
+  flags), gate (c) is inclusive (`ratio ≤ max` passes), gate (d) is inclusive (`bars ≥ min` passes). Each
+  boundary is unit-tested at the exact value.
+- **Any exception** in extract/validate is itself an escalation: the handler writes the report
+  (`failed_gates: ["extraction_error"]`, status `escalated`) and halts before scale — it can never fall
+  through to a PASS.
+- **Provenance integrity** — a re-entry PASS that follows a prior escalation is recorded **distinctly**
+  (`marker_source: human-corrected`, `human_touch: gui-marker-fix`, with a back-reference to the
+  escalation event) from a zero-touch headless PASS (`marker_source: headless-auto`). The manifest can
+  tell "T3 zero-touch" from "T1 corrected-by-human." Validation is **deterministic** — identical input
+  yields an identical verdict and byte-identical `validated_scalebars.json`.
+
+### Transferability — consecutive-ID pairing is an assumption (v2 item)
+
+Gate (a) assumes EDR's **consecutive-ID** bar convention (13-14, 15-16, …). A deployment using a
+different pairing convention **fails closed** rather than corrupting: a gapped convention (e.g. 10-20,
+11-21) produces orphans → gate (a) escalates; a convention that yields too few consistent bars escalates
+on gate (d). The one residual risk is an *interleaved* convention whose wrong pairing happens to be
+length-consistent **and** yields ≥ `min_validated_bars` bars — gates (c)/(d) cannot see that. This is a
+documented limitation: **configurable pairing conventions are a v2 item**; until then the consecutive-ID
+assumption is explicit and any violation that is not provably safe escalates. No tuning may relax this to
+make a non-conforming layer pass.
+
 ## Consequences
 
 - **A geometrically incoherent or unpairable marker layer can no longer be scaled headless** — it
@@ -102,7 +143,11 @@ The `[GUI]` handoff is now **conditional** — entered only when validation esca
 - T1's escalation is the **correct** outcome of this build, not a defect: it reaches a valid result on
   its own or stops. The firewall holds — gate (c) is scale-free, so no reference (P13HMEON) is ever
   consulted to resolve a pairing.
-- Thresholds are CLI-overridable (`--marker-resid-ceiling`, `--interbar-ratio-max`) but default to the
-  T3-calibrated values; the per-marker residuals and projection counts are logged every run for trend.
-- Verified read-only on both real projects via `probes/stage_markers_verify.py` (T3 PASS / T1 ESCALATE,
-  no project mutated) and 21 synthetic unit tests in `test_marker_validation.py`.
+- Thresholds are CLI-overridable (`--marker-resid-ceiling`, `--interbar-ratio-max`,
+  `--min-validated-bars`) but default to the T3-calibrated values; the per-marker residuals and
+  projection counts are logged every run for trend.
+- Verified read-only on both real projects via `probes/stage_markers_verify.py` (T3 PASS with 4 validated
+  bars / T1 ESCALATE on all of a/b/c/d, no project mutated) plus pure gate unit tests
+  (`test_marker_validation.py`) and offline loop integration tests (`test_stage_markers_loop.py`)
+  covering the gates, degenerate/malformed/exception fail-closed paths, threshold boundaries, determinism,
+  provenance distinction, and re-entry robustness.

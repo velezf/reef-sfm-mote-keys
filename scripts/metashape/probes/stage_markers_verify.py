@@ -58,12 +58,16 @@ def _summary(label, recs, verdict):
                                if r["id"] is not None and r["reconstructed"]),
         "proposed_pairs": verdict["proposed_pairs"],
         "candidate_bars": verdict["candidate_bars"],
+        "validated_bars": verdict["validated_bars"],
         "gate_a": {"ok": g["a_parity"]["ok"], "orphans": g["a_parity"]["orphans"],
                    "odd": g["a_parity"]["odd_count"]},
         "gate_b": {"ok": g["b_coherence"]["ok"],
                    "load_bearing_flagged": g["b_coherence"]["load_bearing_flagged"]},
         "gate_c": {"ok": g["c_consistency"]["ok"],
                    "ratio": g["c_consistency"].get("ratio")},
+        "gate_d": {"ok": g["d_sufficiency"]["ok"],
+                   "n_validated_bars": g["d_sufficiency"]["n_validated_bars"],
+                   "min_validated_bars": g["d_sufficiency"]["min_validated_bars"]},
         "resid_px_median_by_id": {r["id"]: r["resid_px_median"]
                                   for r in recs if r["id"] is not None},
         "projection_count_by_id": {r["id"]: r["projection_count"]
@@ -90,12 +94,16 @@ def main():
             failures.append(f"{label}: passed={verdict['passed']} "
                             f"expected {expect_pass}")
         if expect_pass:
-            if len(verdict["candidate_bars"]) != 4:
-                failures.append(f"{label}: expected 4 bars, "
-                                f"got {len(verdict['candidate_bars'])}")
-            if not s["gate_a"]["ok"] or not s["gate_b"]["ok"] or not s["gate_c"]["ok"]:
+            if len(verdict["validated_bars"]) != 4:
+                failures.append(f"{label}: expected 4 validated bars, "
+                                f"got {len(verdict['validated_bars'])}")
+            if not s["gate_d"]["ok"]:
+                failures.append(f"{label}: gate (d) sufficiency failed "
+                                f"({s['gate_d']['n_validated_bars']} bars)")
+            if not (s["gate_a"]["ok"] and s["gate_b"]["ok"]
+                    and s["gate_c"]["ok"] and s["gate_d"]["ok"]):
                 failures.append(f"{label}: a known-good transect failed a gate "
-                                f"{s['gate_a']},{s['gate_b']},{s['gate_c']}")
+                                f"{s['gate_a']},{s['gate_b']},{s['gate_c']},{s['gate_d']}")
         else:
             # T1: assert it escalates on (a) AND (c), with the documented orphans.
             if s["gate_a"]["ok"]:

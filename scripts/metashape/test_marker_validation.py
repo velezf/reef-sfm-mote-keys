@@ -25,6 +25,7 @@ Run:  python3 -m pytest scripts/metashape/test_marker_validation.py -v
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -301,6 +302,196 @@ def test_validate_thresholds_recorded():
     v = _validate(_clean_t3_like())
     assert v["thresholds"]["resid_ceiling_px"] == CEIL
     assert v["thresholds"]["interbar_ratio_max"] == RATIO
+
+
+# --------------------------------------------------------------------------- #
+# Gate (d) — sufficiency / fail-closed minimum bars (HARDENING)
+# --------------------------------------------------------------------------- #
+
+
+MINBARS = rp.GATE_MIN_VALIDATED_BARS          # 3
+
+
+def test_gate_d_enough_bars_passes():
+    gd = rp.gate_sufficiency([{"a": 1, "b": 2}, {"a": 3, "b": 4}, {"a": 5, "b": 6}], MINBARS)
+    assert gd["ok"] is True and gd["n_validated_bars"] == 3
+
+
+def test_gate_d_too_few_bars_fails():
+    gd = rp.gate_sufficiency([{"a": 1, "b": 2}, {"a": 3, "b": 4}], MINBARS)
+    assert gd["ok"] is False and gd["n_validated_bars"] == 2
+
+
+def test_two_clean_bars_escalate_on_min_bars():
+    # Two perfectly consistent coherent bars (gate c ratio 1.0) but < 3 -> the
+    # gap the floor closes: a layer that would otherwise scale unchecked ESCALATES.
+    recs = _bar(13, 14, 0.0, 1.0, resid=0.2) + _bar(15, 16, 3.0, 1.0, resid=0.2)
+    v = _validate(recs)
+    assert v["passed"] is False
+    assert v["gates"]["a_parity"]["ok"] is True
+    assert v["gates"]["b_coherence"]["ok"] is True
+    assert v["gates"]["c_consistency"]["ok"] is True       # ratio 1.0, vacuous
+    assert v["gates"]["d_sufficiency"]["ok"] is False       # 2 < 3 -> escalate
+
+
+def test_single_surviving_bar_escalates():
+    recs = _bar(13, 14, 0.0, 1.0, resid=0.2)
+    v = _validate(recs)
+    assert v["passed"] is False
+    assert v["gates"]["d_sufficiency"]["n_validated_bars"] == 1
+    assert v["gates"]["c_consistency"].get("abstained") is True
+
+
+# --------------------------------------------------------------------------- #
+# Degenerate detection — fail closed, never crash, never emit empty (HARDENING)
+# --------------------------------------------------------------------------- #
+
+
+def test_zero_markers_escalates_no_crash():
+    v = _validate([])
+    assert v["passed"] is False
+    assert v["validated_bars"] == []
+    assert v["gates"]["d_sufficiency"]["n_validated_bars"] == 0
+
+
+def test_one_marker_escalates():
+    v = _validate([_rec(13)])
+    assert v["passed"] is False
+    assert v["gates"]["a_parity"]["orphans"] == [13]
+
+
+def test_all_markers_flagged_escalates():
+    recs = _bar(13, 14, 0.0, 1.0, resid=9e9) + _bar(15, 16, 3.0, 1.0, resid=9e9) \
+        + _bar(19, 20, 6.0, 1.0, resid=9e9)
+    v = _validate(recs)
+    assert v["passed"] is False
+    assert v["gates"]["b_coherence"]["ok"] is False
+    assert v["validated_bars"] == []           # nothing trustworthy to emit
+
+
+def test_zero_proposable_bars_escalates():
+    # All IDs non-consecutive -> no pairs at all.
+    recs = [_rec(13), _rec(15), _rec(17), _rec(19)]
+    v = _validate(recs)
+    assert v["passed"] is False
+    assert v["proposed_pairs"] == []
+    assert v["gates"]["d_sufficiency"]["n_validated_bars"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# Malformed marker state -> flagged -> escalate, no crash (HARDENING)
+# --------------------------------------------------------------------------- #
+
+
+def _untriangulated(mid):
+    return {"id": mid, "label": f"marker {mid}", "reconstructed": False,
+            "projection_count": 0, "resid_px_median": None, "resid_px_max": None,
+            "pos_local": None, "images": []}
+
+
+def test_untriangulated_marker_breaks_its_pair():
+    # 14 has no 3D position -> 13 becomes an orphan -> escalate; no crash.
+    recs = [_rec(13, pos=[0, 0, 0]), _untriangulated(14)] + _bar(15, 16, 3, 1.0) \
+        + _bar(19, 20, 6, 1.0)
+    v = _validate(recs)
+    assert v["passed"] is False
+    assert 13 in v["gates"]["a_parity"]["orphans"]
+
+
+def test_single_camera_marker_flagged():
+    recs = _bar(13, 14, 0.0, 1.0, resid=0.2)
+    for r in recs:
+        if r["id"] == 14:
+            r["projection_count"] = 1          # un-triangulable: one camera ray
+    gb = rp.gate_coherence(recs, [(13, 14)], CEIL)
+    assert gb["ok"] is False
+    assert any(f["id"] == 14 and "projection" in f["reason"] for f in gb["flagged"])
+
+
+def test_nan_residual_flagged_not_silently_passed():
+    # NaN > ceiling is False in Python -> must be caught explicitly, else it slips.
+    recs = _bar(13, 14, 0.0, 1.0, resid=0.2)
+    for r in recs:
+        if r["id"] == 14:
+            r["resid_px_median"] = float("nan")
+    gb = rp.gate_coherence(recs, [(13, 14)], CEIL)
+    assert gb["ok"] is False
+    assert any(f["id"] == 14 and f["reason"] == "non-finite-residual"
+               for f in gb["flagged"])
+
+
+def test_inf_residual_flagged():
+    recs = _bar(13, 14, 0.0, 1.0, resid=0.2)
+    for r in recs:
+        if r["id"] == 14:
+            r["resid_px_median"] = float("inf")
+    gb = rp.gate_coherence(recs, [(13, 14)], CEIL)
+    assert gb["ok"] is False
+
+
+def test_flag_reasons_enumerated():
+    assert rp._coherence_flag_reason(_untriangulated(9), CEIL, 2) == "no-3d-position"
+    assert rp._coherence_flag_reason(_rec(9, n_proj=1), CEIL, 2) == "under-2-projections"
+    assert rp._coherence_flag_reason(_rec(9, resid=5.0), CEIL, 2) == "residual-over-ceiling"
+    assert rp._coherence_flag_reason(_rec(9, resid=float("nan")), CEIL, 2) == "non-finite-residual"
+    assert rp._coherence_flag_reason(_rec(9, resid=0.2), CEIL, 2) is None
+
+
+# --------------------------------------------------------------------------- #
+# Threshold boundaries — inclusive/exclusive exactly at 2.0 px and ratio 1.25
+# --------------------------------------------------------------------------- #
+
+
+def test_gate_b_ceiling_is_inclusive():
+    # resid == ceiling passes (<= ceiling); just over fails.
+    assert rp._coherence_flag_reason(_rec(9, resid=2.0), 2.0, 2) is None
+    assert rp._coherence_flag_reason(_rec(9, resid=2.0001), 2.0, 2) == "residual-over-ceiling"
+
+
+def test_gate_c_ratio_is_inclusive():
+    assert rp.gate_consistency([1.0, 1.25], 1.25)["ok"] is True       # exactly at tol
+    assert rp.gate_consistency([1.0, 1.2501], 1.25)["ok"] is False    # just over
+
+
+# --------------------------------------------------------------------------- #
+# Determinism — same input -> same verdict + same validated bars (HARDENING)
+# --------------------------------------------------------------------------- #
+
+
+def test_validate_is_deterministic():
+    recs = _clean_t3_like()
+    v1 = _validate(recs)
+    v2 = _validate(_clean_t3_like())          # rebuilt identical input
+    assert json.dumps(v1, sort_keys=True) == json.dumps(v2, sort_keys=True)
+    assert v1["validated_bars"] == v2["validated_bars"]
+
+
+# --------------------------------------------------------------------------- #
+# Transferability — a non-consecutive pairing convention fails CLOSED (test+note)
+# --------------------------------------------------------------------------- #
+
+
+def test_gapped_pairing_convention_escalates_on_parity():
+    # A +10 bar convention (10-20, 11-21, 12-22) under our consecutive-ID
+    # assumption produces orphans -> ESCALATE, never a silent corrupt pass.
+    recs = [_rec(i) for i in (10, 11, 12, 20, 21, 22)]
+    v = _validate(recs)
+    assert v["passed"] is False
+    assert v["gates"]["a_parity"]["orphans"]      # non-empty -> caught
+
+
+def test_interleaved_consistent_mispairing_still_escalates_on_min_bars():
+    # Real bars (13,15),(14,16); under consecutive pairing the wrong bars (13,14),
+    # (15,16) happen to be equal length (ratio 1.0) -> gate (c) cannot catch it,
+    # but only 2 bars form so gate (d) ESCALATES. Documents that a CONSISTENT
+    # mispairing with >= min_bars is the residual risk configurable pairing (v2)
+    # addresses (ADR-0022 transferability note).
+    recs = [_rec(13, pos=[0.0, 0, 0]), _rec(14, pos=[1.0, 0, 0]),
+            _rec(15, pos=[0.25, 0, 0]), _rec(16, pos=[1.25, 0, 0])]
+    v = _validate(recs)
+    assert v["passed"] is False
+    assert v["gates"]["c_consistency"]["ok"] is True          # ratio 1.0, blind here
+    assert v["gates"]["d_sufficiency"]["ok"] is False          # 2 < 3 -> escalate
 
 
 if __name__ == "__main__":

@@ -664,7 +664,7 @@ validated *pilot* that proved the method; nothing is lost.
 | 8 | Step 8 Gradual Selection (Logan tool) | Logan preferred; built-in transcription fallback (Logan not yet vendored) | Faithful values; per-run documented departure (ADR-0010) |
 | 9 | DSM 1 mm (PIFSC) | **1 cm (ESM)** | Corrected to ESM (ADR-0017) |
 | 10 | (no gate in ESM) | permanent 8-check QC gate | Added safeguard (ADR-0021) |
-| 12 | Step 7 GUI scale-bar assignment | headless **marker-layer validation gate** (a parity / b coherence / c inter-bar ratio) → dumb `stage_scale`; GUI only on escalation | Added safeguard + automation (ADR-0022); replaces the manual assign on the PASS path |
+| 12 | Step 7 GUI scale-bar assignment | headless **marker-layer validation gate** (a parity / b coherence / c inter-bar ratio / d sufficiency = fail-closed min-bars) → dumb `stage_scale`; GUI only on escalation | Added safeguard + automation (ADR-0022); replaces the manual assign on the PASS path |
 | 13 | (brief: gate-b = mis-decodes in few cameras at high residual) | gate-b = **reprojection COHERENCE** (loose post-align tripwire, no in-gate optimize); projection count is **evidence only** | Heuristic **falsified by the data** (T1 ghost sits in 111 cameras, low residual; count non-transferable T3 5–30 vs T1 111–182) — ADR-0022 |
 | 11 | Step 6/12 tie-point covariance: Yes | `optimizeCameras(tiepoint_covariance=True)` — **wired T1 onward**; the T3 pilot ran pre-wiring (covariance is an uncertainty output, not geometry; T3 already gate-passed, NOT re-run) | Faithful T1+; documented T3 gap |
 | — | Keypoint 40k / dense Medium (PIFSC SOP) | **60k / High (ESM)** | ESM wins where PIFSC conflicts (ADR-0010) |

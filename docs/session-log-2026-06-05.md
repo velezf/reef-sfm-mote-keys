@@ -34,6 +34,28 @@ loose 2.0 px ceiling, **no in-gate optimize**, count = evidence only) — so I d
 **Next (separate, gated):** review → commit → the actual T1 production `--stage markers` run will
 ESCALATE (correct); a human GUI marker fix + re-validate is the real re-entry test. Dense never auto-starts.
 
+## ✅ HARDENING (2026-06-05, second commit — robustness + tests, no production run)
+
+Build committed clean first (`fb9cf8d`), then hardening as a separate commit. All CPU-cheap.
+
+- **Fail-closed gate (d) sufficiency:** a headless PASS now requires **>= 3 VALIDATED bars** (floor 2 so
+  gate (c) has two to compare; 3 = EDR norm). Closes the single-surviving-bar gap (ratio vacuously 1.0).
+  `--min-validated-bars`. Gate (c) runs over CANDIDATE bars (preserves T1's 1.352 signal); gate (d) over
+  VALIDATED (coherent-endpoint) survivors.
+- **Fail-closed everywhere:** degenerate (0/1 marker, all-flagged, 0 bars) → escalate, never emit empty;
+  malformed (no-3D-position, single-camera `< 2` rays, **NaN/inf** residual — explicit `isfinite`, since
+  `NaN > ceiling` is False) → flagged; any exception in extract/validate → `_write_extraction_failure`
+  (`failed_gates:["extraction_error"]`) + halt, never pass. Thresholds inclusive at 2.0px / 1.25 / 3 bars.
+- **Provenance integrity:** PASS after a prior escalation recorded distinctly (`marker_source:
+  human-corrected`, `human_touch: gui-marker-fix`, `prior_escalation` back-ref) vs zero-touch
+  (`headless-auto`). Validation deterministic (byte-identical `validated_scalebars.json`).
+- **Transferability (test+note only, NOT built):** consecutive-ID pairing is an assumption; gapped/
+  too-few conventions fail closed; configurable pairing is a v2 item (ADR-0022 note).
+- **Tests:** +25 (now 51 marker tests; full suite **144 green**). **Regression: re-ran
+  `stage_markers_verify.py` read-only — T3 still PASS (4 validated bars), T1 still ESCALATE on a/b/c/d
+  (0 validated bars). Nothing mutated.** Docs: ADR-0022 gate-(d)/fail-closed/transferability sections.
+  T1 NOT tuned to pass — verified it still escalates after every change.
+
 ---
 ## (original mid-session design record below)
 **All work so far is read-only probes — the on-disk projects are UNTOUCHED.**
