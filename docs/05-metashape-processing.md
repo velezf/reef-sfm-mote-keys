@@ -436,6 +436,40 @@ Notes:
 - `--logan-module reduce_error` once Logan is vendored (see above); until then
   the built-in transcription runs and is recorded as `builtin_fallback`.
 
+### Reusing the marker gate on another program's data (transect-agnostic)
+
+The `stage_markers` validation gate and `stage_scale` carry **no hardcoded T1/T3/EDR
+references** — pairs are derived from the *detected* marker IDs, gate (c) is scale-free,
+and every threshold is a parameter. To run it on a different survey:
+
+**What's a parameter (CLI flags on `--stage markers` / `--stage scale`):**
+
+| Flag | Default | Meaning | Site-dependence |
+|---|---|---|---|
+| `--bar-length` | 0.25 m | physical scale-bar length (recorded on each validated bar, applied by `scale`) | per program; **does not affect PASS/FAIL** (gates are scale-free) — only metric scale |
+| `--marker-resid-ceiling` | 2.0 px | gate (b) coherence ceiling (median reprojection residual) | **most site-dependent — recalibrate first** (imaging conditions / turbidity differ) |
+| `--interbar-ratio-max` | 1.25 | gate (c) max/min bar-length ratio | **scale-free → generalizes as-is**; rarely needs changing |
+| `--min-validated-bars` | 3 | gate (d) fail-closed floor (min coherent bars for a headless PASS) | set to your deployment's bar count (floor 2) |
+| `--expected-marker-ids` | none | detection-completeness identity check | your survey's coded-target IDs |
+
+**Recalibration procedure (on your own *known-good* transect, never a bad one):**
+1. Pick a transect you trust (clean detection, correct manual scale bars).
+2. Run the read-only style of `probes/stage_markers_verify.py` against it (open
+   `read_only=True`, `_extract_marker_records` → `validate_markers`) to read its
+   per-marker median residuals and inter-bar ratio.
+3. Set `--marker-resid-ceiling` to ~3–5× that transect's **max true-marker median**
+   residual (margin, not a fit), and `--min-validated-bars` to its bar count. Leave
+   `--interbar-ratio-max` at 1.25 unless your bars are genuinely uneven.
+4. **Calibrate on the known-good case with margin; never tune a threshold to make a
+   suspect transect pass** — a failing transect that escalates is the correct outcome.
+
+**Literals not yet parameterized (v2 items):**
+- **Pairing convention.** Gate (a) assumes **consecutive-ID** bars (IDs differ by 1).
+  A different convention fails *closed* (orphans → escalate), but a configurable
+  pairing strategy is a v2 item (ADR-0022 transferability note).
+- **Target type.** Detection is fixed to `CircularTarget12bit` (ADR-0017). A survey
+  using a different coded-target family needs that surfaced as a parameter (v2).
+
 ### ESM Step 4 quality-threshold finding (the headline T3 result)
 
 Toth's ESM Step 4 disables `Image/Quality < 0.50` (verbatim). On our re-encoded

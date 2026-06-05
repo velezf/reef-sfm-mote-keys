@@ -56,6 +56,27 @@ Build committed clean first (`fb9cf8d`), then hardening as a separate commit. Al
   (0 validated bars). Nothing mutated.** Docs: ADR-0022 gate-(d)/fail-closed/transferability sections.
   T1 NOT tuned to pass — verified it still escalates after every change.
 
+## ✅ TRANSECT-AGNOSTIC REFACTOR (2026-06-05, third commit — pure code, no compute)
+
+Made the PRODUCTION marker-gate code carry **no hardcoded T1/T3/EDR references** (scope: gates,
+validate_markers, stage_markers loop, stage_scale, emit/escalation helpers, _extract_marker_records;
+tests/probe/docs allowed to keep T1/T3).
+- **Audit:** pairs already derive from DETECTED ids (no hardcoded set). Defects found + fixed: the
+  `t3_basis` string baked into `validate_markers` output → generic `calibration_note`; the `0.25 m` bar
+  length hardcoded via `PARAMS.scalebar_length_m` → new **`--bar-length`** param (default 0.25) threaded
+  to `stage_markers`→emit (records `defined_distance_m`) and consumed by `stage_scale` (applies the
+  recorded distance). EDR/T1/T3 mentions in docstrings genericized; constant-comment block now flags the
+  **coherence ceiling as most site-dependent** and the **inter-bar ratio as scale-free (generalizes
+  as-is)**.
+- **Gates stay scale-free** → `--bar-length` cannot move PASS/FAIL (only metric scale).
+- **Proof:** new pure FOREIGN-transect tests (IDs 200..205, 3 bars, no EDR in path): clean→PASS,
+  orphan→a, +35% bar→c, incoherent→b, sub-min→escalate, custom min-bars=2→PASS; + a loop test that a
+  0.5 m `--bar-length` flows markers→scalebar distance. **Suite 151 green.**
+- **Regression (read-only):** re-ran `stage_markers_verify.py` — T3 still PASS (4 bars), T1 still
+  ESCALATE (0 validated bars, ratio 1.3517). Verdicts UNCHANGED by the refactor. Nothing mutated.
+- **v2 (flagged, NOT built):** consecutive-ID pairing convention; `CircularTarget12bit` target type.
+  Procedure to recalibrate on another program's known-good transect in `docs/05`.
+
 ---
 ## (original mid-session design record below)
 **All work so far is read-only probes — the on-disk projects are UNTOUCHED.**

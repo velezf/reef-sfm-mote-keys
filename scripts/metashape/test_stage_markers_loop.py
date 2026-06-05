@@ -380,6 +380,23 @@ def test_human_corrected_pass_recorded_distinctly(patched, tmp_path):
     assert rec["prior_escalation"]["report"].endswith("markers_escalation.json")
 
 
+def test_bar_length_param_flows_through(patched, tmp_path):
+    # A foreign survey with a 0.5 m bar: markers records it, scale applies it.
+    chunk = _Chunk("SITE_X", _markers_for([200, 201, 202, 203, 204, 205]))
+    doc = _Doc([chunk])
+    foreign = (_bar(200, 201, 0.0, 1.0) + _bar(202, 203, 5.0, 1.0)
+               + _bar(204, 205, 10.0, 1.0))
+    patched.setattr(rp, "_extract_marker_records", lambda ch: foreign)
+    rp.stage_markers(doc, False, None, None, tmp_path,
+                     rp.GATE_MARKER_RESID_CEILING_PX, rp.GATE_INTERBAR_RATIO_MAX,
+                     rp.GATE_MIN_VALIDATED_BARS, 0.5)
+    bars = json.loads((tmp_path / "SITE_X" / "validated_scalebars.json").read_text())
+    assert all(b["defined_distance_m"] == 0.5 for b in bars)
+    rp.stage_scale(doc, ignore_sanity=False, bar_length=0.5)
+    assert len(chunk.scalebars) == 3
+    assert all(sb.reference.distance == 0.5 for sb in chunk.scalebars)
+
+
 def test_validated_scalebars_are_deterministic(patched, tmp_path):
     patched.setattr(rp, "_extract_marker_records", lambda ch: _t3_records())
     out_a, out_b = tmp_path / "a", tmp_path / "b"

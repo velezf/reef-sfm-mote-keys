@@ -144,8 +144,14 @@ make a non-conforming layer pass.
   its own or stops. The firewall holds — gate (c) is scale-free, so no reference (P13HMEON) is ever
   consulted to resolve a pairing.
 - Thresholds are CLI-overridable (`--marker-resid-ceiling`, `--interbar-ratio-max`,
-  `--min-validated-bars`) but default to the T3-calibrated values; the per-marker residuals and
-  projection counts are logged every run for trend.
+  `--min-validated-bars`, `--bar-length`) but default to the T3-calibrated values; the per-marker
+  residuals and projection counts are logged every run for trend.
+- **The production gate is transect-agnostic** (no hardcoded T1/T3/EDR IDs, names, paths, or bar length):
+  pairs derive from the *detected* IDs, gate (c) is scale-free, and `--bar-length` (default 0.25 m) is the
+  only metric input — consumed by `stage_scale`, never by a gate, so it cannot move a PASS/FAIL. Calibration
+  defaults are documented against a known-good reference (here T3); the recalibration procedure for another
+  program lives in `docs/05` ("Reusing the marker gate on another program's data"). The `_extract_marker_records`
+  extraction and the verify harness still reference T1/T3 by design — they are the EDR acceptance probe.
 - Verified read-only on both real projects via `probes/stage_markers_verify.py` (T3 PASS with 4 validated
   bars / T1 ESCALATE on all of a/b/c/d, no project mutated) plus pure gate unit tests
   (`test_marker_validation.py`) and offline loop integration tests (`test_stage_markers_loop.py`)

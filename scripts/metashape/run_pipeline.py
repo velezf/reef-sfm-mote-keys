@@ -205,21 +205,25 @@ GATE_MIN_ALIGN_RATE_FOR_LEVEL = 0.90   # stage_level pre-guard: align >= this to
 # --------------------------------------------------------------------------- #
 # MARKER-LAYER VALIDATION GATES (stage_markers) — the headless go/no-go that
 # decides whether the auto-detected coded-target layer is good enough to scale
-# headless. Calibrated on T3 (known-good) with margin; T1 (incoherent layer) is
-# left to fall where it falls (it FAILs (a) and (c) decisively). See ADR-0022.
+# headless. The gate CODE is transect-agnostic (pairs derived from detected ids; no
+# hardcoded ID set; gate (c) scale-free). These are DEFAULT thresholds, calibrated
+# on a known-good reference transect (here EDR_T3) with margin; recalibrate per
+# program (procedure in docs/05). All three are CLI-overridable. See ADR-0022.
 #  (a) parity/orphans   — every marker must pair with a consecutive-ID neighbour
-#                         (EDR bars join 13-14, 15-16, ...); odd count / orphan = FAIL.
+#                         (the default convention, e.g. 13-14, 15-16); odd / orphan
+#                         = FAIL. Pairs come from the DETECTED ids, never a fixed set.
 #  (b) coherence        — robust (median) per-marker reprojection residual, RAW
-#                         post-align (NO in-gate optimize — that was a one-off
-#                         probe). A loose tripwire: T3 true-marker max median
-#                         0.378 px; T1 ~2,200+ px (~1000x past). 2.0 px clears T3
-#                         with headroom and T1 blows past it. FAIL if a flagged
-#                         marker is load-bearing for a proposed bar.
-#  (c) inter-bar ratio  — proposed-bar max/min local-length ratio. Pre-scale,
+#                         post-align (NO in-gate optimize). A loose tripwire: on the
+#                         T3 reference, true markers <=0.38 px while an incoherent
+#                         layer is ~1000x past, so 2.0 px clears clean and catches
+#                         bad. *** MOST SITE-DEPENDENT *** — imaging conditions /
+#                         turbidity differ by program; recalibrate this first.
+#  (c) inter-bar ratio  — candidate-bar max/min local-length ratio. Pre-scale,
 #                         internal units (scale-invariant -> firewall-safe; never
-#                         converted to metres). T3 1.091 PASS, T1 1.352 FAIL.
-GATE_MARKER_RESID_CEILING_PX = 2.0     # gate (b): ~5x T3's 0.378; T1 ~1000x past
-GATE_INTERBAR_RATIO_MAX = 1.25         # gate (c): T3 1.091 PASS, T1 1.352 FAIL
+#                         converted to metres). SCALE-FREE -> generalizes as-is;
+#                         T3 reference 1.091 PASS.
+GATE_MARKER_RESID_CEILING_PX = 2.0     # gate (b): ~5x the T3 reference 0.378 px
+GATE_INTERBAR_RATIO_MAX = 1.25         # gate (c): scale-free; T3 reference 1.091
 # gate (d) — sufficiency / fail-closed floor. A headless PASS requires >= this many
 # VALIDATED bars (both endpoints coherent). Floor is 2 (so gate (c)'s ratio has two
 # bars to compare — with a single surviving bar the ratio is a vacuous 1.0 and the
@@ -872,11 +876,16 @@ def _num_json_safe(x):
 
 
 def _propose_bars_by_adjacency(ids: "list[int]"):
-    """Pair coded-target IDs by consecutive-ID adjacency (EDR scale bars join
-    13-14, 15-16, 19-20, 25-26 ...). Greedy left-to-right, each ID used once.
-    Returns (pairs, orphans). An orphan is a marker with no consecutive partner —
-    the signature of a mis-decode / spurious detection / a genuinely missing
-    partner, any of which makes headless bar assignment unsafe."""
+    """Pair coded-target IDs by the consecutive-ID rule: a scale bar joins targets
+    whose IDs differ by 1 (e.g. 13-14, 15-16, ...). Pairs are derived purely from
+    the DETECTED ids passed in — no ID set is hardcoded. Greedy left-to-right, each
+    ID used once. Returns (pairs, orphans). An orphan is a marker with no
+    consecutive partner — the signature of a mis-decode / spurious detection / a
+    genuinely missing partner, any of which makes headless bar assignment unsafe.
+
+    Consecutive-ID is the documented DEFAULT convention; surveys that pair targets
+    by another rule need a configurable pairing strategy (a v2 item, ADR-0022) —
+    until then a non-conforming layer fails closed (orphans -> gate (a))."""
     rem = sorted(set(i for i in ids if i is not None))
     pairs, orphans, i = [], [], 0
     while i < len(rem):
@@ -946,12 +955,14 @@ def gate_coherence(records: "list[dict]", pairs: "list", ceiling_px: float,
     """Gate (b): each marker must be coherent — a robust reprojection residual
     under a loose ceiling, a real 3D position, and enough camera rays to triangulate.
     A lean tripwire on the RAW post-align layer (no in-gate optimize): true targets
-    reproject tightly (T3 <=0.38 px), an incoherent layer blows past by ~1000x (T1
-    thousands of px). FAILS CLOSED — a None / non-finite / NaN residual, a missing
-    position, or a single-camera marker is flagged, never silently passed
-    (NaN > ceiling is False, so non-finite must be checked explicitly). FAIL only if
-    a flagged marker is LOAD-BEARING for a proposed bar (a flagged orphan is already
-    gate (a)'s and is reported as evidence, not double-counted)."""
+    reproject tightly (a clean reference is well under the ceiling), an incoherent
+    layer blows past it by orders of magnitude. FAILS CLOSED — a None / non-finite
+    / NaN residual, a missing position, or a single-camera marker is flagged, never
+    silently passed (NaN > ceiling is False, so non-finite must be checked
+    explicitly). FAIL only if a flagged marker is LOAD-BEARING for a proposed bar
+    (a flagged orphan is already gate (a)'s and is reported as evidence, not
+    double-counted). The ceiling is the most site-dependent threshold (imaging
+    conditions / turbidity vary) — recalibrate it per program."""
     flagged = []
     for r in records:
         reason = _coherence_flag_reason(r, ceiling_px, min_proj)
@@ -985,10 +996,11 @@ def gate_sufficiency(validated_bars: "list", min_bars: int) -> dict:
 
 
 def gate_consistency(bar_lengths: "list[float]", max_ratio: float) -> dict:
-    """Gate (c): the proposed bars are all the same physical length (0.25 m), so
-    their local lengths must agree. FAIL if max/min ratio exceeds the tolerance.
-    Needs >=2 bars to compare; with fewer it abstains (gate (a) already fails a
-    layer that cannot propose >=2 bars on an even, orphan-free set)."""
+    """Gate (c): the proposed bars are all the same physical length, so their local
+    lengths must agree. FAIL if max/min ratio exceeds the tolerance. Compares a
+    RATIO, so it is scale-free — it needs no bar-length value and generalizes across
+    programs as-is (and never converts to metres -> firewall-safe). Needs >=2 bars
+    to compare; with fewer it abstains (gate (d)'s minimum catches a too-thin set)."""
     lens = [b for b in bar_lengths if b and b > 0]
     if len(lens) < 2:
         return {"gate": "c_consistency", "ok": True, "ratio": None,
@@ -1022,10 +1034,10 @@ def validate_markers(records: "list[dict]", *, resid_ceiling: float,
     validated = [b for b in candidate
                  if b["a"] not in flagged_ids and b["b"] not in flagged_ids]
     # Gate (c) compares ALL candidate-bar lengths — a wrong length is itself the
-    # mispairing signal, so it must see bars even when an endpoint is also flagged
-    # (e.g. T1's 31.88 vs 43.09 -> 1.352). Gate (d) counts only the VALIDATED
-    # survivors (coherent endpoints) — the fail-closed sufficiency floor. On any
-    # real PASS no marker is flagged, so validated == candidate.
+    # mispairing signal, so it must see a bar even when an endpoint is also flagged.
+    # Gate (d) counts only the VALIDATED survivors (coherent endpoints) — the
+    # fail-closed sufficiency floor. On any real PASS no marker is flagged, so
+    # validated == candidate.
     gc = gate_consistency([b["len_local"] for b in candidate], interbar_ratio_max)
     gd = gate_sufficiency(validated, min_validated_bars)
     suspect = sorted(set(ga["orphans"]) | set(gb["load_bearing_flagged"]))
@@ -1044,8 +1056,11 @@ def validate_markers(records: "list[dict]", *, resid_ceiling: float,
                        "interbar_ratio_max": interbar_ratio_max,
                        "min_validated_bars": min_validated_bars,
                        "min_projections": min_projections,
-                       "t3_basis": "T3 known-good: max median resid 0.378 px, "
-                                   "inter-bar ratio 1.091, 4 bars"},
+                       "calibration_note": "Defaults calibrated on a known-good "
+                                           "reference transect; recalibrate the "
+                                           "coherence ceiling per site (imaging "
+                                           "conditions differ). The inter-bar ratio "
+                                           "is scale-free and generalizes as-is."},
     }
 
 
@@ -1058,8 +1073,8 @@ def _extract_marker_records(chunk: "Metashape.Chunk") -> "list[dict]":
     (pre-scale; pairwise norms are the scale-free local bar lengths).
 
     Residuals are RAW — NO optimizeCameras. The in-memory optimize was a one-off
-    probe to PROVE the T1 layer is incoherent; production gate (b) is a loose
-    tripwire on the as-detected layer, not a research instrument (ADR-0022)."""
+    diagnostic probe; production gate (b) is a loose tripwire on the as-detected
+    layer, not a research instrument (ADR-0022)."""
     recs = []
     for m in chunk.markers:
         pos = m.position
@@ -1183,7 +1198,8 @@ def stage_markers(doc: Metashape.Document, ignore_sanity: bool,
                   expected_ids: "set[int] | None",
                   expected_markers: int | None, out_root: Path,
                   resid_ceiling: float, interbar_ratio_max: float,
-                  min_validated_bars: int = GATE_MIN_VALIDATED_BARS) -> None:
+                  min_validated_bars: int = GATE_MIN_VALIDATED_BARS,
+                  bar_length: float = PARAMS.scalebar_length_m) -> None:
     """ESM Step 7 + the headless marker-layer gate (ADR-0022). For each chunk:
 
       1. If the layer already PASSED validation -> skip (idempotent re-run).
@@ -1235,7 +1251,8 @@ def stage_markers(doc: Metashape.Document, ignore_sanity: bool,
             continue
 
         if verdict["passed"]:
-            _emit_validated_scalebars(chunk, out_root, recs, verdict, prior_val)
+            _emit_validated_scalebars(chunk, out_root, recs, verdict, bar_length,
+                                      prior_val)
         else:
             _write_escalation_report(chunk, out_root, recs, verdict)
 
@@ -1251,22 +1268,23 @@ def stage_markers(doc: Metashape.Document, ignore_sanity: bool,
 
 
 def _emit_validated_scalebars(chunk: "Metashape.Chunk", out_root: Path,
-                              recs: "list[dict]", verdict: dict,
+                              recs: "list[dict]", verdict: dict, bar_length: float,
                               prior_val: "dict | None" = None) -> None:
     """On PASS: write the validated scale-bar set (the artifact stage_scale
     consumes) + a headless-pass provenance record, and stamp esm.markers_validation
     status=headless-pass. Emits the SET only — creating the Metashape scalebars is
-    stage_scale's job (clean detect/validate vs apply separation).
+    stage_scale's job (clean detect/validate vs apply separation). bar_length is the
+    physical bar length (m) recorded on each emitted bar.
 
-    PROVENANCE INTEGRITY: a PASS that follows a prior ESCALATION is a
-    human-corrected re-entry (marker_source=human-corrected, human_touch=gui-marker-fix,
-    with a back-reference to the escalation event) and is recorded DISTINCTLY from a
-    zero-touch headless PASS (marker_source=headless-auto). This is what lets the
-    manifest tell "T3 zero-touch" from "T1 corrected-by-human"."""
+    PROVENANCE INTEGRITY: a PASS that follows a prior ESCALATION is a human-corrected
+    re-entry (marker_source=human-corrected, human_touch=gui-marker-fix, with a
+    back-reference to the escalation event) and is recorded DISTINCTLY from a
+    zero-touch headless PASS (marker_source=headless-auto), so the manifest can tell
+    an auto-validated transect from a human-corrected one."""
     bars = [{
         "a": b["a"], "b": b["b"],
         "label": f"marker {b['a']}_marker {b['b']}",
-        "defined_distance_m": PARAMS.scalebar_length_m,
+        "defined_distance_m": bar_length,
         "accuracy_m": None,
         "len_local": b["len_local"],
     } for b in verdict["validated_bars"]]
@@ -1428,20 +1446,22 @@ def _write_extraction_failure(chunk: "Metashape.Chunk", out_root: Path,
 
 # --------------------------------------------------------------------------- #
 # Stage: scale  — DUMB applier of the validated scale-bar set (replaces the
-# manual GUI "assign 25 cm scale bars to marker pairs" step). Trusts stage_markers'
-# verdict entirely: it only runs when the layer is headless-pass, then creates the
-# Metashape scalebars for the validated pairs (skipping any the human already
-# created in the GUI on the re-entry path). It makes NO geometric decision.
+# manual GUI scale-bar assignment step). Trusts stage_markers' verdict entirely:
+# it only runs when the layer is headless-pass, then creates the Metashape
+# scalebars for the validated pairs (skipping any the human already created in the
+# GUI on the re-entry path). It makes NO geometric decision.
 # --------------------------------------------------------------------------- #
 
 
-def stage_scale(doc: Metashape.Document, ignore_sanity: bool) -> None:
+def stage_scale(doc: Metashape.Document, ignore_sanity: bool,
+                bar_length: float = PARAMS.scalebar_length_m) -> None:
     """Apply the scale-bar set stage_markers validated. Requires
     esm.markers_validation status=headless-pass (refuses otherwise — scaling an
     un-validated/escalated layer is exactly what the gate exists to prevent).
     Idempotent: re-pairs only what is missing, so GUI-created bars are reused.
-    Sets each bar's reference distance to 0.25 m. Does NOT optimize/level/dense —
-    those are downstream stages (dense never auto-starts)."""
+    Each bar's reference distance is the length recorded on that bar in the
+    validated set (what stage_markers emitted), falling back to bar_length. Does
+    NOT optimize/level/dense — those are downstream stages (dense never auto-starts)."""
     for chunk in doc.chunks:
         val = _meta_get(chunk, "esm.markers_validation")
         status = val.get("status") if val else None
@@ -1458,9 +1478,16 @@ def stage_scale(doc: Metashape.Document, ignore_sanity: bool) -> None:
                  if m.position is not None}
         existing = {frozenset((sb.point0.label, sb.point1.label))
                     for sb in chunk.scalebars if sb.point0 and sb.point1}
-        created, reused, problems = [], [], []
-        for pair in val.get("proposed_pairs", []):
-            a, b = pair[0], pair[1]
+        # Apply exactly the validated set markers emitted (each carries its own
+        # defined_distance_m); fall back to bar_length for any bar that lacks it.
+        validated = val.get("validated_scalebars") or [
+            {"a": p[0], "b": p[1]} for p in val.get("proposed_pairs", [])]
+        created, reused, problems, lengths = [], [], [], set()
+        for bar in validated:
+            a, b = bar["a"], bar["b"]
+            dist = bar.get("defined_distance_m")
+            if dist is None:
+                dist = bar_length
             ma, mb = by_id.get(a), by_id.get(b)
             if ma is None or mb is None:
                 problems.append([a, b])
@@ -1470,7 +1497,8 @@ def stage_scale(doc: Metashape.Document, ignore_sanity: bool) -> None:
                 reused.append([a, b])
                 continue
             sb = chunk.addScalebar(ma, mb)
-            sb.reference.distance = PARAMS.scalebar_length_m
+            sb.reference.distance = dist
+            lengths.add(dist)
             created.append([a, b])
         if problems:
             alarm(f"{chunk.label}: validated pair(s) {problems} reference markers "
@@ -1480,13 +1508,13 @@ def stage_scale(doc: Metashape.Document, ignore_sanity: bool) -> None:
         _meta_set(chunk, "esm.scale", {
             "bars_created": created,
             "bars_reused_from_gui": reused,
-            "scalebar_length_m": PARAMS.scalebar_length_m,
+            "scalebar_lengths_m": sorted(lengths),
             "total_scalebars": len(chunk.scalebars),
             "source": "stage_markers headless-pass validated set",
         })
         log(f"{chunk.label}: applied scale bars — created {created}, reused "
-            f"{reused} (GUI); {len(chunk.scalebars)} scale bar(s) total @ "
-            f"{PARAMS.scalebar_length_m} m. Next: --stage reduce (ESM Step 8).")
+            f"{reused} (GUI); {len(chunk.scalebars)} scale bar(s) total "
+            f"@ {sorted(lengths) or [bar_length]} m. Next: --stage reduce (ESM Step 8).")
         save(doc)
 
 
@@ -2597,6 +2625,12 @@ def main() -> None:
                          "PASS requires at least this many VALIDATED bars (default "
                          "3, the EDR deployment norm; floor 2 so gate (c) has two "
                          "bars to compare). Fewer -> ESCALATE.")
+    ap.add_argument("--bar-length", type=float, default=PARAMS.scalebar_length_m,
+                    help="Physical scale-bar length in metres (default 0.25 = 25 cm "
+                         "coded targets). Recorded on each validated bar at the "
+                         "markers stage and applied by the scale stage. The gates "
+                         "themselves are scale-free, so this does not affect "
+                         "PASS/FAIL — only the metric scale.")
     ap.add_argument("--max-total-tilt-deg", type=float, default=GATE_TOTAL_TILT_MAX_DEG,
                     help="Gate check 2 gross-mislevel bound (deg). Default 6.0 is "
                          "conservative for the EDR ~1 m-strip deployment (cross "
@@ -2670,9 +2704,9 @@ def main() -> None:
             stage_markers(doc, args.ignore_sanity, expected_ids,
                           args.expected_markers, args.out_root,
                           args.marker_resid_ceiling, args.interbar_ratio_max,
-                          args.min_validated_bars)
+                          args.min_validated_bars, args.bar_length)
         elif st == "scale":
-            stage_scale(doc, args.ignore_sanity)
+            stage_scale(doc, args.ignore_sanity, args.bar_length)
         elif st == "reduce":
             stage_reduce(doc, args.logan_module, args.ignore_sanity)
         elif st == "level":

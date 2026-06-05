@@ -494,6 +494,75 @@ def test_interleaved_consistent_mispairing_still_escalates_on_min_bars():
     assert v["gates"]["d_sufficiency"]["ok"] is False          # 2 < 3 -> escalate
 
 
+# --------------------------------------------------------------------------- #
+# Foreign-transect transferability — a NON-EDR survey with different marker IDs
+# and a different bar count must gate correctly with ZERO EDR/T1/T3 in the path.
+# This proves the gate code is transect-agnostic: IDs 200..205 (a survey that
+# numbers its targets in the 200s), 3 bars by the consecutive-ID convention.
+# --------------------------------------------------------------------------- #
+
+
+def _foreign_clean():
+    """A foreign survey: 3 consistent consecutive-ID bars, IDs in the 200s."""
+    return (_bar(200, 201, 0.0, 1.00, resid=0.15)
+            + _bar(202, 203, 5.0, 1.00, resid=0.15)
+            + _bar(204, 205, 10.0, 1.00, resid=0.15))
+
+
+def test_foreign_clean_layer_passes():
+    v = _validate(_foreign_clean())
+    assert v["passed"] is True
+    assert all(g["ok"] for g in v["gates"].values())
+    assert len(v["validated_bars"]) == 3
+    assert v["proposed_pairs"] == [[200, 201], [202, 203], [204, 205]]
+
+
+def test_foreign_orphan_fails_gate_a():
+    recs = _foreign_clean() + [_rec(207)]      # a 7th, partnerless target
+    v = _validate(recs)
+    assert v["passed"] is False
+    assert v["gates"]["a_parity"]["ok"] is False
+    assert 207 in v["gates"]["a_parity"]["orphans"]
+
+
+def test_foreign_35pct_bar_fails_gate_c():
+    recs = (_bar(200, 201, 0.0, 1.00, resid=0.15)
+            + _bar(202, 203, 5.0, 1.00, resid=0.15)
+            + _bar(204, 205, 10.0, 1.35, resid=0.15))   # +35% -> ratio 1.35
+    v = _validate(recs)
+    assert v["passed"] is False
+    assert v["gates"]["c_consistency"]["ok"] is False
+    assert v["gates"]["c_consistency"]["ratio"] == round(1.35 / 1.0, 4)
+
+
+def test_foreign_incoherent_marker_fails_gate_b():
+    recs = _foreign_clean()
+    for r in recs:
+        if r["id"] == 202:
+            r["resid_px_median"] = 5000.0       # load-bearing in 202-203
+    v = _validate(recs)
+    assert v["passed"] is False
+    assert v["gates"]["b_coherence"]["ok"] is False
+    assert 202 in v["gates"]["b_coherence"]["load_bearing_flagged"]
+
+
+def test_foreign_sub_min_bars_escalates():
+    recs = _bar(200, 201, 0.0, 1.0) + _bar(202, 203, 5.0, 1.0)   # only 2 bars
+    v = _validate(recs)
+    assert v["passed"] is False
+    assert v["gates"]["d_sufficiency"]["ok"] is False
+    assert v["gates"]["d_sufficiency"]["n_validated_bars"] == 2
+
+
+def test_foreign_custom_min_bars_threshold():
+    # A program that deploys only 2 bars can lower the floor; gates still work.
+    recs = _bar(200, 201, 0.0, 1.0) + _bar(202, 203, 5.0, 1.0)
+    v = rp.validate_markers(recs, resid_ceiling=CEIL, interbar_ratio_max=RATIO,
+                            min_validated_bars=2)
+    assert v["passed"] is True
+    assert v["gates"]["d_sufficiency"]["ok"] is True
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))
