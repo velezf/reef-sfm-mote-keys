@@ -101,7 +101,7 @@ This register supersedes the looser automated/manual split above.
 | 4 | Estimate image quality; disable blurred (< 0.5) | `analyzeImages` + disable `Image/Quality < 0.50` before matching | Faithful | `step4` / ADR-0017 |
 | 5 | Align: High, 60k keypoints, generic preselection, exclude stationary | `matchPhotos(downscale=1, …)` with Toth's values | Faithful | `align` |
 | 6 | Optimize cameras (defaults) | `optimizeCameras()` | Faithful | `align` |
-| 7 | Detect coded targets; build 25 cm scale bars | **Detection** headless (`detectMarkers`, Circular 12-bit) with **AUTO-TOLERANCE by IDENTITY** (start 20, bump to 100; accept at the lowest tolerance where the expected `--expected-marker-ids` set is present; flag false positives; FAIL if incomplete); **scale-bar assignment** in GUI | Faithful (detect) + GUI (assign) | `markers` + DCV / ADR-0021 |
+| 7 | Detect coded targets; build 25 cm scale bars | **Detection** headless (`detectMarkers`, Circular 12-bit, AUTO-TOLERANCE by identity) **+ a headless validation gate** (ADR-0022): (a) consecutive-ID parity/orphans, (b) loose post-align reprojection-coherence tripwire, (c) scale-free inter-bar length ratio. PASS → dumb **`stage_scale`** builds the 25 cm bars headless; FAIL → escalate (structured report) + GUI fix + re-validate. GUI scale-bar assignment is now the *escalation* path, not the default | Faithful (detect) + headless gate/apply; GUI only on escalation | `markers` + `scale` / ADR-0022, ADR-0021 |
 | 8 | Gradual selection: RU 20–40, PA 3–4, RE 0.3, re-optimize | Logan script in threshold mode **preferred**; built-in faithful transcription is the fallback (currently used — Logan not yet vendored), logged as a per-run departure. Runs AFTER scale bars exist (see Corrected step order) | Faithful (values) — see note | `reduce` / ADR-0010 |
 | 9 | Color correction (Hatcher) — *optional* | **Skipped** (optional, visualization-only) | Departure (documented) | — / ADR-0010 |
 | 10 | Dehaze — *optional* | **Skipped** (optional, visualization-only) | Departure (documented) | — |
@@ -113,21 +113,28 @@ This register supersedes the looser automated/manual split above.
 | QC | *(no ESM analog)* | **Permanent 8-check gate** (`stage_gate`, ADR-0021): long-axis flat ≤0.5°, total tilt ≤6.0°, coverage ≥95%, scale/extent, DEM/ortho co-reg=0, footprint evr≥0.95 & aspect≥5, **+X orientation sign-flip guard**; +additive reference check 8. FAILs the build so a 24° mis-level or a reversed product cannot ship | Departure (added safeguard) | `gate` / ADR-0021 |
 | 16 | Export products | sparse.ply, dense.ply, dsm.tif, ortho.tif, cameras.json, scalebars.json, processing_report.pdf + `pipeline_summary.json`. **No mesh** (ESM has no mesh step; the ortho surface is the DSM) | Faithful (scripted, vs USGS Export Helper) | `report` |
 
-**Headless → GUI → headless split — now ONE GUI touch (was two).** ADR-0021
+**Headless → GUI → headless split — the GUI touch is now CONDITIONAL.** ADR-0021
 codified ESM Step 11 (orientation) and the Step-14 AOI bounding box as the
-headless `level` and `aoi` stages, which **eliminates GUI touch 2** (the Jenkins
-coordinate frame + region resize). The only remaining GUI step is scale-bar
-*pairing*. The full order is `align → markers → [GUI: scale bars] → reduce →
+headless `level` and `aoi` stages (eliminating the Jenkins-frame GUI touch).
+ADR-0022 then made scale-bar assignment headless on the common path: `markers`
+detects *and validates* the layer (gates a/b/c) and, on PASS, the dumb `scale`
+stage builds the 25 cm bars — **no GUI**. The GUI is entered **only when
+validation escalates** (an unpairable or incoherent layer). The full order is
+`align → markers → {escalate? → [GUI: fix markers] → markers} → scale → reduce →
 level → dense → filter → aoi → dsm → ortho → gate → report`:
 
 1. **Headless align portion:** `import` → `step4` → `align` → `markers`
-   (ESM Step 7 *detection*, auto-tolerance by identity). Surfaces Step 4 disabled
-   count, alignment rate, RMS, and the detected-marker IDs.
-2. **GUI touch 1 (DCV) — the only one:** confirm marker detection; assign 25 cm
-   scale bars to marker pairs (ESM Step 7); **File → Save**. (Headless scale-bar
-   pairing from `--expected-marker-ids` is the remaining automation target; the
-   pairing judgement on reflective sand is why it is still GUI today.)
-3. **Headless remainder:** `reduce` (ESM Step 8, scale-constrained) → `level`
+   (ESM Step 7 *detect + validate*). Surfaces Step 4 disabled count, alignment
+   rate, RMS, the detected-marker IDs, and the three gate verdicts.
+2. **On PASS (no GUI):** `markers` emits a validated scale-bar set
+   (`validated_scalebars.json`) and `scale` applies it headless (25 cm bars).
+3. **On FAIL (conditional GUI touch):** `markers` writes a structured escalation
+   report (`markers_escalation.json`: every gate finding + count/coherence
+   evidence + which images each suspect marker spans) and halts BEFORE scale. The
+   human fixes markers/scale bars in the GUI (DCV), **File → Save**, and re-runs
+   `--stage markers` — which validates the **EXISTING** corrected set (no
+   re-detect) and, on PASS, lets `scale` proceed.
+4. **Headless remainder:** `reduce` (ESM Step 8, scale-constrained) → `level`
    (ESM Step 11, marker-plane roll+pitch) → `dense` → `filter` (ESM Step 13,
    strictly between dense and the DSM) → `aoi` (ESM Step 14 bbox, footprint-PCA)
    → `dsm` → `ortho` → `gate` (the permanent QC gate) → `report`.
@@ -394,9 +401,14 @@ META="/opt/metashape-pro/metashape.sh -platform offscreen -r scripts/metashape/r
 $META --project $PROJECT --image-root $IMGROOT --transect EDR_T3 --stage import
 $META --project $PROJECT --stage step4 --quality-threshold 0.30   # floor cut (A/B-justified; see below)
 $META --project $PROJECT --stage align  --focal-mode fallback     # smoke decided 'fallback'
-$META --project $PROJECT --stage markers                          # ESM Step 7 detection only
+$META --project $PROJECT --stage markers                          # ESM Step 7 detect + validate (gates a/b/c)
 
-# --- GUI touch 1 (DCV): assign 25 cm scale bars to marker pairs; File→Save ---
+# --- On gate PASS: scale bars are built headless, no GUI ---
+$META --project $PROJECT --stage scale                            # dumb applier of the validated 25 cm bars
+# --- On gate FAIL (escalation): markers HALTS before scale and writes
+#     <out-root>/<transect>/markers_escalation.json. Fix markers/scale bars in
+#     the GUI (DCV), File→Save, then re-run `--stage markers` (validates the
+#     EXISTING set, no re-detect) and, on PASS, `--stage scale`. ---
 $META --project $PROJECT --stage reduce                           # ESM Step 8, scale-constrained
 # --- GUI touch 2 (DCV): Jenkins coord frame (sets transform.scale); resize
 #     region to ~10x1 m AOI; QA; File→Save ---
@@ -652,6 +664,8 @@ validated *pilot* that proved the method; nothing is lost.
 | 8 | Step 8 Gradual Selection (Logan tool) | Logan preferred; built-in transcription fallback (Logan not yet vendored) | Faithful values; per-run documented departure (ADR-0010) |
 | 9 | DSM 1 mm (PIFSC) | **1 cm (ESM)** | Corrected to ESM (ADR-0017) |
 | 10 | (no gate in ESM) | permanent 8-check QC gate | Added safeguard (ADR-0021) |
+| 12 | Step 7 GUI scale-bar assignment | headless **marker-layer validation gate** (a parity / b coherence / c inter-bar ratio) → dumb `stage_scale`; GUI only on escalation | Added safeguard + automation (ADR-0022); replaces the manual assign on the PASS path |
+| 13 | (brief: gate-b = mis-decodes in few cameras at high residual) | gate-b = **reprojection COHERENCE** (loose post-align tripwire, no in-gate optimize); projection count is **evidence only** | Heuristic **falsified by the data** (T1 ghost sits in 111 cameras, low residual; count non-transferable T3 5–30 vs T1 111–182) — ADR-0022 |
 | 11 | Step 6/12 tie-point covariance: Yes | `optimizeCameras(tiepoint_covariance=True)` — **wired T1 onward**; the T3 pilot ran pre-wiring (covariance is an uncertainty output, not geometry; T3 already gate-passed, NOT re-run) | Faithful T1+; documented T3 gap |
 | — | Keypoint 40k / dense Medium (PIFSC SOP) | **60k / High (ESM)** | ESM wins where PIFSC conflicts (ADR-0010) |
 

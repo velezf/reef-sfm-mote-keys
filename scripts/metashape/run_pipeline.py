@@ -201,6 +201,24 @@ GATE_COREG_TOL_M = 1e-6           # check 5: DEM/ortho dx,dy (0 by construction)
 GATE_FOOTPRINT_EVR_MIN = 0.95     # check 6: PC1 explained-variance (belt precondition)
 GATE_FOOTPRINT_ASPECT_MIN = 5.0   # check 6: major/minor aspect (belt precondition)
 GATE_MIN_ALIGN_RATE_FOR_LEVEL = 0.90   # stage_level pre-guard: align >= this to level
+# --------------------------------------------------------------------------- #
+# MARKER-LAYER VALIDATION GATES (stage_markers) — the headless go/no-go that
+# decides whether the auto-detected coded-target layer is good enough to scale
+# headless. Calibrated on T3 (known-good) with margin; T1 (incoherent layer) is
+# left to fall where it falls (it FAILs (a) and (c) decisively). See ADR-0022.
+#  (a) parity/orphans   — every marker must pair with a consecutive-ID neighbour
+#                         (EDR bars join 13-14, 15-16, ...); odd count / orphan = FAIL.
+#  (b) coherence        — robust (median) per-marker reprojection residual, RAW
+#                         post-align (NO in-gate optimize — that was a one-off
+#                         probe). A loose tripwire: T3 true-marker max median
+#                         0.378 px; T1 ~2,200+ px (~1000x past). 2.0 px clears T3
+#                         with headroom and T1 blows past it. FAIL if a flagged
+#                         marker is load-bearing for a proposed bar.
+#  (c) inter-bar ratio  — proposed-bar max/min local-length ratio. Pre-scale,
+#                         internal units (scale-invariant -> firewall-safe; never
+#                         converted to metres). T3 1.091 PASS, T1 1.352 FAIL.
+GATE_MARKER_RESID_CEILING_PX = 2.0     # gate (b): ~5x T3's 0.378; T1 ~1000x past
+GATE_INTERBAR_RATIO_MAX = 1.25         # gate (c): T3 1.091 PASS, T1 1.352 FAIL
 # Planarity guard: out-of-plane vs in-plane-minor scatter eigenvalue ratio
 # (eig[2]/eig[1]). A clean (even thin belt) plane is << this; ~1 means the markers
 # are collinear / non-planar (roll ill-defined). T3 belt = 0.011; threshold 0.5.
@@ -805,7 +823,12 @@ def stage_align(doc: Metashape.Document, focal_mode: str,
 
 
 # --------------------------------------------------------------------------- #
-# Stage: markers  (ESM Step 7, DETECTION) — runs BEFORE the GUI handoff
+# Stage: markers  (ESM Step 7) — DETECT coded targets, then VALIDATE the layer.
+# Runs between align and scale. The validation gates (a/b/c, ADR-0022) are the
+# headless go/no-go: PASS emits a validated scale-bar set for the dumb stage_scale
+# to apply; FAIL halts BEFORE scale and queues a GUI touchpoint (escalation). The
+# human fixes markers/bars in the GUI and saves; re-running this stage validates
+# the EXISTING corrected set (no re-detect) and, on PASS, lets stage_scale run.
 # --------------------------------------------------------------------------- #
 
 
@@ -815,96 +838,503 @@ def _marker_id(label: str) -> int | None:
     return int(m[-1]) if m else None
 
 
-def stage_markers(doc: Metashape.Document, ignore_sanity: bool,
-                  expected_ids: "set[int] | None",
-                  expected_markers: int | None) -> None:
-    """Detect coded targets headless (ESM Step 7, detection only) with
-    AUTO-TOLERANCE — the headless form of ESM's manual "start at 20, increase
-    until all detected" (start strict, loosen). Tolerance starts at
-    marker_tolerance and bumps by marker_tolerance_step up to marker_tolerance_max.
+# --------------------------------------------------------------------------- #
+# Marker-layer validation — PURE functions (no Metashape).
+#
+# These take plain per-marker records (the dicts _extract_marker_records builds)
+# and return a structured verdict. Keeping them Metashape-free is deliberate: it
+# is the highest-stakes branch added in this chat (it decides whether a layer is
+# trustworthy enough to scale a 24-48 h run on), so it is unit-tested off-instance
+# against synthetic fixtures the same way smoke_test._decide_focal is. The
+# Metashape-touching half is confined to _extract_marker_records.
+# --------------------------------------------------------------------------- #
+
+
+def _propose_bars_by_adjacency(ids: "list[int]"):
+    """Pair coded-target IDs by consecutive-ID adjacency (EDR scale bars join
+    13-14, 15-16, 19-20, 25-26 ...). Greedy left-to-right, each ID used once.
+    Returns (pairs, orphans). An orphan is a marker with no consecutive partner —
+    the signature of a mis-decode / spurious detection / a genuinely missing
+    partner, any of which makes headless bar assignment unsafe."""
+    rem = sorted(set(i for i in ids if i is not None))
+    pairs, orphans, i = [], [], 0
+    while i < len(rem):
+        if i + 1 < len(rem) and rem[i + 1] == rem[i] + 1:
+            pairs.append((rem[i], rem[i + 1]))
+            i += 2
+        else:
+            orphans.append(rem[i])
+            i += 1
+    return pairs, orphans
+
+
+def gate_parity(records: "list[dict]") -> dict:
+    """Gate (a): every reconstructed marker must pair with a consecutive-ID
+    neighbour, and the count must be even. FAIL on any orphan or an odd count —
+    a layer that cannot be cleanly paired cannot be scaled headless."""
+    ids = sorted(r["id"] for r in records
+                 if r.get("id") is not None and r.get("reconstructed"))
+    pairs, orphans = _propose_bars_by_adjacency(ids)
+    odd = (len(ids) % 2 == 1)
+    return {
+        "gate": "a_parity",
+        "ok": (not orphans) and (not odd),
+        "n_markers": len(ids),
+        "odd_count": odd,
+        "proposed_pairs": [list(p) for p in pairs],
+        "orphans": orphans,
+    }
+
+
+def _bar_lengths(records: "list[dict]", pairs: "list") -> "list[dict]":
+    """Local (pre-scale, internal-unit) length of each proposed bar. Scale-free
+    so it is firewall-safe — never converted to metres."""
+    pos = {r["id"]: r["pos_local"] for r in records
+           if r.get("id") is not None and r.get("pos_local")}
+    out = []
+    for a, b in pairs:
+        if a in pos and b in pos:
+            pa, pb = pos[a], pos[b]
+            d = math.sqrt(sum((pa[i] - pb[i]) ** 2 for i in range(3)))
+            out.append({"a": a, "b": b, "len_local": d})
+    return out
+
+
+def gate_coherence(records: "list[dict]", pairs: "list",
+                   ceiling_px: float) -> dict:
+    """Gate (b): robust per-marker reprojection residual (px) must sit under a
+    loose ceiling. A lean tripwire on the RAW post-align layer (no in-gate
+    optimize): true targets reproject tightly (T3 <=0.38 px), an incoherent layer
+    blows past by ~1000x (T1 thousands of px). Flag every marker over the ceiling
+    (or with no residual at all); FAIL only if a flagged marker is LOAD-BEARING
+    for a proposed bar (a flagged orphan is already caught by gate (a), and is
+    reported as evidence rather than double-counted)."""
+    flagged = [{"id": r.get("id"), "resid_px_median": r.get("resid_px_median")}
+               for r in records
+               if r.get("resid_px_median") is None
+               or r["resid_px_median"] > ceiling_px]
+    flagged_ids = {f["id"] for f in flagged}
+    bar_ids = {x for pair in pairs for x in pair}
+    load_bearing = sorted(i for i in (flagged_ids & bar_ids) if i is not None)
+    return {
+        "gate": "b_coherence",
+        "ok": not load_bearing,
+        "ceiling_px": ceiling_px,
+        "flagged": flagged,
+        "load_bearing_flagged": load_bearing,
+    }
+
+
+def gate_consistency(bar_lengths: "list[float]", max_ratio: float) -> dict:
+    """Gate (c): the proposed bars are all the same physical length (0.25 m), so
+    their local lengths must agree. FAIL if max/min ratio exceeds the tolerance.
+    Needs >=2 bars to compare; with fewer it abstains (gate (a) already fails a
+    layer that cannot propose >=2 bars on an even, orphan-free set)."""
+    lens = [b for b in bar_lengths if b and b > 0]
+    if len(lens) < 2:
+        return {"gate": "c_consistency", "ok": True, "ratio": None,
+                "n_bars": len(lens), "abstained": True}
+    ratio = max(lens) / min(lens)
+    return {"gate": "c_consistency", "ok": ratio <= max_ratio,
+            "ratio": round(ratio, 4), "max_ratio": max_ratio,
+            "n_bars": len(lens),
+            "lengths": [round(x, 6) for x in lens]}
+
+
+def validate_markers(records: "list[dict]", *, resid_ceiling: float,
+                     interbar_ratio_max: float) -> dict:
+    """Run all three gates (cheapest-first), aggregate, and return ONE verdict.
+    Every gate always runs (findings are aggregated, not short-circuited) so the
+    escalation report names everything wrong at once. `passed` is the AND of the
+    three. The suspect-marker set (orphans + load-bearing flagged) is surfaced so
+    the escalation report can list which images each spans."""
+    ga = gate_parity(records)
+    bars = _bar_lengths(records, [tuple(p) for p in ga["proposed_pairs"]])
+    gb = gate_coherence(records, [tuple(p) for p in ga["proposed_pairs"]],
+                        resid_ceiling)
+    gc = gate_consistency([b["len_local"] for b in bars], interbar_ratio_max)
+    suspect = sorted(set(ga["orphans"]) | set(gb["load_bearing_flagged"]))
+    return {
+        "passed": ga["ok"] and gb["ok"] and gc["ok"],
+        "gates": {ga["gate"]: ga, gb["gate"]: gb, gc["gate"]: gc},
+        "proposed_pairs": ga["proposed_pairs"],
+        "candidate_bars": [{"a": b["a"], "b": b["b"],
+                            "len_local": round(b["len_local"], 6)} for b in bars],
+        "n_markers": ga["n_markers"],
+        "suspect_ids": suspect,
+        "thresholds": {"resid_ceiling_px": resid_ceiling,
+                       "interbar_ratio_max": interbar_ratio_max,
+                       "t3_basis": "T3 known-good: max median resid 0.378 px, "
+                                   "inter-bar ratio 1.091"},
+    }
+
+
+def _extract_marker_records(chunk: "Metashape.Chunk") -> "list[dict]":
+    """Per-marker records the validation gates consume, read from the chunk's
+    CURRENT (post-align) solution. For each marker: coded ID, whether it
+    reconstructed, projection count, the image labels it was detected in (the
+    escalation report's 'which images each suspect marker spans'), the robust
+    (median) reprojection residual in PIXELS, and the internal-unit position
+    (pre-scale; pairwise norms are the scale-free local bar lengths).
+
+    Residuals are RAW — NO optimizeCameras. The in-memory optimize was a one-off
+    probe to PROVE the T1 layer is incoherent; production gate (b) is a loose
+    tripwire on the as-detected layer, not a research instrument (ADR-0022)."""
+    recs = []
+    for m in chunk.markers:
+        pos = m.position
+        errs, images = [], []
+        if pos is not None:
+            for cam in chunk.cameras:
+                if not cam.transform:
+                    continue
+                proj = m.projections[cam]
+                if proj is None:
+                    continue
+                images.append(cam.label)
+                predicted = cam.project(pos)      # world point -> image px (2D)
+                if predicted is None:
+                    continue                       # behind the camera
+                c = proj.coord
+                errs.append(((c.x - predicted.x) ** 2
+                             + (c.y - predicted.y) ** 2) ** 0.5)
+        recs.append({
+            "id": _marker_id(m.label),
+            "label": m.label,
+            "reconstructed": pos is not None,
+            "projection_count": len(images),
+            "resid_px_median": round(_median(errs), 4) if errs else None,
+            "resid_px_max": round(max(errs), 4) if errs else None,
+            "pos_local": [pos.x, pos.y, pos.z] if pos is not None else None,
+            "images": images,
+        })
+    return recs
+
+
+def _detect_markers(chunk: "Metashape.Chunk", ignore_sanity: bool,
+                    expected_ids: "set[int] | None",
+                    expected_markers: int | None) -> None:
+    """Detect coded targets headless (ESM Step 7) with AUTO-TOLERANCE — the
+    headless form of ESM's manual "start at 20, increase until all detected"
+    (start strict, loosen). Writes esm.markers detection stats. Does NOT save —
+    the caller saves once after validation.
 
     ACCEPT BY IDENTITY, not count: because increasing tolerance adds detections
     MONOTONICALLY (including false positives), `count == expected` can stop on a
-    wrong mix (7 real + 1 spurious). A spurious marker corrupts the level-plane fit
-    and scale-bar pairing, and MAD rejection (stage_level) only catches outliers,
-    not a false positive sitting near the plane. So:
+    wrong mix (7 real + 1 spurious). So:
       * --expected-marker-ids: stop at the LOWEST tolerance where the full expected
-        coded-ID set (the same pairs that feed the 0.25 m residual check) is
-        present; FAIL LOUD at the cap if incomplete; flag any unexpected detected
-        IDs as possible false positives.
+        coded-ID set is present; FAIL LOUD at the cap if incomplete; flag any
+        unexpected detected IDs as possible false positives.
       * else --expected-markers N: weaker COUNT criterion (stop at >= N), warns.
       * else: plateau (heuristic), warns.
-    No per-transect tolerance is pinned. Scale-bar ASSIGNMENT is the GUI step that
-    follows; this is Step 7 (precedes Step 8 error reduction)."""
+    No per-transect tolerance is pinned. This is detection completeness — a
+    SEPARATE, earlier concern than the (a/b/c) geometry validation that follows."""
+    t0 = time.time()
+    tol = PARAMS.marker_tolerance
+    best, plateau, history = -1, 0, []
+    while tol <= PARAMS.marker_tolerance_max:
+        if chunk.markers:                       # clear before re-detecting
+            chunk.remove(chunk.markers)
+        chunk.detectMarkers(target_type=Metashape.CircularTarget12bit,
+                            tolerance=tol)
+        ids = {i for i in (_marker_id(m.label) for m in chunk.markers)
+               if i is not None}
+        n = len(chunk.markers)
+        history.append({"tolerance": tol, "detected": n, "ids": sorted(ids)})
+        log(f"{chunk.label}: tolerance={tol} -> {n} markers ids={sorted(ids)}")
+        if expected_ids is not None:
+            if expected_ids <= ids:
+                break
+        elif expected_markers is not None:
+            if n >= expected_markers:
+                break
+        else:
+            plateau = plateau + 1 if n <= best else 0
+            if plateau >= 2:
+                break
+        best = max(best, n)
+        tol += PARAMS.marker_tolerance_step
+    detected_ids = {i for i in (_marker_id(m.label) for m in chunk.markers)
+                    if i is not None}
+    missing = sorted(expected_ids - detected_ids) if expected_ids else []
+    unexpected = sorted(detected_ids - expected_ids) if expected_ids else []
+    _meta_set(chunk, "esm.markers", {
+        "markers_detected": len(chunk.markers),
+        "final_tolerance": tol,
+        "detected_ids": sorted(detected_ids),
+        "expected_ids": sorted(expected_ids) if expected_ids else None,
+        "missing_ids": missing,
+        "unexpected_ids": unexpected,
+        "expected_markers": expected_markers,
+        "tolerance_history": history,
+        "seconds": round(time.time() - t0, 1),
+    })
+    log(f"{chunk.label}: detected {len(chunk.markers)} markers (final tolerance "
+        f"{tol}); missing={missing} unexpected={unexpected}.")
+    if expected_ids is not None and missing:
+        alarm(f"{chunk.label}: expected coded targets {missing} NOT detected up "
+              f"to tolerance {PARAMS.marker_tolerance_max}. A marker-poor "
+              f"transect feeds a weak level plane — refusing to proceed. Check "
+              f"target visibility/quality.", critical=True, ignore=ignore_sanity)
+    if unexpected:
+        alarm(f"{chunk.label}: unexpected coded IDs {unexpected} detected — "
+              f"possible FALSE POSITIVES that would corrupt the level-plane fit "
+              f"/ scale-bar pairing. Review before scaling.",
+              critical=False, ignore=ignore_sanity)
+    if expected_ids is None and expected_markers is not None and \
+            len(chunk.markers) < expected_markers:
+        alarm(f"{chunk.label}: only {len(chunk.markers)}/{expected_markers} "
+              f"markers detected (count criterion). Prefer --expected-marker-ids "
+              f"so identity, not count, gates.", critical=True, ignore=ignore_sanity)
+    elif expected_ids is None and expected_markers is None:
+        alarm(f"{chunk.label}: {len(chunk.markers)} markers by plateau, NOT "
+              f"validated against expected IDs. Pass --expected-marker-ids for a "
+              f"production run so a wrong mix FAILs loudly.",
+              critical=False, ignore=ignore_sanity)
+
+
+def _markers_provenance_dir(chunk: "Metashape.Chunk", out_root: Path) -> Path:
+    d = out_root / chunk.label
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def stage_markers(doc: Metashape.Document, ignore_sanity: bool,
+                  expected_ids: "set[int] | None",
+                  expected_markers: int | None, out_root: Path,
+                  resid_ceiling: float, interbar_ratio_max: float) -> None:
+    """ESM Step 7 + the headless marker-layer gate (ADR-0022). For each chunk:
+
+      1. If the layer already PASSED validation -> skip (idempotent re-run).
+      2. DETECT coded targets, but ONLY when no markers exist yet. On RE-ENTRY the
+         human has corrected markers/scale bars in the GUI and saved; we must
+         validate the EXISTING set, never re-detect (which would discard the fix).
+      3. VALIDATE via gates (a) parity, (b) coherence, (c) inter-bar consistency
+         (all run, findings aggregated).
+      4. PASS  -> emit a validated scale-bar set (the artifact stage_scale applies)
+                  + a headless-pass provenance record. STOP before scale (the
+                  scale apply is its own stage; dense never auto-starts).
+         FAIL  -> write a structured escalation report + an awaiting-manual
+                  provenance record, persist, then HALT (critical alarm) BEFORE
+                  scale / optimize / dense, queuing the GUI touchpoint."""
     for chunk in doc.chunks:
-        if _meta_get(chunk, "esm.markers") is not None and chunk.markers:
-            log(f"{chunk.label}: markers already detected; skipping.")
+        val = _meta_get(chunk, "esm.markers_validation")
+        if val is not None and val.get("status") == "headless-pass":
+            log(f"{chunk.label}: marker layer already validated (headless-pass); "
+                f"skipping. Next: --stage scale.")
             continue
-        t0 = time.time()
-        tol = PARAMS.marker_tolerance
-        best, plateau, history = -1, 0, []
-        while tol <= PARAMS.marker_tolerance_max:
-            if chunk.markers:                       # clear before re-detecting
-                chunk.remove(chunk.markers)
-            chunk.detectMarkers(target_type=Metashape.CircularTarget12bit,
-                                tolerance=tol)
-            ids = {i for i in (_marker_id(m.label) for m in chunk.markers)
-                   if i is not None}
-            n = len(chunk.markers)
-            history.append({"tolerance": tol, "detected": n,
-                            "ids": sorted(ids)})
-            log(f"{chunk.label}: tolerance={tol} -> {n} markers ids={sorted(ids)}")
-            if expected_ids is not None:
-                if expected_ids <= ids:
-                    break
-            elif expected_markers is not None:
-                if n >= expected_markers:
-                    break
-            else:
-                plateau = plateau + 1 if n <= best else 0
-                if plateau >= 2:
-                    break
-            best = max(best, n)
-            tol += PARAMS.marker_tolerance_step
-        detected_ids = {i for i in (_marker_id(m.label) for m in chunk.markers)
-                        if i is not None}
-        missing = sorted(expected_ids - detected_ids) if expected_ids else []
-        unexpected = sorted(detected_ids - expected_ids) if expected_ids else []
-        stats = {
-            "markers_detected": len(chunk.markers),
-            "final_tolerance": tol,
-            "detected_ids": sorted(detected_ids),
-            "expected_ids": sorted(expected_ids) if expected_ids else None,
-            "missing_ids": missing,
-            "unexpected_ids": unexpected,
-            "expected_markers": expected_markers,
-            "tolerance_history": history,
-            "seconds": round(time.time() - t0, 1),
-        }
-        _meta_set(chunk, "esm.markers", stats)
-        log(f"{chunk.label}: {len(chunk.markers)} markers (final tolerance {tol}); "
-            f"missing={missing} unexpected={unexpected}. NEXT (GUI handoff): assign "
-            f"25 cm scale bars to marker pairs + place the Jenkins frame, then reduce.")
-        if expected_ids is not None and missing:
-            alarm(f"{chunk.label}: expected coded targets {missing} NOT detected up "
-                  f"to tolerance {PARAMS.marker_tolerance_max}. A marker-poor "
-                  f"transect feeds a weak level plane — refusing to proceed. Check "
-                  f"target visibility/quality.", critical=True, ignore=ignore_sanity)
-        if unexpected:
-            alarm(f"{chunk.label}: unexpected coded IDs {unexpected} detected — "
-                  f"possible FALSE POSITIVES that would corrupt the level-plane fit "
-                  f"/ scale-bar pairing. Review before --stage reduce.",
-                  critical=False, ignore=ignore_sanity)
-        if expected_ids is None and expected_markers is not None and \
-                len(chunk.markers) < expected_markers:
-            alarm(f"{chunk.label}: only {len(chunk.markers)}/{expected_markers} "
-                  f"markers detected (count criterion). Prefer --expected-marker-ids "
-                  f"so identity, not count, gates.", critical=True, ignore=ignore_sanity)
-        elif expected_ids is None and expected_markers is None:
-            alarm(f"{chunk.label}: {len(chunk.markers)} markers by plateau, NOT "
-                  f"validated against expected IDs. Pass --expected-marker-ids for a "
-                  f"production run so a wrong mix FAILs loudly.",
-                  critical=False, ignore=ignore_sanity)
+
+        if not chunk.markers:
+            _detect_markers(chunk, ignore_sanity, expected_ids, expected_markers)
+        else:
+            log(f"{chunk.label}: {len(chunk.markers)} markers already present — "
+                f"RE-ENTRY path: validating the EXISTING (GUI-corrected) layer, "
+                f"no re-detect.")
+
+        recs = _extract_marker_records(chunk)
+        verdict = validate_markers(recs, resid_ceiling=resid_ceiling,
+                                   interbar_ratio_max=interbar_ratio_max)
+
+        if verdict["passed"]:
+            _emit_validated_scalebars(chunk, out_root, recs, verdict)
+        else:
+            _write_escalation_report(chunk, out_root, recs, verdict)
+
+        save(doc)   # persist validation status + (escalation case) the report meta
+
+        if not verdict["passed"]:
+            failed = [g for g, r in verdict["gates"].items() if not r["ok"]]
+            alarm(f"{chunk.label}: marker layer FAILED headless validation "
+                  f"(gates: {', '.join(failed)}). Halting BEFORE scale — fix the "
+                  f"markers/scale bars in the GUI per the escalation report, save, "
+                  f"then re-run --stage markers to re-validate.",
+                  critical=True, ignore=ignore_sanity)
+
+
+def _emit_validated_scalebars(chunk: "Metashape.Chunk", out_root: Path,
+                              recs: "list[dict]", verdict: dict) -> None:
+    """On PASS: write the validated scale-bar set (the artifact stage_scale
+    consumes) + a headless-pass provenance record, and stamp esm.markers_validation
+    status=headless-pass. Emits the SET only — creating the Metashape scalebars is
+    stage_scale's job (clean detect/validate vs apply separation)."""
+    bars = [{
+        "a": b["a"], "b": b["b"],
+        "label": f"marker {b['a']}_marker {b['b']}",
+        "defined_distance_m": PARAMS.scalebar_length_m,
+        "accuracy_m": None,
+        "len_local": b["len_local"],
+    } for b in verdict["candidate_bars"]]
+
+    pdir = _markers_provenance_dir(chunk, out_root)
+    (pdir / "validated_scalebars.json").write_text(json.dumps(bars, indent=2))
+    record = {
+        "transect": chunk.label,
+        "status": "headless-pass",
+        "human_touch": "none",
+        "generated_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "detected_ids": sorted(r["id"] for r in recs
+                               if r["id"] is not None and r["reconstructed"]),
+        "projection_counts": {str(r["id"]): r["projection_count"]
+                              for r in recs if r["id"] is not None},
+        "proposed_pairs": verdict["proposed_pairs"],
+        "validated_scalebars": bars,
+        "gates": verdict["gates"],
+        "thresholds": verdict["thresholds"],
+    }
+    (pdir / "markers_validation.json").write_text(json.dumps(record, indent=2))
+    _meta_set(chunk, "esm.markers_validation", {
+        "status": "headless-pass",
+        "proposed_pairs": verdict["proposed_pairs"],
+        "validated_scalebars": bars,
+        "gates": verdict["gates"],
+        "thresholds": verdict["thresholds"],
+        "provenance": str(pdir / "markers_validation.json"),
+    })
+    log(f"{chunk.label}: marker layer PASSED all 3 gates — {len(bars)} validated "
+        f"scale bar(s) {[(b['a'], b['b']) for b in bars]} emitted to "
+        f"{pdir / 'validated_scalebars.json'}. Next: --stage scale.")
+
+
+def _write_escalation_report(chunk: "Metashape.Chunk", out_root: Path,
+                             recs: "list[dict]", verdict: dict) -> None:
+    """On FAIL: write the structured escalation report (all gate findings + the
+    count/coherence EVIDENCE + which images each suspect marker spans) and an
+    awaiting-manual provenance record; stamp esm.markers_validation
+    status=escalated. The console gets a readable summary; the JSON is the durable
+    artifact the human works from in the GUI. NO scale / optimize / dense runs."""
+    suspect = set(verdict["suspect_ids"])
+    by_id = {r["id"]: r for r in recs if r["id"] is not None}
+    # Which images each SUSPECT marker spans (from our own detection) — capped in
+    # the console log, full list in the JSON, so the report is readable but the
+    # artifact is complete.
+    suspect_images = {
+        str(sid): {
+            "projection_count": by_id.get(sid, {}).get("projection_count"),
+            "resid_px_median": by_id.get(sid, {}).get("resid_px_median"),
+            "images": by_id.get(sid, {}).get("images", []),
+        } for sid in sorted(suspect)
+    }
+    failed = [g for g, r in verdict["gates"].items() if not r["ok"]]
+    report = {
+        "transect": chunk.label,
+        "status": "escalated",
+        "awaiting": "manual-gui-fix",
+        "generated_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "failed_gates": failed,
+        "gates": verdict["gates"],
+        "detected_ids": sorted(r["id"] for r in recs
+                               if r["id"] is not None and r["reconstructed"]),
+        "candidate_bars": verdict["candidate_bars"],
+        "suspect_ids": sorted(suspect),
+        # Evidence (per brief: reported, NOT a fail-criterion):
+        "evidence": {
+            "projection_counts": {str(r["id"]): r["projection_count"]
+                                  for r in recs if r["id"] is not None},
+            "resid_px_median": {str(r["id"]): r["resid_px_median"]
+                                for r in recs if r["id"] is not None},
+            "suspect_marker_images": suspect_images,
+        },
+        "thresholds": verdict["thresholds"],
+        "re_entry": ("Fix markers/scale bars in the GUI (delete spurious / "
+                     "re-pair orphans), save the project, then re-run "
+                     "--stage markers. Re-entry validates the EXISTING set "
+                     "(no re-detect); on PASS the validated bars flow to "
+                     "--stage scale."),
+    }
+    pdir = _markers_provenance_dir(chunk, out_root)
+    (pdir / "markers_escalation.json").write_text(json.dumps(report, indent=2))
+    _meta_set(chunk, "esm.markers_validation", {
+        "status": "escalated",
+        "failed_gates": failed,
+        "gates": verdict["gates"],
+        "suspect_ids": sorted(suspect),
+        "thresholds": verdict["thresholds"],
+        "provenance": str(pdir / "markers_escalation.json"),
+    })
+
+    # Console summary (the durable detail is in the JSON above).
+    log(f"*** {chunk.label}: MARKER VALIDATION ESCALATION — awaiting manual GUI "
+        f"fix. Report: {pdir / 'markers_escalation.json'}")
+    log(f"    failed gates: {failed}")
+    ga = verdict["gates"]["a_parity"]
+    log(f"    (a) parity: n={ga['n_markers']} odd={ga['odd_count']} "
+        f"orphans={ga['orphans']} pairs={ga['proposed_pairs']}")
+    gb = verdict["gates"]["b_coherence"]
+    log(f"    (b) coherence: ceiling={gb['ceiling_px']}px "
+        f"load-bearing-flagged={gb['load_bearing_flagged']} "
+        f"(flagged {len(gb['flagged'])}/{len(recs)} markers)")
+    gc = verdict["gates"]["c_consistency"]
+    log(f"    (c) inter-bar: ratio={gc.get('ratio')} max={gc.get('max_ratio')} "
+        f"lengths={gc.get('lengths')}")
+    for sid in sorted(suspect):
+        info = suspect_images[str(sid)]
+        imgs = info["images"]
+        head = ", ".join(imgs[:6]) + (f", …(+{len(imgs)-6} more)" if len(imgs) > 6 else "")
+        log(f"    suspect id {sid}: {info['projection_count']} projections, "
+            f"median resid {info['resid_px_median']}px; spans [{head}]")
+
+
+# --------------------------------------------------------------------------- #
+# Stage: scale  — DUMB applier of the validated scale-bar set (replaces the
+# manual GUI "assign 25 cm scale bars to marker pairs" step). Trusts stage_markers'
+# verdict entirely: it only runs when the layer is headless-pass, then creates the
+# Metashape scalebars for the validated pairs (skipping any the human already
+# created in the GUI on the re-entry path). It makes NO geometric decision.
+# --------------------------------------------------------------------------- #
+
+
+def stage_scale(doc: Metashape.Document, ignore_sanity: bool) -> None:
+    """Apply the scale-bar set stage_markers validated. Requires
+    esm.markers_validation status=headless-pass (refuses otherwise — scaling an
+    un-validated/escalated layer is exactly what the gate exists to prevent).
+    Idempotent: re-pairs only what is missing, so GUI-created bars are reused.
+    Sets each bar's reference distance to 0.25 m. Does NOT optimize/level/dense —
+    those are downstream stages (dense never auto-starts)."""
+    for chunk in doc.chunks:
+        val = _meta_get(chunk, "esm.markers_validation")
+        status = val.get("status") if val else None
+        if status != "headless-pass":
+            alarm(f"{chunk.label}: marker layer not validated for headless scaling "
+                  f"(status={status}). Run --stage markers to a PASS first; if it "
+                  f"escalated, fix the markers in the GUI per the escalation report "
+                  f"and re-validate.", critical=True, ignore=ignore_sanity)
+            continue
+        if _meta_get(chunk, "esm.scale") is not None:
+            log(f"{chunk.label}: scale bars already applied; skipping.")
+            continue
+        by_id = {_marker_id(m.label): m for m in chunk.markers
+                 if m.position is not None}
+        existing = {frozenset((sb.point0.label, sb.point1.label))
+                    for sb in chunk.scalebars if sb.point0 and sb.point1}
+        created, reused, problems = [], [], []
+        for pair in val.get("proposed_pairs", []):
+            a, b = pair[0], pair[1]
+            ma, mb = by_id.get(a), by_id.get(b)
+            if ma is None or mb is None:
+                problems.append([a, b])
+                continue
+            key = frozenset((ma.label, mb.label))
+            if key in existing:
+                reused.append([a, b])
+                continue
+            sb = chunk.addScalebar(ma, mb)
+            sb.reference.distance = PARAMS.scalebar_length_m
+            created.append([a, b])
+        if problems:
+            alarm(f"{chunk.label}: validated pair(s) {problems} reference markers "
+                  f"absent from the chunk — the layer changed since validation. "
+                  f"Re-run --stage markers to re-validate before scaling.",
+                  critical=True, ignore=ignore_sanity)
+        _meta_set(chunk, "esm.scale", {
+            "bars_created": created,
+            "bars_reused_from_gui": reused,
+            "scalebar_length_m": PARAMS.scalebar_length_m,
+            "total_scalebars": len(chunk.scalebars),
+            "source": "stage_markers headless-pass validated set",
+        })
+        log(f"{chunk.label}: applied scale bars — created {created}, reused "
+            f"{reused} (GUI); {len(chunk.scalebars)} scale bar(s) total @ "
+            f"{PARAMS.scalebar_length_m} m. Next: --stage reduce (ESM Step 8).")
         save(doc)
 
 
@@ -1908,6 +2338,8 @@ def stage_report(doc: Metashape.Document, out_root: Path,
             "stage_step4": _meta_get(chunk, "esm.step4"),
             "stage_align": _meta_get(chunk, "esm.align"),
             "stage_markers": _meta_get(chunk, "esm.markers"),
+            "stage_markers_validation": _meta_get(chunk, "esm.markers_validation"),
+            "stage_scale": _meta_get(chunk, "esm.scale"),
             "stage_reduce": _meta_get(chunk, "esm.reduce"),
             "stage_level": _meta_get(chunk, "esm.level"),
             "stage_dense": _meta_get(chunk, "esm.dense"),
@@ -1935,14 +2367,18 @@ def _file_stat(path: Path) -> dict:
 # --------------------------------------------------------------------------- #
 
 # Corrected step order (ADR-0017 + fidelity fix): marker detection (Step 7) is
-# its own stage BEFORE the GUI scale-bar handoff; error reduction (Step 8) runs
-# AFTER it. ADR-0021 inserts level (ESM Step 11, marker-plane, BEFORE dense) and
-# aoi (ESM Step 14 bbox, footprint-PCA, AFTER filter) as two separate stages, and
-# a permanent gate after ortho. Sequence with handoffs:
-#   import step4 align markers [GUI: scale bars] reduce [GUI: coord frame]
-#   level dense filter aoi dsm ortho gate report
-STAGES = ["import", "step4", "align", "markers", "reduce", "level", "dense",
-          "filter", "aoi", "dsm", "ortho", "gate", "report"]
+# its own stage BEFORE scale-bar assignment; error reduction (Step 8) runs AFTER
+# it. ADR-0022 adds the headless marker-layer gate to `markers` and a dumb
+# `scale` applier after it: on a gate PASS scale runs headless; on FAIL markers
+# escalates (GUI fix -> re-run markers -> re-validate -> scale). The [GUI] handoff
+# is now CONDITIONAL — only entered when validation escalates. ADR-0021 inserts
+# level (ESM Step 11, marker-plane, BEFORE dense) and aoi (ESM Step 14 bbox,
+# footprint-PCA, AFTER filter) as separate stages, and a permanent gate after
+# ortho. Sequence with handoffs:
+#   import step4 align markers {escalate?->[GUI: fix markers]->markers} scale
+#   reduce [GUI: coord frame] level dense filter aoi dsm ortho gate report
+STAGES = ["import", "step4", "align", "markers", "scale", "reduce", "level",
+          "dense", "filter", "aoi", "dsm", "ortho", "gate", "report"]
 
 
 def main() -> None:
@@ -1991,6 +2427,18 @@ def main() -> None:
                     help="Weaker COUNT criterion for the marker stage if exact IDs "
                          "are unknown. EDR belt transects deploy 4 scale bars = 8 "
                          "coded targets. Prefer --expected-marker-ids.")
+    ap.add_argument("--marker-resid-ceiling", type=float,
+                    default=GATE_MARKER_RESID_CEILING_PX,
+                    help="Marker validation gate (b) ceiling: robust (median) "
+                         "per-marker reprojection residual in PIXELS. A loose "
+                         "tripwire (default 2.0; T3 max 0.378, T1 ~1000x past). "
+                         "Calibrate on a known-good transect with margin — do NOT "
+                         "tune to make a bad transect fail (ADR-0022).")
+    ap.add_argument("--interbar-ratio-max", type=float,
+                    default=GATE_INTERBAR_RATIO_MAX,
+                    help="Marker validation gate (c) tolerance: max/min local "
+                         "length ratio across the proposed scale bars (default "
+                         "1.25; T3 1.091 PASS, T1 1.352 FAIL). Scale-invariant.")
     ap.add_argument("--max-total-tilt-deg", type=float, default=GATE_TOTAL_TILT_MAX_DEG,
                     help="Gate check 2 gross-mislevel bound (deg). Default 6.0 is "
                          "conservative for the EDR ~1 m-strip deployment (cross "
@@ -2061,7 +2509,11 @@ def main() -> None:
         elif st == "align":
             stage_align(doc, focal_mode, args.ignore_sanity)
         elif st == "markers":
-            stage_markers(doc, args.ignore_sanity, expected_ids, args.expected_markers)
+            stage_markers(doc, args.ignore_sanity, expected_ids,
+                          args.expected_markers, args.out_root,
+                          args.marker_resid_ceiling, args.interbar_ratio_max)
+        elif st == "scale":
+            stage_scale(doc, args.ignore_sanity)
         elif st == "reduce":
             stage_reduce(doc, args.logan_module, args.ignore_sanity)
         elif st == "level":
