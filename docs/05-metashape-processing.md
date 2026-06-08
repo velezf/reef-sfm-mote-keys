@@ -102,7 +102,7 @@ This register supersedes the looser automated/manual split above.
 | 5 | Align: High, 60k keypoints, generic preselection, exclude stationary | `matchPhotos(downscale=1, …)` with Toth's values | Faithful | `align` |
 | 6 | Optimize cameras (defaults) | `optimizeCameras()` | Faithful | `align` |
 | 7 | Detect coded targets; build 25 cm scale bars | **Detection** headless (`detectMarkers`, Circular 12-bit, AUTO-TOLERANCE by identity) **+ a headless validation gate** (ADR-0022): (a) consecutive-ID parity/orphans, (b) loose post-align reprojection-coherence tripwire, (c) scale-free inter-bar length ratio. PASS → dumb **`stage_scale`** builds the 25 cm bars headless; FAIL → escalate (structured report) + GUI fix + re-validate. GUI scale-bar assignment is now the *escalation* path, not the default | Faithful (detect) + headless gate/apply; GUI only on escalation | `markers` + `scale` / ADR-0022, ADR-0021 |
-| 8 | Gradual selection: RU 20–40, PA 3–4, RE 0.3, re-optimize | Logan script in threshold mode **preferred**; built-in faithful transcription is the fallback (currently used — Logan not yet vendored), logged as a per-run departure. Runs AFTER scale bars exist (see Corrected step order) | Faithful (values) — see note | `reduce` / ADR-0010 |
+| 8 | Gradual selection: RU 20–40, PA 3–4, RE 0.3, re-optimize | **Vendored USGS Logan v2.0** (`Align_RuPaRe`, DOI 10.5066/P9DGS5B9) in threshold mode at Toth's values, **capped-iterative** (per-pass cutoff 0.5/0.5/0.1, optimize between, final fit-additional). The home-grown one-shot transcription is **retired** (it collapsed T1 — ADR-0023); **no silent fallback** (a bad vendored load HALTS). Runs AFTER scale bars exist (see Corrected step order) | Faithful (values + the published tool) | `reduce` / ADR-0010, ADR-0023 |
 | 9 | Color correction (Hatcher) — *optional* | **Skipped** (optional, visualization-only) | Departure (documented) | — / ADR-0010 |
 | 10 | Dehaze — *optional* | **Skipped** (optional, visualization-only) | Departure (documented) | — |
 | 11 | Jenkins Alignment Helper — local zero-point 1 m grid frame | **`stage_level`** (ADR-0021): deterministic marker-PLANE roll+pitch, headless — robust LS plane to the vetted scale-bar markers (scale-bar-residual MAD outlier rejection), normal→+Z, scale preserved. Runs BEFORE dense (ESM 11<12). Replaces the GUI helper whose 2-marker-midline roll-blindness caused the day-1 24.26° defect. Scale comes from the scale-bar-constrained `reduce`, not a separate frame | Departure (documented) | `level` / ADR-0021 |
@@ -152,15 +152,19 @@ denoised cloud (ESM 14, after 13).
 **Note on Step 8 fidelity vs Logan.** The *thresholds* (RU 30, PA 3.5, RE 0.3)
 are faithful to Toth either way. ADR-0010 marks the Logan USGS script itself as
 the preferred tool because using the exact cited tool is part of the
-reproduction claim. As of this T3 dev run the Logan module is **not vendored on
-the instance** (`import reduce_error` fails; no clone on disk), so `reduce` runs
-the built-in transcription and records `reduction_path = "builtin_fallback"` in
-the manifest. This is logged as a per-run documented departure, not silently
-preferred. The earlier framing that "Logan lost the smoke A/B" was inaccurate:
-the smoke A/B compared focal-length arms, not Logan vs built-in, and Logan was
-never actually run because it was never present. Vendoring Logan (clone, verify
-the `reduce_error` signature, expose on `PYTHONPATH`) is tracked below and is
-the cleanest remaining fidelity upgrade for this layer.
+reproduction claim. **As of 2026-06-08 Logan is vendored** (USGS PCMSC
+`Align_RuPaRe` v2.0, DOI 10.5066/P9DGS5B9, at
+`scripts/metashape/vendor/logan_usgs/`) and is the `reduce` path; `esm.reduce`
+records `reduction_path = "logan_vendored:Align_RuPaRe_v2_Metashape.py"`. The
+home-grown built-in transcription (`_run_builtin_reduction`) is **retired** — it
+applied Toth's thresholds as **one-shot hard cuts** and on 2026-06-08 removed
+**100 % of EDR_T1's tie points** (10.67 M → 0 → 86/2422 cameras); the published
+Logan routine is **capped-iterative** (bounded deletion per pass + optimize
+between), which is the structural fix. There is **no fallback path** any more: a
+missing/broken vendored module HALTS loudly (`reduce` can never silently skip
+error reduction). The earlier framing that "Logan lost the smoke A/B" was
+inaccurate: the smoke A/B compared focal-length arms, not Logan vs built-in. See
+ADR-0023 for the full reversal + the network-health collapse guard.
 
 ## Logan error-reduction script — integration and verification
 
@@ -194,37 +198,74 @@ command-line arguments or the `defaults` object. So we configure Logan in
 **threshold mode with Toth's values** — not the percentage defaults. Running the
 defaults would produce a legitimate but non-comparable reconstruction.
 
-**Integration steps (run on the EC2 instance):**
+**As vendored (2026-06-08) — DONE.** The v2.0 release is pinned verbatim under
+`scripts/metashape/vendor/logan_usgs/` (`Align_RuPaRe_v2_Metashape.py` + LICENSE /
+DISCLAIMER / Readme / CHANGELOG / code.json / `PROVENANCE.md`). Integrity:
+archive sha256 `f124418878…65db65f`, module sha256 `baaa3c91…231ea1b`. The
+`legacy_scripts/` PhotoScan 1.4–1.6 variants are **not** vendored. The vendored
+file is third-party and stays byte-for-byte as released; **do not edit it** — all
+EDR orchestration lives in `run_pipeline.py`. To re-pin a newer release, drop in
+the new file, update the hashes in `PROVENANCE.md`, and note it in ADR-0023.
 
-```bash
-# 1. Clone into the repo's vendor/ dir (the data volume, where the repo lives)
-cd ~/code/reef-sfm-mote-keys/vendor
-git clone https://code.usgs.gov/pcmsc/AgisoftAlignmentErrorReduction.git
-# Use the v2.0 tag/branch, not the legacy_scripts/ versions.
+- **Import by file path** — `_vendored_logan_module()` loads it via
+  `importlib.util.spec_from_file_location` (no `sys.path` mutation). The module is
+  import-safe (every statement under a `def`/`class` or the `__main__` guard), so
+  importing needs only `import Metashape` to resolve (true under `metashape.sh`).
+- **The wrapper** `_run_logan_reduction` calls the routine's three real functions
+  — `reconstruction_uncertainty(chunk, 30, 0.50, …)` →
+  `projection_accuracy(chunk, 3.5, 0.50, …)` →
+  `reprojection_error(chunk, 0.3, 0.10, …, final fit_additional_corr=True)`,
+  `compute_rmse=True` — in threshold mode at Toth's values with the script's
+  capped per-pass cutoffs. RU/PA run-once; RE iterates to the RMSE target. (Logan
+  appends `_Ru/_Pa/_Re` to the chunk label; the wrapper restores the original.)
+- **`--logan-module <name>`** still overrides the vendored copy with an importable
+  module name (kept for testing / a future re-pin); default is the vendored file.
 
-# 2. Read the bundled README + DISCLAIMER. Confirm: (a) no usage restriction,
-#    (b) the exact threshold-mode argument names and the reduce-error entry
-#    point. The wrapper in run_pipeline.py calls `mod.reduce_error(chunk, ...)`
-#    in threshold mode; reconcile that against the actual function signature and
-#    adjust the thin wrapper if the names differ. This is the only place the
-#    vendored code's real API needs to be matched by hand.
+**The built-in transcription (`_run_builtin_reduction`) is removed.** There is no
+fallback: if the vendored module is missing or fails to import, `reduce` HALTS
+loudly rather than silently skipping error reduction or running a different
+algorithm. This is the ADR-0023 reversal of ADR-0017's interim "built-in is the
+only path" stopgap (which is what collapsed EDR_T1).
 
-# 3. Make it importable in the project env:
-cd ~/code/reef-sfm-mote-keys
-uv add --editable ./vendor/AgisoftAlignmentErrorReduction   # if it's a package
-# or expose the script dir on PYTHONPATH if it's a flat script.
+## Network-health collapse guard + scale-bar weighting (ADR-0023)
 
-# 4. Smoke-test threshold mode on the SMALLEST transect's sparse cloud BEFORE
-#    committing to the full run. Confirm RU/PA/RE filters fire with Toth's
-#    thresholds and the final optimize runs with fit-additional enabled.
-```
+Born from the 2026-06-08 EDR_T1 reduce collapse: the home-grown one-shot reduction
+removed 100 % of tie points (→ 86/2422 cameras) and `scale`/`level` then "succeeded"
+on the wreckage because they read **stale `esm.align` meta**, not the live network.
+Two fixes ship alongside the vendored-Logan reduce.
 
-Until the clone+verify lands, `run_pipeline.py` falls back to a **faithful
-built-in transcription** of ESM Step 8 (`_run_builtin_reduction`) that applies
-the same three filters at Toth's thresholds via the native API. This keeps the
-pipeline runnable, but the Logan script is the ADR-0010-preferred path because
-it is the exact tool the original team cites — using it is itself part of the
-reproduction claim.
+**Scale-bar accuracy weighting.** `stage_scale` now sets
+`sb.reference.accuracy = scalebar_accuracy_m` (`PARAMS.scalebar_accuracy_m`,
+default **0.001 m**; `--scalebar-accuracy-m`) on **every** bar — both the ones it
+creates and any the human created in the GUI on the re-entry path, which arrived
+with `accuracy = None` (active-but-**unweighted**). Weighting makes the 0.25 m bars
+real constraints in the Logan final optimize, so the reference distance actually
+pulls the metric scale. Recorded in `esm.scale.scalebar_accuracy_m`.
+
+**Collapse tripwire (HARD guard, NOT the fine QC gate).** A coarse, reference-free
+check wired at three points: **3a** a within-reduce per-pass backstop (a single
+run-once RU/PA filter dropping more than its cutoff is anomalous → HALT before the
+next pass/save), **3b** a success-tied post-reduce condition (vs the pre-reduce
+aligned count, before `esm.reduce` is written), and **3c** a live pre-condition at
+the entry of `scale`/`reduce`/`level`/`dense` (reads the **live** aligned count — the
+fix for the stale-meta bug). `--ignore-sanity` downgrades the HALT to a warning but
+**still writes** `network_health_escalation.json`.
+
+| Constant (CLI flag) | Default | What it catches | Recalibration rule (transect-agnostic) |
+|---|---|---|---|
+| `HEALTH_MIN_ALIGNED_FRAC` (`--health-min-aligned-frac`) | 0.90 | Cameras de-aligning during reduce (PRIMARY). Floor = frac × baseline (pre-stage aligned for 3b, live enabled for 3c) | A *fraction of the run's own baseline*, not an absolute count — already program-independent. Lower only if a transect's clean reduce is shown to legitimately drop alignment (it should not); never raise to make a bad run pass. |
+| `HEALTH_MIN_TIEPOINTS` (`--health-min-tiepoints`) | 1000 | Near-total tie-point removal (the collapse left 0) | A **near-zero tripwire, NOT a fraction** — a healthy Logan reduce sheds a large share, so a fractional floor false-fires. Keep it orders of magnitude below any plausible healthy post-reduce count (millions); it only needs to separate "≈0" from "millions". |
+| `HEALTH_SCALEBAR_MAX_RATIO` (`--health-scalebar-max-ratio`) | 2.0 | Metric scale blown to km (`max(meas/def, inverse) > ratio`) | **Coarse within-N×**, deliberately loose so it never doubles as the fine scale gate (`stage_gate`). Independent of bar length (it is a *ratio* to each bar's own defined distance). Leave at 2.0 unless a program's geometry genuinely produces >2× honest scale error pre-gate. |
+| `HEALTH_MAX_PASS_DROP_FRAC` (`--reduce-max-pass-drop-frac`) | 0.50 | A single gradual-selection pass taking too much (3a). Logan's RU/PA cutoff is 0.5, so a healthy pass never trips it | Pin to Logan's run-once cutoff: set ≥ the largest cutoff you pass to a *run-once* (non-iterating) filter. Applies to RU/PA only; RE iterates and is covered by 3b, not this. |
+| `LEVEL_MAX_EXTENT_M` (`--level-max-extent-m`) | 50.0 | A collapsed model spreading markers over km (`stage_level` extent sanity) | Set to a few × the real transect extent (EDR ≈10 m → 50 m headroom). It only needs to separate "~10 m" from "thousands of km"; scale to the deployment's transect length, not tuned tight. |
+
+All five are coarse collapse discriminators with wide margin — they separate a
+*collapse* (0 tie points / 86 cameras / km bars) from a *healthy* reduce (millions of
+tie points shed, cameras intact, bars near 0.25 m), and never decide a borderline
+run. The fine accept/reject is `stage_gate` (ADR-0021). Reusing on another program:
+the fractional/ratio/near-zero forms are already transect-agnostic; only
+`LEVEL_MAX_EXTENT_M` carries a length scale, so adjust it to the deployment's
+transect length and leave the rest.
 
 ## Coordinate frame — Jenkins Alignment Helper
 
@@ -700,7 +741,7 @@ validated *pilot* that proved the method; nothing is lost.
 | 10 | (no gate in ESM) | permanent 8-check QC gate | Added safeguard (ADR-0021) |
 | 12 | Step 7 GUI scale-bar assignment | headless **marker-layer validation gate** (a parity / b coherence / c inter-bar ratio / d sufficiency = fail-closed min-bars) → dumb `stage_scale`; GUI only on escalation | Added safeguard + automation (ADR-0022); replaces the manual assign on the PASS path |
 | 13 | (brief: gate-b = mis-decodes in few cameras at high residual) | gate-b = **reprojection COHERENCE** (loose post-align tripwire, no in-gate optimize); projection count is **evidence only** | Heuristic **falsified by the data** (T1 ghost sits in 111 cameras, low residual; count non-transferable T3 5–30 vs T1 111–182) — ADR-0022 |
-| 11 | Step 6/12 tie-point covariance: Yes | `optimizeCameras(tiepoint_covariance=True)` — **wired T1 onward**; the T3 pilot ran pre-wiring (covariance is an uncertainty output, not geometry; T3 already gate-passed, NOT re-run) | Faithful T1+; documented T3 gap |
+| 11 | Step 6/12 tie-point covariance: Yes | `optimizeCameras(tiepoint_covariance=True)` at the **align** Step-6 optimize — **wired T1 onward**; the T3 pilot ran pre-wiring (covariance is an uncertainty output, not geometry; T3 already gate-passed, NOT re-run). **Divergence (ADR-0023):** the vendored Logan governs the reduce optimize via `fit_corrections`, so it is **not force-set in `reduce`** — the post-reduce covariance is not refreshed. Product-neutral: no consumer reads tie-point covariance (manifest/QC/level/filter/dense all ignore it; it is still produced at align). v2 flag: a future export/QC of tie-point uncertainty must add an explicit refresh + re-validate | Faithful T1+ (align); documented reduce divergence + T3 gap |
 | — | Keypoint 40k / dense Medium (PIFSC SOP) | **60k / High (ESM)** | ESM wins where PIFSC conflicts (ADR-0010) |
 
 ### Completion log — Chat 5 (2026-06-04, first person)

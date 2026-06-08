@@ -1,8 +1,16 @@
 # ADR 0017 — Wire ESM Step 4 image-quality filter before alignment; wire ADR-0015's confidence filter into the production driver; extend `--stage` rather than add CLI flags; confirm DSM = 1 cm (1 mm was a misattribution)
 
-Status: Accepted
+Status: Accepted — **superseded IN PART by [ADR-0023](0023-vendored-logan-reduce-and-network-health-collapse-guard.md)**
 Date: 2026-05-29
 Chat: 5 (close-out / T3 dress rehearsal)
+
+> **Superseded in part (2026-06-08, ADR-0023).** This ADR's Step-4 image-quality
+> filter, the confidence `filter` stage, the `--stage` model, and DSM = 1 cm all
+> **remain in force**. Only one consequence is reversed: the "Built-in error
+> reduction is currently the only path / `reduction_path = builtin_fallback`"
+> decision (in *Consequences* below). The home-grown transcription collapsed EDR_T1
+> on 2026-06-08; ADR-0023 vendors the USGS Logan v2.0 routine as the `reduce` path,
+> removes the built-in, and adds a network-health collapse guard. See ADR-0023.
 
 ## Context
 
@@ -192,13 +200,19 @@ the GUI handoff forces, and the `report` stage assembles them into the manifest.
   alarm (< 70% of *enabled*) is measured against post-Step-4 enabled cameras,
   not the raw 522. The manifest records both `cameras_total` and
   `cameras_enabled` so the distinction is auditable.
-- **Built-in error reduction is currently the only path.** The Logan USGS
+- **Built-in error reduction is currently the only path.** ⟶ **SUPERSEDED by
+  [ADR-0023](0023-vendored-logan-reduce-and-network-health-collapse-guard.md)
+  (2026-06-08).** The Logan USGS
   script is not vendored on the instance (`import reduce_error` fails; no clone
   on disk), so the `reduce` stage uses the faithful built-in transcription and
   records `reduction_path = "builtin_fallback"`. Per ADR-0010 Logan is the
   preferred tool; using the fallback is logged loudly as a per-run documented
   departure rather than silently preferred. Vendoring Logan is tracked as
   follow-up; see docs/05 "Logan integration".
+  *(2026-06-08: this stopgap collapsed EDR_T1 — the one-shot hard cut removed 100 %
+  of tie points. ADR-0023 vendors Logan v2.0 as the path, removes the built-in
+  transcription entirely, and adds the 3a/3b/3c network-health collapse guard. The
+  rest of this ADR stands.)*
 - **ADR-0016 is now testable.** With a `filter` stage before `dsm`, a 1 cm
   resolution, and a metric-scaled chunk (post-GUI handoff), the `dsm` stage
   calls `buildDem` with NO `region=` clip and surfaces the result either way —

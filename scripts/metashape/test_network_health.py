@@ -242,5 +242,104 @@ def test_ignore_sanity_downgrades_collapse_to_warn(tmp_path):
     assert (tmp_path / "EDR_T1" / "network_health_escalation.json").exists()
 
 
+# --------------------------------------------------------------------------- #
+# Reduce path: vendored Logan + the 3a within-reduce per-pass backstop, the
+# "no silent fallback" property, and that the built-in transcription is retired.
+# These exercise _run_logan_reduction with a fake Logan module injected via
+# sys.modules and the --logan-module override path.
+# --------------------------------------------------------------------------- #
+
+
+def _make_fake_logan(name, ru_drop, pa_drop, re_drop):
+    """A stand-in Logan module whose RU/PA/RE each delete a fixed fraction of the
+    CURRENT tie points and record the call order. Injected into sys.modules so
+    _run_logan_reduction(..., logan_module=name) imports it."""
+    mod = types.ModuleType(name)
+    mod.calls = []
+
+    def _drop(chunk, frac):
+        n = len(chunk.tie_points.points)
+        chunk.tie_points.points = [0] * int(round(n * (1.0 - frac)))
+
+    def ru(chunk, *a, **k):
+        mod.calls.append("RU"); _drop(chunk, ru_drop)
+
+    def pa(chunk, *a, **k):
+        mod.calls.append("PA"); _drop(chunk, pa_drop)
+
+    def re_(chunk, *a, **k):
+        mod.calls.append("RE"); _drop(chunk, re_drop)
+
+    mod.reconstruction_uncertainty = ru
+    mod.projection_accuracy = pa
+    mod.reprojection_error = re_
+    sys.modules[name] = mod
+    return mod
+
+
+def test_pass_drop_backstop_halts_before_next_pass(tmp_path):
+    # 3a: a SINGLE run-once gradual-selection pass dropping > HEALTH_MAX_PASS_DROP_FRAC
+    # (here RU takes 90% > 0.50) must HALT before the reduction proceeds — the guard
+    # most specific to the actual 2026-06-08 collapse (one pass took the whole cloud).
+    fake = _make_fake_logan("fake_logan_collapse", ru_drop=0.90, pa_drop=0.0,
+                            re_drop=0.0)
+    chunk = _Chunk("EDR_T1", n_aligned=2348, n_enabled=2357, n_tp=10_000_000,
+                   bar_sep_m=0.25)
+    with pytest.raises(rp.PipelineSanityError):
+        rp._run_logan_reduction(chunk, tmp_path, rp.HealthConfig(),
+                                ignore_sanity=False, logan_module=fake.__name__)
+    # PA and RE never ran -> halted *before applying* the rest of the reduce.
+    assert fake.calls == ["RU"], fake.calls
+    # Structured escalation written, flagging the per-pass drop at the RU pass.
+    report = tmp_path / "EDR_T1" / "network_health_escalation.json"
+    assert report.exists()
+    data = json.loads(report.read_text())
+    assert data["context"] == "reduce:pass:RU"
+    assert "pass_drop" in data["failed_checks"]
+
+
+def test_healthy_capped_reduce_does_not_false_fire(tmp_path):
+    # Positive control: a healthy capped reduce (each run-once pass <= 0.50, RE not
+    # fraction-gated) runs ALL THREE filters and returns, with NO false escalation.
+    fake = _make_fake_logan("fake_logan_healthy", ru_drop=0.20, pa_drop=0.20,
+                            re_drop=0.50)
+    chunk = _Chunk("EDR_T1", n_aligned=2348, n_enabled=2357, n_tp=10_000_000,
+                   bar_sep_m=0.25)
+    path = rp._run_logan_reduction(chunk, tmp_path, rp.HealthConfig(),
+                                   ignore_sanity=False, logan_module=fake.__name__)
+    assert fake.calls == ["RU", "PA", "RE"], fake.calls
+    assert "fake_logan_healthy" in path
+    assert not (tmp_path / "EDR_T1" / "network_health_escalation.json").exists()
+
+
+def test_failed_logan_load_halts_loudly(tmp_path):
+    # With the built-in retired there is NO fallback: a failed import of the Logan
+    # module must propagate (HALT), never silently skip reduce.
+    chunk = _Chunk("EDR_T1", n_aligned=2348, n_enabled=2357, n_tp=10_000_000,
+                   bar_sep_m=0.25)
+    with pytest.raises(ModuleNotFoundError):
+        rp._run_logan_reduction(chunk, tmp_path, rp.HealthConfig(),
+                                ignore_sanity=False,
+                                logan_module="definitely_not_a_real_module_xyzzy")
+
+
+def test_builtin_reduction_is_retired():
+    # The home-grown transcription (and the old shim) are GONE — there is no
+    # silent built-in reduce path to fall back to (ADR-0023).
+    assert not hasattr(rp, "_run_builtin_reduction")
+    assert not hasattr(rp, "_run_logan")
+    assert hasattr(rp, "_run_logan_reduction")  # the vendored-Logan path is the only one
+
+
+def test_vendored_logan_imports_headless():
+    # The loud-load SUCCESS half: the pinned vendored module loads by file path
+    # under a headless (stub-Metashape) import and exposes the three filters.
+    mod, src = rp._vendored_logan_module()
+    for fn in ("reconstruction_uncertainty", "projection_accuracy",
+               "reprojection_error"):
+        assert callable(getattr(mod, fn)), fn
+    assert src.endswith("Align_RuPaRe_v2_Metashape.py")
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
