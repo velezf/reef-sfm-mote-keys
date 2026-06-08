@@ -100,8 +100,15 @@ Three discriminators, in priority:
 - **Scale-bar sanity (PRIMARY, COARSE).** A sane metric model keeps bars near their
   defined 0.25 m; a collapse blows them to kilometres. `max(measured/defined,
   inverse) ≤ HEALTH_SCALEBAR_MAX_RATIO` (2.0). This is a **coarse within-2× tripwire,
-  NOT** the fine scale gate (`stage_gate`). Skipped pre-scale (bars still in internal
-  units would false-fire).
+  NOT** the fine scale gate (`stage_gate`). **Only checked at phases where the model
+  is already metric** — i.e. *after* the scale-constrained optimize inside `reduce`.
+  At the pre-optimize phases (`scale:pre`, `reduce:pre`) the bars are still in
+  internal units (transform scale 1.0) and this check is skipped, or it would
+  false-fire (it did, on `reduce:pre`, 2026-06-08 — corrected). The per-phase policy
+  is the single source of truth `HEALTH_CHECK_SCALEBARS` (False for `scale:pre` /
+  `reduce:pre`; True for `reduce:post` / `level:pre` / `dense:pre` / `dsm:pre` /
+  `ortho:pre`); `_check_network_health_or_escalate` derives the flag from the phase so
+  a call site cannot pick the wrong value.
 - **Tie-point NEAR-ZERO tripwire.** `tie_points ≤ HEALTH_MIN_TIEPOINTS` (1000).
   Deliberately **not fractional**: a healthy Logan reduce legitimately sheds a large
   share of tie points, so a fractional floor would false-fire. It catches only
@@ -126,9 +133,14 @@ Wired at three points:
   **pre-reduce aligned count** *before* `esm.reduce` success is written or the
   project saved. The collapse can never be recorded as success.
 - **3c — PRE-condition** at the entry of `scale`, `reduce`, `level` (and `dense` /
-  `dsm` / `ortho`). Reads the **live** aligned-camera count + scale-bar sanity — this
-  is the direct fix for the stale-meta bug: a stage refuses to run *on* an
-  already-collapsed model rather than trusting `esm.align`.
+  `dsm` / `ortho`). Reads the **live** aligned-camera count (+ tie-points) — this is
+  the direct fix for the stale-meta bug: a stage refuses to run *on* an
+  already-collapsed model rather than trusting `esm.align`. **Scale-bar sanity is
+  applied per the phase policy above**, NOT at every pre-condition: the pre-optimize
+  phases (`scale:pre`, `reduce:pre`) check cameras + tie-points only, because the
+  metric scale is realized by `reduce`'s optimize and the bars are still internal
+  units beforehand (the corrected 2026-06-08 `reduce:pre` false-positive); the
+  post-optimize phases also check scale-bar sanity.
 
 `--ignore-sanity` downgrades the HALT to a warning **but still writes the escalation
 report** — a forced run can never hide a collapse.

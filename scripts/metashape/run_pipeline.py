@@ -266,6 +266,23 @@ HEALTH_MAX_PASS_DROP_FRAC = 0.50  # 3a backstop: a single run-once gradual-selec
                                   # (Logan's RU/PA cutoff is 0.5, so it never trips)
 LEVEL_MAX_EXTENT_M = 50.0         # stage_level sanity: a marker set spanning more than
                                   # this (transect ~10 m) means a collapsed/garbage model
+# Per-phase scale-bar-sanity policy (single source of truth; ADR-0023). The metric
+# scale is realized by the scale-CONSTRAINED optimize INSIDE `reduce`, so BEFORE it
+# the bars are still in internal units and a coarse measured-vs-defined ratio check
+# would false-fire (the 2026-06-08 `reduce:pre` false-positive). Phases BEFORE the
+# reduce optimize check cameras + tie-points ONLY; phases AFTER it (model is metric)
+# additionally check scale-bar sanity. `_check_network_health_or_escalate` derives
+# its `check_scalebars` from this map by phase, so a call site cannot pick the wrong
+# value. New phases MUST be declared here (KeyError fails closed otherwise).
+HEALTH_CHECK_SCALEBARS = {
+    "scale:pre":   False,  # pre-scale: bars still in internal units
+    "reduce:pre":  False,  # pre-optimize: metric scale NOT yet realized (the fix)
+    "reduce:post": True,   # post-optimize: bars must come out ~metric
+    "level:pre":   True,   # post-reduce: model is metric
+    "dense:pre":   True,
+    "dsm:pre":     True,
+    "ortho:pre":   True,
+}
 # NoData sentinel returned by Elevation.altitude() outside the data footprint.
 DEM_NODATA_SENTINEL = -1000.0     # real reef Z is ~[-1.5, 2]; holes return -32767
 
@@ -1593,12 +1610,20 @@ def _write_health_escalation(chunk: "Metashape.Chunk", out_root: Path, context: 
 
 
 def _check_network_health_or_escalate(chunk, out_root: Path, context: str,
-                                      health: "HealthConfig", *, check_scalebars: bool,
+                                      health: "HealthConfig", *,
+                                      check_scalebars: "bool | None" = None,
                                       ignore_sanity: bool,
                                       baseline_aligned: "int | None" = None) -> dict:
     """Extract -> evaluate -> on failure write escalation report + critical alarm
     (HALT). baseline_aligned = pre-stage aligned count (3b); if None the chunk's
-    enabled-camera count is the baseline (3c pre-conditions)."""
+    enabled-camera count is the baseline (3c pre-conditions).
+
+    `check_scalebars` defaults to the per-phase policy `HEALTH_CHECK_SCALEBARS[context]`
+    (so a call site cannot pick the wrong value — the 2026-06-08 `reduce:pre` bug);
+    pass an explicit bool only to override (tests). An unknown context KeyErrors —
+    fail-closed: a new phase must declare its policy."""
+    if check_scalebars is None:
+        check_scalebars = HEALTH_CHECK_SCALEBARS[context]
     state = _extract_network_state(chunk, health.scalebar_defined_m)
     baseline = baseline_aligned if baseline_aligned is not None else state["enabled"]
     state["baseline_aligned"] = baseline
@@ -1651,7 +1676,7 @@ def stage_scale(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
         # are still in internal units (scalebar sanity would false-fire) — check
         # camera survival + tie points only.
         _check_network_health_or_escalate(chunk, out_root, "scale:pre", health,
-                                          check_scalebars=False, ignore_sanity=ignore_sanity)
+                                          ignore_sanity=ignore_sanity)  # policy: no bar check pre-scale
         by_id = {_marker_id(m.label): m for m in chunk.markers
                  if m.position is not None}
         existing = {frozenset((sb.point0.label, sb.point1.label))
@@ -1722,9 +1747,12 @@ def stage_reduce(doc: Metashape.Document, out_root: Path, logan_module: "str | N
         if _meta_get(chunk, "esm.reduce") is not None:
             log(f"{chunk.label}: error reduction already done; skipping.")
             continue
-        # 3c PRE-condition: never reduce a collapsed model.
+        # 3c PRE-condition: never reduce a collapsed model. Scale-bar sanity is NOT
+        # checked here — the metric scale is realized by the optimize INSIDE reduce,
+        # so pre-reduce the bars are still in internal units (policy reduce:pre=False,
+        # cf. scale:pre). The reduce:post check validates they came out metric.
         _check_network_health_or_escalate(chunk, out_root, "reduce:pre", health,
-                                          check_scalebars=True, ignore_sanity=ignore_sanity)
+                                          ignore_sanity=ignore_sanity)
         n_sb = len(chunk.scalebars)
         if n_sb == 0:
             alarm(f"{chunk.label}: error reduction (ESM Step 8) is running with "
@@ -1745,7 +1773,7 @@ def stage_reduce(doc: Metashape.Document, out_root: Path, logan_module: "str | N
         # 3b POST-condition (success-tied): assert the network survived BEFORE writing
         # any success meta or saving. Camera-survival is vs the PRE-reduce aligned count.
         _check_network_health_or_escalate(chunk, out_root, "reduce:post", health,
-                                          check_scalebars=True, ignore_sanity=ignore_sanity,
+                                          ignore_sanity=ignore_sanity,
                                           baseline_aligned=aligned_before)
         aligned_after = sum(1 for c in chunk.cameras
                             if getattr(c, "enabled", True) and c.transform is not None)
@@ -2007,7 +2035,7 @@ def stage_level(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
         # below, which read the STALE esm.align rate and so happily leveled the
         # 86-camera EDR_T1 wreckage (markers spanning ~3000 km) on 2026-06-08.
         _check_network_health_or_escalate(chunk, out_root, "level:pre", health,
-                                          check_scalebars=True, ignore_sanity=ignore_sanity)
+                                          ignore_sanity=ignore_sanity)
         # Legacy pre-level alignment guard (kept; now backed by the live check above).
         align = _meta_get(chunk, "esm.align") or {}
         rate = align.get("alignment_rate")
@@ -2149,7 +2177,7 @@ def stage_dense(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
             continue
         # 3c PRE-condition (ADR-0023): never build dense on a collapsed model.
         _check_network_health_or_escalate(chunk, out_root, "dense:pre", health,
-                                          check_scalebars=True, ignore_sanity=ignore_sanity)
+                                          ignore_sanity=ignore_sanity)
         scale_info = _log_chunk_scale(chunk, f"{chunk.label} pre-dense")
         if scale_info["transform_scale"] is None:
             alarm(f"{chunk.label}: transform.scale is None at dense stage — the "
@@ -2565,7 +2593,7 @@ def stage_dsm(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
             continue
         # 3c PRE-condition (ADR-0023): never build the DEM on a collapsed model.
         _check_network_health_or_escalate(chunk, out_root, "dsm:pre", health,
-                                          check_scalebars=True, ignore_sanity=ignore_sanity)
+                                          ignore_sanity=ignore_sanity)
         scale_info = _log_chunk_scale(chunk, f"{chunk.label} pre-buildDem")
         pc = chunk.point_cloud
         if pc is not None:
@@ -2652,7 +2680,7 @@ def stage_ortho(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
             continue
         # 3c PRE-condition (ADR-0023): never build the ortho on a collapsed model.
         _check_network_health_or_escalate(chunk, out_root, "ortho:pre", health,
-                                          check_scalebars=True, ignore_sanity=ignore_sanity)
+                                          ignore_sanity=ignore_sanity)
         if chunk.elevation is None:
             alarm(f"{chunk.label}: no DSM — cannot build orthomosaic on the "
                   f"elevation surface. Run the dsm stage first.",

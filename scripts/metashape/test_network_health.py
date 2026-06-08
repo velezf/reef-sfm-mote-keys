@@ -341,5 +341,75 @@ def test_vendored_logan_imports_headless():
     assert src.endswith("Align_RuPaRe_v2_Metashape.py")
 
 
+# --------------------------------------------------------------------------- #
+# Phase-matrix: a HEALTHY model must PASS at EVERY 3c site, each with its own
+# correct scale-bar policy. This is the regression the 2026-06-08 reduce:pre
+# false-positive would have been caught by: the metric scale is realized by the
+# optimize INSIDE reduce, so the pre-optimize phases (scale:pre, reduce:pre) see
+# bars in INTERNAL units (transform scale 1.0) and must NOT check scale-bar
+# sanity; the post-optimize phases see metric bars and do. check_scalebars is
+# DERIVED from the phase (HEALTH_CHECK_SCALEBARS), so this pins production wiring.
+# --------------------------------------------------------------------------- #
+
+# Internal pre-scale bar length on the real EDR_T1 (probe: ~1.5-1.7 m vs 0.25 defined).
+_INTERNAL_BAR_M = 1.69
+_METRIC_BAR_M = 0.25
+
+# (phase, bar separation the phase actually sees, baseline aligned)
+_PHASE_MATRIX = [
+    ("scale:pre",   _INTERNAL_BAR_M, None),
+    ("reduce:pre",  _INTERNAL_BAR_M, None),
+    ("reduce:post", _METRIC_BAR_M,   2348),
+    ("level:pre",   _METRIC_BAR_M,   None),
+    ("dense:pre",   _METRIC_BAR_M,   None),
+    ("dsm:pre",     _METRIC_BAR_M,   None),
+    ("ortho:pre",   _METRIC_BAR_M,   None),
+]
+
+
+def test_phase_scalebar_policy_is_pinned():
+    # Single source of truth: pre-optimize phases skip scale-bar sanity (False),
+    # post-optimize phases check it (True). reduce:pre=False is the 2026-06-08 fix.
+    assert rp.HEALTH_CHECK_SCALEBARS == {
+        "scale:pre": False, "reduce:pre": False, "reduce:post": True,
+        "level:pre": True, "dense:pre": True, "dsm:pre": True, "ortho:pre": True}
+
+
+@pytest.mark.parametrize("phase,bar_sep_m,baseline", _PHASE_MATRIX)
+def test_healthy_model_passes_every_phase(tmp_path, phase, bar_sep_m, baseline):
+    # A healthy network (cameras intact, millions of tie points) must pass at EVERY
+    # 3c site — including the pre-optimize phases where the bars are still in internal
+    # units. No explicit check_scalebars: the value is derived from `phase`, so this
+    # exercises the real wiring, not a parallel table.
+    chunk = _Chunk("EDR_T1", n_aligned=2348, n_enabled=2357, n_tp=10_671_521,
+                   bar_sep_m=bar_sep_m)
+    ev = rp._check_network_health_or_escalate(
+        chunk, tmp_path, phase, rp.HealthConfig(),
+        ignore_sanity=False, baseline_aligned=baseline)
+    assert ev["ok"] is True, (phase, ev["failures"])
+    assert not (tmp_path / "EDR_T1" / "network_health_escalation.json").exists()
+
+
+def test_reduce_pre_does_not_false_fire_on_internal_unit_bars(tmp_path):
+    # The EXACT 2026-06-08 live failure: a HEALTHY post-scale model (transform scale
+    # 1.0, bars measuring ~1.69 internal units vs 0.25 defined) reaching reduce:pre
+    # must NOT escalate. Policy reduce:pre=False -> it passes.
+    chunk = _Chunk("EDR_T1", n_aligned=2348, n_enabled=2357, n_tp=10_671_521,
+                   bar_sep_m=_INTERNAL_BAR_M)
+    ev = rp._check_network_health_or_escalate(
+        chunk, tmp_path, "reduce:pre", rp.HealthConfig(),
+        ignore_sanity=False, baseline_aligned=2348)
+    assert ev["ok"] is True, ev["failures"]
+
+    # Negative control: forcing the OLD buggy flag (check_scalebars=True) on the same
+    # healthy internal-unit model DOES false-fire on scalebar_sanity — proving the fix
+    # is load-bearing. ignore_sanity=True so we inspect the verdict without raising.
+    bad = rp._check_network_health_or_escalate(
+        chunk, tmp_path, "reduce:pre", rp.HealthConfig(),
+        check_scalebars=True, ignore_sanity=True, baseline_aligned=2348)
+    assert bad["ok"] is False
+    assert {f["check"] for f in bad["failures"]} == {"scalebar_sanity"}
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
