@@ -2,7 +2,7 @@
 """
 ------------------------------------------------------------------------------
 Metashape Image Alignment and Error Reduction Script v2
-for Agisoft Metashape 1.6.x to 1.8.x
+for Agisoft Metashape 2.0.x
 
 This script automates the Agisoft Metashape image alignment and error
 reduction. The default arguments in the script are set to follow the workflow
@@ -337,12 +337,12 @@ def compute_RMSE(chunk):
     # Print to console to warn user that this can take a long time
     print('Computing RMSE. This can take a while... \n\n')
     # identify points from point cloud in active chunk
-    point_cloud = chunk.point_cloud
+    point_cloud = chunk.tie_points
     points = point_cloud.points
     # get total number of point records
     npoints = len(points)
     # get point projections
-    projections = chunk.point_cloud.projections
+    projections = chunk.tie_points.projections
     err_sum = 0
     num = 0
     point_ids = [-1] * len(point_cloud.tracks)
@@ -659,17 +659,17 @@ def reconstruction_uncertainty(chunk, ru_filt_level_param, ru_cutoff, ru_increme
     # get start time for processing log
     starttime = datetime.now()
     # get initial point count
-    points = chunk.point_cloud.points
+    points = chunk.tie_points.points
     init_pointcount = len([True for point in points if point.valid is True])
 
     while True and noptimized < n_iterations:
         # define threshold variables
-        points = chunk.point_cloud.points
-        f = Metashape.PointCloud.Filter()
+        points = chunk.tie_points.points
+        f = Metashape.TiePoints.Filter()
         threshold_ru = ru_filt_level_param
         print("initializing with Ru =", threshold_ru)
         # initialize filter for Ru
-        f.init(chunk, criterion=Metashape.PointCloud.Filter.ReconstructionUncertainty)
+        f.init(chunk, criterion=Metashape.TiePoints.Filter.ReconstructionUncertainty)
         f.selectPoints(threshold_ru)
         # calculate number of selected points
         nselected = len([True for point in points if point.valid is True and point.selected is True])
@@ -696,7 +696,7 @@ def reconstruction_uncertainty(chunk, ru_filt_level_param, ru_cutoff, ru_increme
         print("Ru threshold ", threshold_ru, " is ", round(nselected / npoints * 100, 4),
               "% of total points. Ready to delete")
         ndeleted = ndeleted + nselected
-        chunk.point_cloud.removeSelectedPoints()
+        chunk.tie_points.removeSelectedPoints()
         print("Ru", threshold_ru, "deleted", nselected, "points")
         chunk.optimizeCameras(fit_f=cam_opt_parameters['cal_f'],
                               fit_cx=cam_opt_parameters['cal_cx'],
@@ -817,17 +817,17 @@ def projection_accuracy(chunk, pa_filt_level_param, pa_cutoff, pa_increment, cam
     # get start time for processing log
     starttime = datetime.now()
     # get initial point count
-    points = chunk.point_cloud.points
+    points = chunk.tie_points.points
     init_pointcount = len([True for point in points if point.valid is True])
 
     while True and noptimized < n_iterations:
         # define threshold variables
-        points = chunk.point_cloud.points
-        f = Metashape.PointCloud.Filter()
+        points = chunk.tie_points.points
+        f = Metashape.TiePoints.Filter()
         threshold_pa = pa_filt_level_param
         print("initializing with Pa =", threshold_pa)
         # initialize filter for Pa
-        f.init(chunk, criterion=Metashape.PointCloud.Filter.ProjectionAccuracy)
+        f.init(chunk, criterion=Metashape.TiePoints.Filter.ProjectionAccuracy)
         f.selectPoints(threshold_pa)
         # calculate number of selected points
         nselected = len([True for point in points if point.valid is True and point.selected is True])
@@ -855,7 +855,7 @@ def projection_accuracy(chunk, pa_filt_level_param, pa_cutoff, pa_increment, cam
         print("Pa threshold ", threshold_pa, " is ", round(nselected / npoints * 100, 4),
               "% of total points. Ready to delete")
         ndeleted = ndeleted + nselected
-        chunk.point_cloud.removeSelectedPoints()
+        chunk.tie_points.removeSelectedPoints()
         print("Pa", threshold_pa, "deleted", nselected, "points")
         chunk.optimizeCameras(fit_f=cam_opt_parameters['cal_f'],
                               fit_cx=cam_opt_parameters['cal_cx'],
@@ -964,7 +964,7 @@ def reprojection_error(chunk, re_filt_level_param, re_cutoff, re_increment, cam_
     # get start time for processing log
     starttime = datetime.now()
     # get initial point count
-    points = chunk.point_cloud.points
+    points = chunk.tie_points.points
     init_pointcount = len([True for point in points if point.valid is True])
 
     threshold_re = re_filt_level_param
@@ -992,12 +992,12 @@ def reprojection_error(chunk, re_filt_level_param, re_cutoff, re_increment, cam_
 
     while True and iter_criteria > re_filt_level_param:
         # define threshold variables
-        points = chunk.point_cloud.points
-        f = Metashape.PointCloud.Filter()
+        points = chunk.tie_points.points
+        f = Metashape.TiePoints.Filter()
         threshold_re = re_filt_level_param
         print("initializing with Re =", threshold_re)
         # initialize filter for Re
-        f.init(chunk, criterion=Metashape.PointCloud.Filter.ReprojectionError)
+        f.init(chunk, criterion=Metashape.TiePoints.Filter.ReprojectionError)
         f.selectPoints(threshold_re)
         # calculate number of selected points
         nselected = len([True for point in points if point.valid is True and point.selected is True])
@@ -1039,7 +1039,7 @@ def reprojection_error(chunk, re_filt_level_param, re_cutoff, re_increment, cam_
         print("Re threshold ", threshold_re, " is ", round(nselected / npoints * 100, 4),
               "% of total points. Ready to delete")
         ndeleted = ndeleted + nselected
-        chunk.point_cloud.removeSelectedPoints()
+        chunk.tie_points.removeSelectedPoints()
         print("Re", threshold_re, "deleted", nselected, "points")
 
         # check if adaptive camera optimization parameters called
@@ -1968,7 +1968,7 @@ def main(parg, doc):
 
             # check that chunk has a point cloud
             try:
-                len(chunk.point_cloud.points)
+                len(chunk.tie_points.points)
             except AttributeError:
                 # print exception so it will be visible in console
                 print('AttributeError: Chunk "' + chunk.label + '" has no point cloud. Ensure that image '
@@ -2016,7 +2016,7 @@ def main(parg, doc):
 
             # check that chunk has a point cloud
             try:
-                len(chunk.point_cloud.points)
+                len(chunk.tie_points.points)
             except AttributeError:
                 # print exception so it will be visible in console
                 print('AttributeError: Chunk "' + chunk.label + '" has no point cloud. Ensure that image '
@@ -2064,7 +2064,7 @@ def main(parg, doc):
 
             # check that chunk has a point cloud
             try:
-                len(chunk.point_cloud.points)
+                len(chunk.tie_points.points)
             except AttributeError:
                 # print exception so it will be visible in console
                 print('AttributeError: Chunk "' + chunk.label + '" has no point cloud. Ensure that image '

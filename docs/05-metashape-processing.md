@@ -198,14 +198,24 @@ command-line arguments or the `defaults` object. So we configure Logan in
 **threshold mode with Toth's values** — not the percentage defaults. Running the
 defaults would produce a legitimate but non-comparable reconstruction.
 
-**As vendored (2026-06-08) — DONE.** The v2.0 release is pinned verbatim under
-`scripts/metashape/vendor/logan_usgs/` (`Align_RuPaRe_v2_Metashape.py` + LICENSE /
-DISCLAIMER / Readme / CHANGELOG / code.json / `PROVENANCE.md`). Integrity:
-archive sha256 `f124418878…65db65f`, module sha256 `baaa3c91…231ea1b`. The
-`legacy_scripts/` PhotoScan 1.4–1.6 variants are **not** vendored. The vendored
-file is third-party and stays byte-for-byte as released; **do not edit it** — all
-EDR orchestration lives in `run_pipeline.py`. To re-pin a newer release, drop in
-the new file, update the hashes in `PROVENANCE.md`, and note it in ADR-0023.
+**As vendored (2026-06-08) — DONE (commit-pinned 2.0.x port).** The v2.0 *workflow*
+is pinned verbatim under `scripts/metashape/vendor/logan_usgs/`
+(`Align_RuPaRe_v2_Metashape.py` + LICENSE / DISCLAIMER / Readme / CHANGELOG /
+code.json / `PROVENANCE.md`), at USGS commit **`aaee35f5`** (J. Logan, 2024-03-20),
+module sha256 `69b0972628…`. The `legacy_scripts/` 1.4–1.8 variants are **not**
+vendored. Third-party, byte-for-byte; **do not edit** — all EDR orchestration lives
+in `run_pipeline.py`. Re-pin via the commit ref + hashes in `PROVENANCE.md` + ADR-0023.
+
+> **The provenance version cross-check earned its keep.** The first vendoring
+> (`3ec2789`) pinned the DOI-cited **v2.0 *tag*** (archive `f124418878…`, module
+> `baaa3c91…`) — which targets Metashape **1.6–1.8** and uses `chunk.point_cloud`, so
+> it crashed on our 2.3.1 at the first live reduce. The 2.0.x port (same v2.0
+> algorithm; only `point_cloud`→`tie_points` + the header differ — verified by a
+> 2-line normalized diff) lives on USGS `master`, untagged. We re-pinned to commit
+> `aaee35f5`. A load-time identity check (`_assert_vendored_logan_identity`) now
+> verifies the file declares Metashape 2.0.x + uses `tie_points`, so a future mislabel
+> is caught at vendor/load time, not during a live run. **Version-gap caveat:** file
+> targets 2.0.x, we run 2.3.1 → covered by the real-chunk integration smoke.
 
 - **Import by file path** — `_vendored_logan_module()` loads it via
   `importlib.util.spec_from_file_location` (no `sys.path` mutation). The module is

@@ -1,5 +1,9 @@
 Change Log
 
+- 2023-03-20
+  - move 1.8 script to subdir legacy_scripts directory and rename 'Align_RuPaRe_v2_Metashape_1_8.py'
+  - update top level script 'Align_RuPaRe_v2_Metashape.py' for Metashape 2.0 (changes in ver. 2.0 API)
+
 - 2022-12-21
   - rename script to include "Metashape" in file name
   - update readme with new script file name

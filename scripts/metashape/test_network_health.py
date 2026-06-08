@@ -333,12 +333,32 @@ def test_builtin_reduction_is_retired():
 
 def test_vendored_logan_imports_headless():
     # The loud-load SUCCESS half: the pinned vendored module loads by file path
-    # under a headless (stub-Metashape) import and exposes the three filters.
+    # under a headless (stub-Metashape) import, passes the 2.x identity check, and
+    # exposes the three filters.
     mod, src = rp._vendored_logan_module()
     for fn in ("reconstruction_uncertainty", "projection_accuracy",
                "reprojection_error"):
         assert callable(getattr(mod, fn)), fn
     assert src.endswith("Align_RuPaRe_v2_Metashape.py")
+
+
+def test_vendor_identity_rejects_mislabeled_1x_artifact(tmp_path):
+    # The vendor-time identity guard (ADR-0023): a 1.6-1.8 / point_cloud artifact (the
+    # mislabeled v2.0-TAG that crashed 2.3.1) must be REJECTED loudly at load, with a
+    # message pointing at the mislabel — never silently run.
+    one_x = ("# Error Reduction Script v2\n# for Agisoft Metashape 1.6.x to 1.8.x\n"
+             "def reconstruction_uncertainty(chunk):\n"
+             "    points = chunk.point_cloud.points\n"
+             "    f = Metashape.PointCloud.Filter()\n")
+    with pytest.raises(RuntimeError, match="identity check"):
+        rp._assert_vendored_logan_identity(one_x, tmp_path / "fake.py")
+
+    # The real 2.0.x port passes (uses tie_points / TiePoints.Filter, header 2.0.x).
+    two_x = ("# Error Reduction Script v2\n# for Agisoft Metashape 2.0.x\n"
+             "def reconstruction_uncertainty(chunk):\n"
+             "    points = chunk.tie_points.points\n"
+             "    f = Metashape.TiePoints.Filter()\n")
+    rp._assert_vendored_logan_identity(two_x, tmp_path / "ok.py")  # no raise
 
 
 # --------------------------------------------------------------------------- #

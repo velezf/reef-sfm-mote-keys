@@ -4,7 +4,7 @@
 Align_RuPaRe_v2_Metashape.py
 ```
 
-This repository contains python scripts which automate image alignment and sparse point cloud error reduction in the [Agisoft Metashape/Photoscan](https://www.agisoft.com/) structure from motion photogrammetry software package using the [Agisoft Metashape Python API.](https://www.agisoft.com/pdf/metashape_python_api_1_8_0.pdf) 
+This repository contains python scripts which automate image alignment and sparse point cloud error reduction in the [Agisoft Metashape/Photoscan](https://www.agisoft.com/) structure from motion photogrammetry software package using the [Agisoft Metashape Python API.](https://www.agisoft.com/pdf/metashape_python_api_2_0_0.pdf) 
 
 The current version of the script (version 2.0) approximates the workflow described in U.S. Geological Survey Open-File Report 2021-1039 [(Over et al., 2021)](https://www.doi.org/10.3133/ofr20211039). The workflow involves the application of gradual selection filters to reduce errors in sparse point clouds, and improve camera lens models and camera position estimates. The error reduction technique and sparse point cloud gradual selection filter values were developed with the goal of maintaining the accuracies of traditional photogrammetric processes with newer techniques supported by structure from motion (SfM) based software. Legacy versions of this script which implement a previous version (version 1.0) of the workflow are available in the legacy_scripts directory within this repository.
 
@@ -18,9 +18,9 @@ ___
 
 ### Compatibility
 
-The current version of this script (version 2.0) has been developed and tested for Agisoft Metashape version 1.6 through 1.8
+The current version of this script (version 2.0) has been developed and tested for Agisoft Metashape version 2.0.
 
-Scripts that implement a previous version of this workflow (version 1.0) are available for Agisoft Metashape 1.5 and 1.6, and Agisoft Photoscan 1.4 in the [legacy_scripts](./legacy_scripts) directory within this repository.
+Scripts that implement a previous version of this workflow (version 1.0) are available for Agisoft Metashape 1.5 through 1.8, and Agisoft Photoscan 1.4 in the [legacy_scripts](./legacy_scripts) directory within this repository.
 
 ___
 

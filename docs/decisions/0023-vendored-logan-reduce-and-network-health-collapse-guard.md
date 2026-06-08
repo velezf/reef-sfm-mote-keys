@@ -52,11 +52,27 @@ state is preserved at `backups/edr_t1_collapsed_20260608T160138Z`. **No referenc
 `reduce` stage now runs the real **USGS PCMSC AgisoftAlignmentErrorReduction
 `Align_RuPaRe` v2.0** routine, vendored verbatim into
 `scripts/metashape/vendor/logan_usgs/` (DOI 10.5066/P9DGS5B9; Logan, Wernette &
-Ritchie 2022). Provenance + integrity hashes:
-`scripts/metashape/vendor/logan_usgs/PROVENANCE.md` — archive sha256
-`f124418878…65db65f`, `Align_RuPaRe_v2_Metashape.py` sha256 `baaa3c91…231ea1b`. The
-vendored file is third-party and stays byte-for-byte as released; all EDR
-orchestration lives in `run_pipeline.py`.
+Ritchie 2022). The vendored file is third-party and stays byte-for-byte as released;
+all EDR orchestration lives in `run_pipeline.py`.
+
+> **Vendored artifact correction (2026-06-08, live STEP-5).** The first vendoring
+> (repo commit `3ec2789`) pinned the **DOI-cited v2.0 *tagged* release** (archive
+> sha256 `f124418878…`, `.py` `baaa3c91…`). That tag targets **Agisoft Metashape
+> 1.6–1.8** and uses the pre-2.0 sparse API (`chunk.point_cloud`), so it **crashed on
+> our pinned Metashape 2.3.1** (`AttributeError: 'NoneType' … point_cloud`) on the
+> first live reduce — caught before any deletion (model intact). The USGS authors
+> ported the **same v2.0 workflow** to the Metashape 2.0 API on `master` but **never
+> tagged it**. We verified by download+hash+diff that `master` differs from the v2.0
+> tag by **only** the `point_cloud`→`tie_points` accessor rename (20 sites) + the
+> header version string — the RU→PA→RE algorithm is **byte-identical** to the cited
+> v2.0. So the corrected vendoring pins that 2.0.x port: **commit
+> `aaee35f55096f17b612fa616aa8d91c21a05f8bf`** (J. Logan/USGS, 2024-03-20),
+> `Align_RuPaRe_v2_Metashape.py` sha256 `69b0972628…`. Reproducibility = the commit
+> SHA + file hash (no 2.x tag exists). Full integrity table + the superseded 1.x
+> hashes: `vendor/logan_usgs/PROVENANCE.md`. **Version-gap caveat:** the file targets
+> Metashape **2.0.x** and we run **2.3.1**; the real-chunk integration smoke
+> (`test_logan_real_chunk_smoke`) proves the RU/PA/RE filters execute on a real 2.3.1
+> `tie_points` cloud — the gap the fake-module unit tests could not cover.
 
 - **Import by file path, no `sys.path` mutation** (`_vendored_logan_module()` via
   `importlib.util.spec_from_file_location`). The module is import-safe (every
@@ -72,13 +88,17 @@ orchestration lives in `run_pipeline.py`.
   that collapsed T1 **cannot recur** by construction. Toth's *thresholds* (RU 30 /
   PA 3.5 / RE 0.3) are unchanged — fidelity is preserved; only the control mode is
   corrected to the published capped-iterative form.
-- **No silent fallback.** With the transcription retired there is no built-in path
-  to fall back to. A missing/unimportable vendored module **raises and halts**
-  (`FileNotFoundError` from `_vendored_logan_module`, or the import error from the
-  `--logan-module` override) — `reduce` can never silently skip error reduction or
-  quietly run a different algorithm. `--logan-module <name>` still overrides the
-  vendored copy with an importable module (kept for testing / a future re-pin); the
-  default is the vendored file.
+- **No silent fallback + vendor-time identity check.** With the transcription retired
+  there is no built-in path to fall back to. A missing/unimportable vendored module
+  **raises and halts** (`FileNotFoundError` from `_vendored_logan_module`, or the
+  import error from the `--logan-module` override) — `reduce` can never silently skip
+  error reduction or quietly run a different algorithm. Additionally,
+  `_assert_vendored_logan_identity` checks at load that the file declares **Metashape
+  2.0.x** and uses the **`tie_points`** API (rejecting the 1.x `point_cloud`
+  artifact) — so the exact mislabel that crashed the first live reduce is caught at
+  load, loudly, not mid-run. `--logan-module <name>` still overrides the vendored copy
+  with an importable module (kept for testing / a future re-pin); the default is the
+  vendored file.
 - The `reduction_path` recorded in `esm.reduce` is `logan_vendored:Align_RuPaRe_v2_Metashape.py`
   (or `logan:<mod>` under an override) — the value `builtin_fallback` is **retired**.
 

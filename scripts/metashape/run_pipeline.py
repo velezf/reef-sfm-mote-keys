@@ -1801,16 +1801,41 @@ def stage_reduce(doc: Metashape.Document, out_root: Path, logan_module: "str | N
         save(doc)
 
 
+def _assert_vendored_logan_identity(src_text: str, path: "Path") -> None:
+    """Vendor-time IDENTITY check (ADR-0023): the vendored USGS Logan routine MUST be
+    the Metashape-2.0.x port (uses `tie_points`), not the DOI-cited v2.0 *tag* which
+    is the 1.6-1.8 / `point_cloud` artifact and crashes on our 2.3.1 build. The first
+    vendoring (3ec2789) pinned that mislabeled 1.x file; this guard catches such a
+    swap at LOAD time (loud), never during a live reduce. See PROVENANCE.md."""
+    problems = []
+    if "Metashape.TiePoints.Filter" not in src_text:
+        problems.append("missing the 2.x `Metashape.TiePoints.Filter` API")
+    if "Metashape.PointCloud.Filter" in src_text or "chunk.point_cloud.points" in src_text:
+        problems.append("uses the pre-2.0 `point_cloud` sparse API (1.6-1.8 artifact)")
+    if "for Agisoft Metashape 2.0" not in src_text:
+        problems.append("header does not declare target 'Agisoft Metashape 2.0'")
+    if problems:
+        raise RuntimeError(
+            f"vendored Logan at {path} failed the 2.x identity check "
+            f"({'; '.join(problems)}). This looks like the mislabeled v2.0-TAG "
+            f"(Metashape 1.6-1.8) artifact, which crashes on 2.3.1. Re-vendor the "
+            f"commit-pinned 2.0.x port per vendor/logan_usgs/PROVENANCE.md. Halting "
+            f"rather than running a wrong/incompatible reduce.")
+
+
 def _vendored_logan_module():
-    """Import the pinned USGS Logan v2.0 module BY FILE PATH (no sys.path mutation).
-    Import-safe: every statement in it is under a def/class or `if __name__ ==
-    '__main__'`, so importing only needs `import Metashape` to resolve (true under
-    metashape.sh). See vendor/logan_usgs/PROVENANCE.md (ADR-0023)."""
+    """Import the pinned USGS Logan v2.0 (Metashape-2.0.x port) module BY FILE PATH
+    (no sys.path mutation). Import-safe: every statement in it is under a def/class or
+    `if __name__ == '__main__'`, so importing only needs `import Metashape` to resolve
+    (true under metashape.sh). Runs a vendor-time identity check first so a mislabeled
+    1.x artifact halts loudly here, not mid-reduce. See vendor/logan_usgs/PROVENANCE.md
+    (ADR-0023)."""
     import importlib.util
     p = (Path(__file__).resolve().parent / "vendor" / "logan_usgs"
          / "Align_RuPaRe_v2_Metashape.py")
     if not p.exists():
         raise FileNotFoundError(f"vendored Logan module missing at {p}")
+    _assert_vendored_logan_identity(p.read_text(), p)
     spec = importlib.util.spec_from_file_location("logan_usgs_align_rupare", p)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
