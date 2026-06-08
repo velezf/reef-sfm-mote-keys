@@ -1,0 +1,165 @@
+Change Log
+
+- 2022-12-21
+  - rename script to include "Metashape" in file name
+  - update readme with new script file name
+  - improve exception message in compute_camera_accuracy function
+
+- 2022-12-19
+  - rename script to remove specific Metashape version in file name
+  - update readme with new script file name
+
+- 2022-12-15
+  - rename script to show compatibility with Metashape version 1.8
+  - update readme with new script name and compatibility notes.
+  - Update camera accuracy function with try/catch block deal with exceptions and set cam_accuracy to -9999 if there are issues
+  - Update camera accuracy function version checking to accomodate Metshape version > 1.7
+  
+- 2021-09-21
+  - Added the following command line arguments:
+    - 'al_masktiepoints' (option to mask tie points only during alignment)
+    - 'al_maskkeypoints' (option to mask key points only during alignment)
+    - 'compute_rmse' (option to compute RMSE, otherwise use re_filt_level_param + 1 so that looping continues until Re filter selects 0 points)
+    - 're_early_stop' (option to prevent excessive re iterations where only a small number of points are selected with each iteration. Early_stop will stop iterations after a minimum number of iterations, and if the re filter level is within a set variance from the target re filter level.)
+    - 're_early_stop_min_iterations' (option to set the min number of Re iterations before early_stop is activated)
+    - 're_early_stop_variance' (option to set the minimum variance from target re filter before early_stop is activated)
+    - 're_final_tie_point_accuracy' (option to set the tie point accuracy value after Re gradual selection and before the final camera optimization)
+  - Added functions to compute camera accuracy with or without lever arms
+
+- 2021-08-27
+  - Added command line arguments to v2 allow user to invoke v1-style iteration of gradual selection and cam. optimization for Reconstruction uncertainty and Projection Accuracy filters:
+    - 'ru_iterate_to_ru_level=True' will iterate until threshold Ru filter level (set by 'ru_level') is acheived. Default is [False] for v2, in which case Ru filter is only run once to select the set percentage of points (percentage set by 'ru_max_percentage_delete' [default=0.5 (50%)].
+    - 'pa_iterate_to_pa_level=True' will iterate until threshold Pa filter level (set by 'pa_level') is acheived. Default is [False] for v2, in which case Pa filter is only run once to select the set percentage of points (percentage set by 'pa_max_percentage_delete' [default=0.5 (50%)].
+  - Added command line arguments to allow user to set target percentage of points selected with Ru and Pa filters during one filter iteration:
+    - 'ru_max_percentage_delete' [default = 0.5 (50%)]
+    - 'pa_max_percentage_delete' [default = 0.5 (50%)]
+  - Added command line arguments to allow user to set incremental filter value during Ru, Pa and Re gradual selection loops.  Smaller values increase script run time.
+    - 'ru_increment' [default = 0.1]
+    - 'pa_increment' [default = 0.1]
+    - 're_increment' [default = 0.01]
+
+- 2021-08-25
+  - Significant restructuring of code to allow reprojection_error() function to operate independently outside of the script while following the cited OFR:
+    - Moved tie point adjustment code from main() to reprojection_error() function. This occurs immediately after the reprojection error threshold has been met and the gradual selection process completed.
+    - Moved "fit additional corrections" code from main() to reprojection_error() function. Camera parameters are now no-longer hard-coded but are based on the user-specified input parameters (or use default camera parameters).
+    - Fixed "while - else" loops in Ru, Pa, and Re functions. Added an "if" loop to check that the number of optimizations is greater than zero, otherwise print an error message.
+  - Removed non-USGS personnel contact information from Readme and Python scripts. Information about the technique development can be found in the cited OFR.
+
+- 2021-08-16
+  - Changed legacy (v1) script for Metashape_1_6 to allow use of alignment accuracy keywords ('highest','high','medium','low','lowest') instead of downscale integer.
+  - Renamed all legacy scripts to 'Align_RuPaRe_v1_xxxxx.py' where xxxxx = Agisoft version.
+  - Updated Readme files for clarity.
+
+- 2021-08-12 (v1.31)
+  - Restructured repository:
+    - All legacy scripts are contained within the 'legacy' directory.
+    - Each legacy sub-directory corresponds to a specific software version listed in the sub-directory name.
+    - Readme files in the sub-directories correspond to their appropriate script. For example, Metashape 1.5 API does not allow or include any flag for reference preselection mode, whereas Metashape 1.6 was updated to include this option. As such, the Readme in the 'Align RuPaRe Metashape 1.5' sub-directory does not contain any information about this reference preselection mode option but the Readme in the 'Align RuPaRe Metashape 1.6' sub-directory does contain this information.
+  - Added dictionary to keep alignment accuracy parameters options ('highest', 'high', 'medium', 'low', 'lowest') while working with Metashape API downscaling values.
+  - 'Ru' and 'Pa' filters only run one time, instead of iteratively filtering points. This reflects a change in the processing workflow and is consistent with Over et al. (2021) Open-File Report 2021-1039.
+  - Alignment accuracy flags ('-al_accuracy') were updated to reference the correct API value.
+  - '-al_reference_mode' flag was added with the options for reference preselection modes: 'source', 'estimated', or 'sequential'.
+  - '-re_fit_additional_corr' flag was added as a boolean option to enable the 'Fit Additional Corrections' box during the Optimization process after the last 'Re' filter. Default value is True, based on the workflow in Over et al. (2021) Open-File Report 2021-1039
+  - Tie point accuracy is refined based on changes in Sigma0 during the 'Re' filtering.
+  - Additional code was added to monitor and analyze processing time (writes to detailed processing log).
+
+- 2021-08-06 (v 1.3)
+  - Renamed scripts with '_legacy' to allow for addition of updated script.
+
+- 2021-08-05 (v 1.3)
+  - Updated script for Metashape ver. 1.6 API (Alignment accuracy parameters changed to downscale integer values instead of 'Highest', 'High', 'Medium', 'Low', 'Lowest')
+  - Old script for Metashape ver. 1.5 saved as "Align_RuPaRe_Metashape_1_5.py"
+  - default for alignment reference preselection set to True
+
+- 2019-08-06 (v 1.2)
+  - Updated script for Metashape API ("Metashape" instead of "PhotoScan")
+  - Old script for Photoscan ver. 1.4 and older saved as "Align_RuPaRe_Photoscan_1_4.py"
+
+- 2018-06-14 (v 1.1)
+  - Added try/except block to prevent argparse module from displaying usage when receiving unexpected argument 
+    (which was causing Photoscan to crash when script was involed from ruc script dialog box).
+  
+- 2018-06-13 (v 1.1)
+  - Added code to main function to ensure that project has been saved before running script.
+
+- 2018-06-08 (v. 1.1)
+  - Changed all command line parsing to argparse.  All commands now need to have "-" before them.
+  - Added camera optimization parameter arguments.
+  - Added control to RE function to disable adjusting camera opt. params. when below a threshold.
+
+- 2018-05-25 (v. 1.09)
+  - Created ParsedArgs class to hold parsed arguments from parse_command_line_args function.
+  - Placed all configuration operations depending on command line arguments into parse_command_line_args function.
+  - included additional abbreviations for optional keyword args.
+
+- 2018-05-24 (v. 1.09)
+  - Edited code to conform with PEP8 style guide where possible.
+  - Changed function, variable, and parameter names to lower case with "_".
+
+- 2018-05-23 (v. 1.08) 
+  - Added keyword arguments (accuracy=high) to -align argument.
+
+- 2018-05-22 (v. 1.08)  
+  - Added keyword arguments (keypointlimit=xxxx, generic_preselection=boolean, reference_preselection=boolean) to -align argument.
+  - Moved main code block in main() function, moved argparse into parse_command_line_args() function (allows functions in script to be imported into other scripts).
+  - Added test (if __name__ == '__main__':) to determine if call coming from script (allows functions in script to be imported into other scripts).
+  - Moved doc=PhotoScan.app.doc reference out of main() function.
+
+- 2018-05-03 (v. 1.07)
+  - Changed label of new chunks created from RU,PA,RE functions so that it includes grad. selection filter level (i.e. RU10, PA3, RE0.3).
+
+- 2018-05-02 (v. 1.07) 
+  - Added code to check if chunk has point cloud (has been aligned) before RU, PA, RE functions.
+  - Added code to correctly write log file when user supplies name other than default.
+
+- 2018-05-01 (v. 1.07) 
+  - Added code to detect infinite loop, and adjust grad. selection filter increment value.
+
+- 2018-04-18 (v. 1.06) 
+  - changed output chunk label to include label of initial chunk being copied.
+
+- 2018-04-09 (v. 1.05) 
+  - changed version control to git repository.
+
+- 2018-03-19 (v. 1.05)
+  - cleaned up, added comment blocks to functions.
+  - fixed longforms of argparse args.
+
+- 2018-03-16 (v. 1.05) 
+  - removed calls to activate_chunk in main code, to avoid ambiguity if two
+      chunks have same name. chunk.copy method automatically activates new chunk, 
+      so 'activate_chunk' not needed in this version. Leaving in script for future functionality.
+
+- 2018-03-12 (v. 1.04)
+  - changed console output to specify input and output chunk being copied.
+  - changed processing log output to specify input and output chunk being copied.
+
+- 2018-02-22 (v. 1.03) 
+  - added cam_opt_parameters arg to align_images function.
+
+- 2018-01-30 (v. 1.02) 
+  - changed language of status messages and log file to include name of chunk being used in process.
+
+- 2018-01-25 (v. 1.01) 
+  - changed activate_chunk to return chunk object.
+
+- 2018-01-23
+  - added command line argument parsing.
+  - moved individual procedures into functions.
+  - moved cam_opt_parameters in dictionary.
+
+- 2018-01-22 
+  - remove fit_shutter from chunk.optimizeCameras parameter list to conform to Photscan 1.4 API.
+
+- 2018-01-09 
+  - added Processing Log output to text file.
+
+- 2017-12-18 
+  - conditional statement added to RE loop to enable k4 b1 b2 p3 p4 during camera optimization when RE gets below 1 pixel.
+  - added function activate_chunk to activate chunk by label.
+  - added several save statements.
+
+- 2017-12 
+  - Image alignment added.
+
+- 2017-12-04 Initial gradual selection script developed.

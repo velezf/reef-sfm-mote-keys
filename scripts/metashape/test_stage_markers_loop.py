@@ -146,6 +146,11 @@ def _t1_records():
 @pytest.fixture
 def patched(monkeypatch):
     monkeypatch.setattr(rp, "save", lambda doc: None)
+    # This file pins the marker -> scale LOOP, not the network-health collapse gate
+    # (ADR-0023, covered by test_network_health.py). Its stub chunks deliberately do
+    # not model the camera/tie-point network, so no-op the 3c pre-condition here.
+    monkeypatch.setattr(rp, "_check_network_health_or_escalate",
+                        lambda *a, **k: {"ok": True, "failures": []})
     return monkeypatch
 
 
@@ -197,7 +202,7 @@ def test_scale_refuses_an_escalated_layer(patched, tmp_path):
         _run_markers(doc, tmp_path)
     # stage_scale must refuse (status != headless-pass) -> critical alarm
     with pytest.raises(rp.PipelineSanityError):
-        rp.stage_scale(doc, ignore_sanity=False)
+        rp.stage_scale(doc, tmp_path, False, rp.HealthConfig())
     assert rp._meta_get(chunk, "esm.scale") is None
 
 
@@ -227,7 +232,7 @@ def test_reentry_validates_existing_then_scales(patched, tmp_path):
     assert all(b["defined_distance_m"] == 0.25 for b in bars)
 
     # --- stage_scale: dumb apply of the validated set ---
-    rp.stage_scale(doc, ignore_sanity=False)
+    rp.stage_scale(doc, tmp_path, False, rp.HealthConfig())
     assert len(chunk.scalebars) == 4
     assert all(sb.reference.distance == 0.25 for sb in chunk.scalebars)
     scale_meta = rp._meta_get(chunk, "esm.scale")
@@ -244,7 +249,7 @@ def test_scale_reuses_gui_created_bars(patched, tmp_path):
     chunk.addScalebar(m13, m14)              # pre-existing GUI bar
     patched.setattr(rp, "_extract_marker_records", lambda ch: _t3_records())
     _run_markers(doc, tmp_path)
-    rp.stage_scale(doc, ignore_sanity=False)
+    rp.stage_scale(doc, tmp_path, False, rp.HealthConfig())
     assert len(chunk.scalebars) == 4         # 1 reused + 3 created, not 5
     meta = rp._meta_get(chunk, "esm.scale")
     assert meta["bars_reused_from_gui"] == [[13, 14]]
@@ -347,7 +352,7 @@ def test_extraction_exception_escalates_never_passes(patched, tmp_path):
     assert chunk.scalebars == []
     # stage_scale must still refuse
     with pytest.raises(rp.PipelineSanityError):
-        rp.stage_scale(doc, ignore_sanity=False)
+        rp.stage_scale(doc, tmp_path, False, rp.HealthConfig())
 
 
 # --------------------------------------------------------------------------- #
@@ -397,7 +402,7 @@ def test_bar_length_param_flows_through(patched, tmp_path):
                      rp.GATE_MIN_VALIDATED_BARS, 0.5)
     bars = json.loads((tmp_path / "SITE_X" / "validated_scalebars.json").read_text())
     assert all(b["defined_distance_m"] == 0.5 for b in bars)
-    rp.stage_scale(doc, ignore_sanity=False, bar_length=0.5)
+    rp.stage_scale(doc, tmp_path, False, rp.HealthConfig(), bar_length=0.5)
     assert len(chunk.scalebars) == 3
     assert all(sb.reference.distance == 0.5 for sb in chunk.scalebars)
 

@@ -134,6 +134,9 @@ class ESMParameters:
     projection_accuracy: float = 3.5           # Toth 3-4   -> midpoint 3.5
     reprojection_error: float = 0.3            # Toth fixed 0.3 (PIFSC 0.3-0.5)
     fit_additional_after_reduction: bool = True
+    scalebar_accuracy_m: float = 0.001         # scale-bar reference accuracy (m) =
+                                               # the optimize weight; was unset (None
+                                               # = active-but-unweighted) pre-ADR-0023
 
     # Step 11 — Orientation / LEVEL (stage_level). ESM Step 11 analog. ADR-0021.
     # Divergence-ledger: replaces the GUI USGS AlignmentHelper (2-marker midline,
@@ -239,6 +242,30 @@ GATE_MIN_MARKER_PROJECTIONS = 2
 # (eig[2]/eig[1]). A clean (even thin belt) plane is << this; ~1 means the markers
 # are collinear / non-planar (roll ill-defined). T3 belt = 0.011; threshold 0.5.
 GATE_PLANE_FLATNESS_MAX = 0.5
+# --------------------------------------------------------------------------- #
+# NETWORK-HEALTH COLLAPSE GUARD (defense in depth; ADR-0023) — HARD tripwires
+# that stop a collapsed/blown-up bundle from being written as success or fed to a
+# downstream stage. Born from the 2026-06-08 EDR_T1 reduce collapse (a home-grown
+# one-shot gradual selection removed 100% of tie points -> 86/2422 cameras; scale
+# and level then "succeeded" on the wreckage because their guards read STALE align
+# meta, not the live network). These are COARSE collapse tripwires, NOT the fine
+# accuracy gates (that is stage_gate). All CLI-overridable; recalibration in docs/05.
+#  - camera survival is the PRIMARY discriminator: a clean reduce does NOT de-align
+#    cameras. Floor is a fraction of the pre-stage aligned (3b) / enabled (3c) count.
+#  - scale-bar sanity is the second PRIMARY: a sane metric model keeps bars near
+#    their defined 0.25 m; a collapse blows them to kilometres. COARSE (within Nx),
+#    NOT the fine scale gate.
+#  - the tie-point check is deliberately a NEAR-ZERO tripwire, not a fraction: a
+#    healthy (Logan) reduce legitimately removes a LARGE share of tie points, so a
+#    fractional floor would false-fire. It catches only near-total removal.
+HEALTH_MIN_ALIGNED_FRAC = 0.90    # aligned cameras must be >= this x baseline
+HEALTH_MIN_TIEPOINTS = 1000       # near-zero floor; collapse leaves ~0, healthy ~millions
+HEALTH_SCALEBAR_MAX_RATIO = 2.0   # max(|measured/defined|, inverse) must be within this
+HEALTH_MAX_PASS_DROP_FRAC = 0.50  # 3a backstop: a single run-once gradual-selection
+                                  # filter dropping > this of its input is anomalous
+                                  # (Logan's RU/PA cutoff is 0.5, so it never trips)
+LEVEL_MAX_EXTENT_M = 50.0         # stage_level sanity: a marker set spanning more than
+                                  # this (transect ~10 m) means a collapsed/garbage model
 # NoData sentinel returned by Elevation.altitude() outside the data footprint.
 DEM_NODATA_SENTINEL = -1000.0     # real reef Z is ~[-1.5, 2]; holes return -32767
 
@@ -1445,6 +1472,151 @@ def _write_extraction_failure(chunk: "Metashape.Chunk", out_root: Path,
 
 
 # --------------------------------------------------------------------------- #
+# NETWORK-HEALTH COLLAPSE GUARD (ADR-0023) — ONE reusable check, wired in three
+# places: a within-reduce per-pass backstop (3a), a reduce post-condition (3b),
+# and a pre-condition at the entry of every alignment-consuming stage (3c). HARD
+# tripwire: on failure it writes a structured escalation report (same shape/role
+# as the marker gate's) and HALTS, so no stage ever runs on / ships a collapsed
+# model. The pure evaluator is unit-tested against synthetic states.
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class HealthConfig:
+    """Coarse collapse-tripwire thresholds (CLI-overridable; ADR-0023)."""
+    min_aligned_frac: float = HEALTH_MIN_ALIGNED_FRAC
+    min_tiepoints: int = HEALTH_MIN_TIEPOINTS
+    scalebar_max_ratio: float = HEALTH_SCALEBAR_MAX_RATIO
+    max_pass_drop_frac: float = HEALTH_MAX_PASS_DROP_FRAC
+    scalebar_defined_m: float = PARAMS.scalebar_length_m
+
+
+def evaluate_network_health(state: dict, *, min_aligned: int, min_tiepoints: int,
+                            scalebar_max_ratio: float,
+                            check_scalebars: bool) -> dict:
+    """PURE collapse evaluation (no Metashape) — unit-testable on a synthetic state.
+
+    `state` keys: aligned, enabled, total, tie_points, baseline_aligned,
+    scalebars=[{a,b,defined_m,measured_m}]. Returns {ok, failures:[...], metrics}.
+
+    Discriminators, in priority: (1) camera survival — PRIMARY; a clean reduce does
+    not de-align cameras. (2) scale-bar sanity — PRIMARY; bars stay ~defined, a
+    collapse blows them to km (COARSE within-Nx, NOT the fine gate). (3) tie-point
+    NEAR-ZERO tripwire — a healthy reduce legitimately sheds a large share, so this
+    fires only on near-total removal, never on a fraction."""
+    failures = []
+    aligned = state["aligned"]
+    if aligned < min_aligned:
+        failures.append({"check": "camera_survival", "aligned": aligned,
+                         "min_aligned": min_aligned,
+                         "baseline": state.get("baseline_aligned")})
+    tp = state["tie_points"]
+    if tp <= min_tiepoints:
+        failures.append({"check": "tiepoint_near_zero", "tie_points": tp,
+                         "min_tiepoints": min_tiepoints})
+    bar_metrics = []
+    if check_scalebars:
+        for sb in state.get("scalebars", []):
+            m, d = sb.get("measured_m"), sb.get("defined_m")
+            if m is None or not d or m <= 0:
+                ratio = float("inf")
+            else:
+                r = m / d
+                ratio = max(r, 1.0 / r)
+            rec = {"a": sb.get("a"), "b": sb.get("b"), "measured_m": m,
+                   "defined_m": d, "ratio": (ratio if math.isfinite(ratio) else None)}
+            bar_metrics.append(rec)
+            if not math.isfinite(ratio) or ratio > scalebar_max_ratio:
+                failures.append({"check": "scalebar_sanity", "max_ratio": scalebar_max_ratio,
+                                 **rec})
+    return {"ok": not failures, "failures": failures,
+            "metrics": {"aligned": aligned, "enabled": state.get("enabled"),
+                        "tie_points": tp, "scalebars": bar_metrics}}
+
+
+def _extract_network_state(chunk: "Metashape.Chunk",
+                           scalebar_defined_m: float) -> dict:
+    """Metashape-touching read of the collapse-relevant network state."""
+    cams = list(chunk.cameras)
+    enabled = [c for c in cams if getattr(c, "enabled", True)]
+    aligned = sum(1 for c in enabled if c.transform is not None)
+    tp = chunk.tie_points
+    n_tp = len(tp.points) if tp is not None else 0
+    T = chunk.transform.matrix
+    bars = []
+    for sb in chunk.scalebars:
+        a = _marker_id(sb.point0.label) if sb.point0 else None
+        b = _marker_id(sb.point1.label) if sb.point1 else None
+        d = sb.reference.distance
+        d = d if d is not None else scalebar_defined_m
+        try:
+            wa, wb = T.mulp(sb.point0.position), T.mulp(sb.point1.position)
+            measured = math.sqrt((wa.x - wb.x) ** 2 + (wa.y - wb.y) ** 2
+                                 + (wa.z - wb.z) ** 2)
+        except Exception:
+            measured = None
+        bars.append({"a": a, "b": b, "defined_m": d, "measured_m": measured})
+    return {"aligned": aligned, "enabled": len(enabled), "total": len(cams),
+            "tie_points": n_tp, "scalebars": bars}
+
+
+def _write_health_escalation(chunk: "Metashape.Chunk", out_root: Path, context: str,
+                             state: dict, evaluation: dict, min_aligned: int) -> Path:
+    """Structured collapse-escalation report (same shape/role as the marker gate's):
+    <out_root>/<transect>/network_health_escalation.json + esm.network_health meta."""
+    pdir = _markers_provenance_dir(chunk, out_root)
+    failed = sorted({f["check"] for f in evaluation["failures"]})
+    report = {
+        "transect": chunk.label, "status": "escalated",
+        "awaiting": "manual-investigation", "context": context,
+        "generated_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "failed_checks": failed, "failures": evaluation["failures"],
+        "metrics": evaluation["metrics"],
+        "thresholds": {"min_aligned": min_aligned,
+                       "baseline_aligned": state.get("baseline_aligned"),
+                       "min_tiepoints": HEALTH_MIN_TIEPOINTS},
+        "note": ("Network-health collapse tripwire (ADR-0023): the bundle is "
+                 "collapsed or geometrically degenerate; downstream stages are "
+                 "halted. Investigate the reduce step / restore the pre-stage "
+                 "backup. HARD collapse guard, NOT the fine accuracy gate."),
+    }
+    (pdir / "network_health_escalation.json").write_text(json.dumps(report, indent=2))
+    _meta_set(chunk, "esm.network_health", {
+        "status": "escalated", "context": context, "failed_checks": failed,
+        "metrics": evaluation["metrics"],
+        "provenance": str(pdir / "network_health_escalation.json")})
+    log(f"*** {chunk.label}: NETWORK-HEALTH COLLAPSE ESCALATION [{context}] — "
+        f"failed {failed}. Report: {pdir / 'network_health_escalation.json'}")
+    for f in evaluation["failures"]:
+        log(f"    {f}")
+    return pdir / "network_health_escalation.json"
+
+
+def _check_network_health_or_escalate(chunk, out_root: Path, context: str,
+                                      health: "HealthConfig", *, check_scalebars: bool,
+                                      ignore_sanity: bool,
+                                      baseline_aligned: "int | None" = None) -> dict:
+    """Extract -> evaluate -> on failure write escalation report + critical alarm
+    (HALT). baseline_aligned = pre-stage aligned count (3b); if None the chunk's
+    enabled-camera count is the baseline (3c pre-conditions)."""
+    state = _extract_network_state(chunk, health.scalebar_defined_m)
+    baseline = baseline_aligned if baseline_aligned is not None else state["enabled"]
+    state["baseline_aligned"] = baseline
+    min_aligned = int(math.floor(health.min_aligned_frac * baseline))
+    ev = evaluate_network_health(
+        state, min_aligned=min_aligned, min_tiepoints=health.min_tiepoints,
+        scalebar_max_ratio=health.scalebar_max_ratio, check_scalebars=check_scalebars)
+    if not ev["ok"]:
+        _write_health_escalation(chunk, out_root, context, state, ev, min_aligned)
+        alarm(f"{chunk.label}: network-health collapse guard tripped at [{context}] — "
+              f"failed {sorted({f['check'] for f in ev['failures']})}. Halting (see "
+              f"network_health_escalation.json; aligned {state['aligned']}/{baseline} "
+              f"baseline, {state['tie_points']} tie points).",
+              critical=True, ignore=ignore_sanity)
+    return ev
+
+
+# --------------------------------------------------------------------------- #
 # Stage: scale  — DUMB applier of the validated scale-bar set (replaces the
 # manual GUI scale-bar assignment step). Trusts stage_markers' verdict entirely:
 # it only runs when the layer is headless-pass, then creates the Metashape
@@ -1453,8 +1625,9 @@ def _write_extraction_failure(chunk: "Metashape.Chunk", out_root: Path,
 # --------------------------------------------------------------------------- #
 
 
-def stage_scale(doc: Metashape.Document, ignore_sanity: bool,
-                bar_length: float = PARAMS.scalebar_length_m) -> None:
+def stage_scale(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
+                health: "HealthConfig", bar_length: float = PARAMS.scalebar_length_m,
+                scalebar_accuracy_m: float = PARAMS.scalebar_accuracy_m) -> None:
     """Apply the scale-bar set stage_markers validated. Requires
     esm.markers_validation status=headless-pass (refuses otherwise — scaling an
     un-validated/escalated layer is exactly what the gate exists to prevent).
@@ -1474,6 +1647,11 @@ def stage_scale(doc: Metashape.Document, ignore_sanity: bool,
         if _meta_get(chunk, "esm.scale") is not None:
             log(f"{chunk.label}: scale bars already applied; skipping.")
             continue
+        # 3c PRE-condition: don't scale a collapsed model. Pre-scale, so the bars
+        # are still in internal units (scalebar sanity would false-fire) — check
+        # camera survival + tie points only.
+        _check_network_health_or_escalate(chunk, out_root, "scale:pre", health,
+                                          check_scalebars=False, ignore_sanity=ignore_sanity)
         by_id = {_marker_id(m.label): m for m in chunk.markers
                  if m.position is not None}
         existing = {frozenset((sb.point0.label, sb.point1.label))
@@ -1505,10 +1683,16 @@ def stage_scale(doc: Metashape.Document, ignore_sanity: bool,
                   f"absent from the chunk — the layer changed since validation. "
                   f"Re-run --stage markers to re-validate before scaling.",
                   critical=True, ignore=ignore_sanity)
+        # Weight every bar (created AND GUI-reused) so the downstream optimize uses
+        # the scale bars as ACTIVE constraints at a defined accuracy (ADR-0023; they
+        # were `None` = active-but-unweighted on the human-corrected EDR_T1 bars).
+        for sb in chunk.scalebars:
+            sb.reference.accuracy = scalebar_accuracy_m
         _meta_set(chunk, "esm.scale", {
             "bars_created": created,
             "bars_reused_from_gui": reused,
             "scalebar_lengths_m": sorted(lengths),
+            "scalebar_accuracy_m": scalebar_accuracy_m,
             "total_scalebars": len(chunk.scalebars),
             "source": "stage_markers headless-pass validated set",
         })
@@ -1523,21 +1707,24 @@ def stage_scale(doc: Metashape.Document, ignore_sanity: bool,
 # --------------------------------------------------------------------------- #
 
 
-def stage_reduce(doc: Metashape.Document, logan_module: str | None,
-                 ignore_sanity: bool) -> None:
-    """ESM Step 8 error reduction. Runs AFTER the GUI handoff has assigned scale
-    bars (Step 7), so the final optimizeCameras is scale-constrained — faithful
-    to Toth's order (Step 7 precedes Step 8). A critical alarm fires if no scale
-    bars are present, to enforce that order (override with --ignore-sanity only
-    if a transect genuinely has no usable coded targets).
+def stage_reduce(doc: Metashape.Document, out_root: Path, logan_module: "str | None",
+                 ignore_sanity: bool, health: "HealthConfig") -> None:
+    """ESM Step 8 error reduction via the vendored USGS Logan v2.0 routine (ADR-0023;
+    replaces the home-grown one-shot transcription that collapsed EDR_T1). Runs AFTER
+    Step 7 scale-bar assignment so the optimize is scale-constrained (Toth's order).
 
-    Logan USGS script preferred (ADR-0010); the built-in faithful transcription
-    is the fallback and, when used, is recorded as a per-run documented departure
-    (NOT silently preferred)."""
+    Guarded by the network-health collapse tripwire on every side: a 3c PRE-condition
+    (refuse to run on an already-collapsed model — using the LIVE aligned count, not
+    the stale align meta that let the old level stage proceed on wreckage), a 3a
+    within-reduce per-pass backstop (inside _run_logan_reduction), and a 3b
+    POST-condition that must pass BEFORE esm.reduce success is written or saved."""
     for chunk in doc.chunks:
         if _meta_get(chunk, "esm.reduce") is not None:
             log(f"{chunk.label}: error reduction already done; skipping.")
             continue
+        # 3c PRE-condition: never reduce a collapsed model.
+        _check_network_health_or_escalate(chunk, out_root, "reduce:pre", health,
+                                          check_scalebars=True, ignore_sanity=ignore_sanity)
         n_sb = len(chunk.scalebars)
         if n_sb == 0:
             alarm(f"{chunk.label}: error reduction (ESM Step 8) is running with "
@@ -1548,22 +1735,27 @@ def stage_reduce(doc: Metashape.Document, logan_module: str | None,
                   critical=True, ignore=ignore_sanity)
         t0 = time.time()
         rms_pre, _ = _reprojection_rms(chunk)
+        aligned_before = sum(1 for c in chunk.cameras
+                             if getattr(c, "enabled", True) and c.transform is not None)
+        tp_before = _tp_count(chunk)
 
-        # Error reduction. Prefer the Logan USGS script (ADR-0010 REQUIRED);
-        # fall back to the faithful built-in transcription if not vendored.
-        if logan_module:
-            path = _run_logan(chunk, logan_module)
-        else:
-            log(f"{chunk.label}: Logan module not provided — using the built-in "
-                f"faithful transcription. This is a per-run DOCUMENTED departure "
-                f"from ADR-0010's preferred Logan path (see docs/05).")
-            _run_builtin_reduction(chunk)
-            path = "builtin_fallback"
+        path = _run_logan_reduction(chunk, out_root, health, ignore_sanity, logan_module)
 
         rms_post, _ = _reprojection_rms(chunk)
+        # 3b POST-condition (success-tied): assert the network survived BEFORE writing
+        # any success meta or saving. Camera-survival is vs the PRE-reduce aligned count.
+        _check_network_health_or_escalate(chunk, out_root, "reduce:post", health,
+                                          check_scalebars=True, ignore_sanity=ignore_sanity,
+                                          baseline_aligned=aligned_before)
+        aligned_after = sum(1 for c in chunk.cameras
+                            if getattr(c, "enabled", True) and c.transform is not None)
         stats = {
             "reduction_path": path,
             "scalebars_present": n_sb,
+            "aligned_before": aligned_before,
+            "aligned_after": aligned_after,
+            "tie_points_before": tp_before,
+            "tie_points_after": _tp_count(chunk),
             "reproj_rms_pre_filter_units": round(rms_pre, 4) if rms_pre is not None else None,
             "reproj_rms_post_filter_units": round(rms_post, 4) if rms_post is not None else None,
             "thresholds": {
@@ -1574,62 +1766,116 @@ def stage_reduce(doc: Metashape.Document, logan_module: str | None,
             "seconds": round(time.time() - t0, 1),
         }
         _meta_set(chunk, "esm.reduce", stats)
-        log(f"{chunk.label}: error reduction via '{path}' with {n_sb} scale "
-            f"bar(s); RMS(filter units) {stats['reproj_rms_pre_filter_units']} "
-            f"-> {stats['reproj_rms_post_filter_units']}")
+        log(f"{chunk.label}: error reduction via '{path}' with {n_sb} scale bar(s); "
+            f"aligned {aligned_before} -> {aligned_after}; tie points {tp_before:,} "
+            f"-> {stats['tie_points_after']:,}; RMS(filter units) "
+            f"{stats['reproj_rms_pre_filter_units']} -> {stats['reproj_rms_post_filter_units']}")
         save(doc)
 
 
-def _run_logan(chunk: Metashape.Chunk, logan_module: str) -> str:
-    """Invoke the vendored Logan error-reduction routine in threshold mode.
-
-    The v2.0 USGS script defaults to PERCENTAGE-based gradual selection. ESM
-    Table S2 specifies FIXED THRESHOLDS; we pass Toth's thresholds explicitly so
-    the reduction matches the published method. Returns the path label.
-    """
-    import importlib
-    mod = importlib.import_module(logan_module)
-    log(f"{chunk.label}: Logan error reduction (threshold mode) "
-        f"RU={PARAMS.reconstruction_uncertainty} "
-        f"PA={PARAMS.projection_accuracy} RE={PARAMS.reprojection_error}")
-    mod.reduce_error(
-        chunk,
-        reconstruction_uncertainty=PARAMS.reconstruction_uncertainty,
-        projection_accuracy=PARAMS.projection_accuracy,
-        reprojection_error=PARAMS.reprojection_error,
-        mode="threshold",
-        fit_additional=PARAMS.fit_additional_after_reduction,
-    )
-    return f"logan:{logan_module}"
+def _vendored_logan_module():
+    """Import the pinned USGS Logan v2.0 module BY FILE PATH (no sys.path mutation).
+    Import-safe: every statement in it is under a def/class or `if __name__ ==
+    '__main__'`, so importing only needs `import Metashape` to resolve (true under
+    metashape.sh). See vendor/logan_usgs/PROVENANCE.md (ADR-0023)."""
+    import importlib.util
+    p = (Path(__file__).resolve().parent / "vendor" / "logan_usgs"
+         / "Align_RuPaRe_v2_Metashape.py")
+    if not p.exists():
+        raise FileNotFoundError(f"vendored Logan module missing at {p}")
+    spec = importlib.util.spec_from_file_location("logan_usgs_align_rupare", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod, str(p)
 
 
-def _run_builtin_reduction(chunk: Metashape.Chunk) -> None:
-    """Fallback: native gradual selection if Logan isn't vendored yet.
+def _logan_cam_opt(params=("f", "cx", "cy", "k1", "k2", "k3", "p1", "p2")) -> dict:
+    """The 12-key cal_* dict the Logan filter functions pass to optimizeCameras
+    (every key must exist or its lookups KeyError). Default = the ESM/USGS lens
+    set (f,cx,cy,k1,k2,k3,p1,p2 on; b1,b2,k4 off)."""
+    d = {f"cal_{k}": False for k in
+         ("f", "cx", "cy", "b1", "b2", "k1", "k2", "k3", "k4", "p1", "p2")}
+    d["fit_corrections"] = False
+    for p in params:
+        d[f"cal_{p}"] = True
+    return d
 
-    Faithful manual transcription of ESM Step 8's three filters at Toth's
-    thresholds, with camera optimization between filters and a final optimize
-    with additional corrections.
-    """
+
+def _tp_count(chunk) -> int:
     tp = chunk.tie_points
-    Filter = Metashape.TiePoints.Filter
+    return len(tp.points) if tp is not None else 0
 
-    def _apply(criterion, threshold, optimize=True):
-        f = Filter()
-        f.init(chunk, criterion=criterion)
-        f.selectPoints(threshold)
-        n = len([p for p in tp.points if p.selected])
-        tp.removeSelectedPoints()
-        log(f"{chunk.label}: removed {n} pts at threshold {threshold}")
-        if optimize:
-            chunk.optimizeCameras()
 
-    _apply(Filter.ReconstructionUncertainty, PARAMS.reconstruction_uncertainty)
-    _apply(Filter.ProjectionAccuracy, PARAMS.projection_accuracy)
-    # Reprojection error last, then final optimize with additional corrections +
-    # tie-point covariance (ESM Table S2; ADR-0021 — wired T1 onward).
-    _apply(Filter.ReprojectionError, PARAMS.reprojection_error, optimize=False)
-    chunk.optimizeCameras(fit_corrections=PARAMS.fit_additional_after_reduction,
-                          tiepoint_covariance=PARAMS.tiepoint_covariance)
+def _run_logan_reduction(chunk, out_root: Path, health: "HealthConfig",
+                         ignore_sanity: bool, logan_module: "str | None") -> str:
+    """ESM Step 8 error reduction via the vendored USGS Logan v2.0 routine
+    (RU 30 -> PA 3.5 -> RE 0.3): capped per-iteration gradual selection with camera
+    optimization between iterations and a final fit-additional-corrections optimize.
+    Replaces the removed home-grown _run_builtin_reduction, whose one-shot hard cuts
+    collapsed EDR_T1 (ADR-0023). `logan_module` overrides the vendored copy with an
+    importable module name (kept for testing / a future re-pin).
+
+    3a WITHIN-REDUCE BACKSTOP: the run-once RU/PA filters cap deletion at *_cutoff
+    (0.5); a single such filter dropping > health.max_pass_drop_frac of its input is
+    anomalous (Logan never should) -> escalate BEFORE the cloud is destroyed. RE
+    iterates by RMSE and may legitimately shed a large CUMULATIVE share, so it is
+    NOT fraction-gated here — the 3b post-condition covers it (per the calibration
+    that a fractional tie-point floor false-fires on a healthy reduce)."""
+    if logan_module:
+        import importlib
+        mod, src = importlib.import_module(logan_module), logan_module
+    else:
+        mod, src = _vendored_logan_module()
+    orig_label = chunk.label   # Logan appends _Ru/_Pa/_Re<level>; restore after.
+    cam_opt = _logan_cam_opt()
+    ru, pa, re_ = (PARAMS.reconstruction_uncertainty, PARAMS.projection_accuracy,
+                   PARAMS.reprojection_error)
+    log(f"{orig_label}: Logan error reduction (vendored {Path(src).name if not logan_module else src}) "
+        f"RU={ru} -> PA={pa} -> RE={re_}; per-iteration cutoffs 0.5/0.5/0.1")
+
+    def _capped_pass(name, fn, *args, **kwargs):
+        before = _tp_count(chunk)
+        fn(*args, **kwargs)
+        after = _tp_count(chunk)
+        frac = ((before - after) / before) if before else 0.0
+        log(f"{orig_label}: Logan {name}: {before:,} -> {after:,} tie points "
+            f"(dropped {before - after:,} = {frac * 100:.1f}% of pass input)")
+        if frac > health.max_pass_drop_frac:
+            chunk.label = orig_label
+            state = _extract_network_state(chunk, health.scalebar_defined_m)
+            state["baseline_aligned"] = None
+            ev = {"ok": False, "metrics": {"tie_points": after},
+                  "failures": [{"check": "pass_drop", "pass": name,
+                                "dropped_frac": round(frac, 4),
+                                "max_pass_drop_frac": health.max_pass_drop_frac,
+                                "tie_points_before": before,
+                                "tie_points_after": after}]}
+            _write_health_escalation(chunk, out_root, f"reduce:pass:{name}",
+                                     state, ev, min_aligned=-1)
+            alarm(f"{orig_label}: Logan {name} dropped {frac * 100:.1f}% of tie "
+                  f"points in one filter (> {health.max_pass_drop_frac * 100:.0f}% "
+                  f"backstop) — anomalous; halting before the cloud is destroyed.",
+                  critical=True, ignore=ignore_sanity)
+
+    # RU / PA: run-once (iterate_to_level=False), 50% cutoff — fraction-gated (3a).
+    _capped_pass("RU", mod.reconstruction_uncertainty, chunk, ru, 0.50, 0.1,
+                 cam_opt, ru_iterate_to_ru_level=False, compute_rmse=True)
+    _capped_pass("PA", mod.projection_accuracy, chunk, pa, 0.50, 0.1,
+                 cam_opt, pa_iterate_to_pa_level=False, compute_rmse=True)
+    # RE: iterate to RMSE target, 10% cutoff, final optimize with additional
+    # corrections. NOT fraction-gated (legitimately sheds a large cumulative share).
+    before = _tp_count(chunk)
+    mod.reprojection_error(chunk, re_, 0.10, 0.01, cam_opt,
+                           PARAMS.fit_additional_after_reduction,
+                           final_tie_point_accuracy=re_, compute_rmse=True,
+                           early_stop=False)
+    after = _tp_count(chunk)
+    chunk.label = orig_label
+    log(f"{orig_label}: Logan RE: {before:,} -> {after:,} tie points "
+        f"(dropped {before - after:,}); final optimize fit_corrections="
+        f"{PARAMS.fit_additional_after_reduction}")
+    return (f"logan_vendored:{Path(src).name}" if not logan_module
+            else f"logan:{src}")
 
 
 # --------------------------------------------------------------------------- #
@@ -1743,7 +1989,9 @@ def _tilt_from_z(n: list[float]) -> float:
     return math.degrees(math.acos(max(-1.0, min(1.0, abs(n[2]) / L))))
 
 
-def stage_level(doc: Metashape.Document, ignore_sanity: bool) -> None:
+def stage_level(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
+                health: "HealthConfig",
+                max_extent_m: float = LEVEL_MAX_EXTENT_M) -> None:
     """ESM Step 11 analog (ADR-0021): level the chunk on the scale-bar marker
     PLANE (roll+pitch), with robust outlier rejection on scale-bar residuals so a
     bad bar (T3: 25/26, +15.13 mm) cannot corrupt the fit. Scale preserved. This
@@ -1754,8 +2002,13 @@ def stage_level(doc: Metashape.Document, ignore_sanity: bool) -> None:
         if _meta_get(chunk, "esm.level") is not None:
             log(f"{chunk.label}: already leveled; skipping.")
             continue
-        # Pre-level alignment quality guard: a poorly-aligned transect feeds a weak
-        # marker geometry and a garbage level plane — STOP before leveling.
+        # 3c PRE-condition (ADR-0023): refuse to level a collapsed model. This reads
+        # the LIVE aligned-camera count + scale-bar sanity — unlike the legacy guard
+        # below, which read the STALE esm.align rate and so happily leveled the
+        # 86-camera EDR_T1 wreckage (markers spanning ~3000 km) on 2026-06-08.
+        _check_network_health_or_escalate(chunk, out_root, "level:pre", health,
+                                          check_scalebars=True, ignore_sanity=ignore_sanity)
+        # Legacy pre-level alignment guard (kept; now backed by the live check above).
         align = _meta_get(chunk, "esm.align") or {}
         rate = align.get("alignment_rate")
         if rate is not None and rate < GATE_MIN_ALIGN_RATE_FOR_LEVEL:
@@ -1765,6 +2018,17 @@ def stage_level(doc: Metashape.Document, ignore_sanity: bool) -> None:
                   critical=True, ignore=ignore_sanity)
         T = chunk.transform.matrix
         mk = {m.label: m.position for m in chunk.markers if m.position is not None}
+        # Extent sanity: a collapsed/degenerate model spreads its markers over km.
+        # Refuse to fit a level plane to a physically impossible marker cloud.
+        wpts = [_world_xyz(T, p) for p in mk.values()]
+        if wpts:
+            extent = max(max(p[i] for p in wpts) - min(p[i] for p in wpts)
+                         for i in range(3))
+            if extent > max_extent_m:
+                alarm(f"{chunk.label}: marker set spans {extent:.1f} m "
+                      f"(> {max_extent_m} m plausible transect extent, ~10 m) — the "
+                      f"model is collapsed/degenerate; refusing to level.",
+                      critical=True, ignore=ignore_sanity)
         scale_before = chunk.transform.scale
         # Scale-bar residuals (measured world distance - defined distance) + MAD.
         bars = []
@@ -1877,11 +2141,15 @@ def _log_chunk_scale(chunk: "Metashape.Chunk", where: str) -> dict:
     return {"transform_scale": ts, "region_size": size, "region_center": center}
 
 
-def stage_dense(doc: Metashape.Document, ignore_sanity: bool) -> None:
+def stage_dense(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
+                health: "HealthConfig") -> None:
     for chunk in doc.chunks:
         if chunk.point_cloud is not None:
             log(f"{chunk.label}: dense cloud exists; skipping.")
             continue
+        # 3c PRE-condition (ADR-0023): never build dense on a collapsed model.
+        _check_network_health_or_escalate(chunk, out_root, "dense:pre", health,
+                                          check_scalebars=True, ignore_sanity=ignore_sanity)
         scale_info = _log_chunk_scale(chunk, f"{chunk.label} pre-dense")
         if scale_info["transform_scale"] is None:
             alarm(f"{chunk.label}: transform.scale is None at dense stage — the "
@@ -2289,11 +2557,15 @@ def stage_gate(doc: Metashape.Document, ignore_sanity: bool,
 # --------------------------------------------------------------------------- #
 
 
-def stage_dsm(doc: Metashape.Document, ignore_sanity: bool) -> None:
+def stage_dsm(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
+              health: "HealthConfig") -> None:
     for chunk in doc.chunks:
         if chunk.elevation is not None:
             log(f"{chunk.label}: DSM exists; skipping.")
             continue
+        # 3c PRE-condition (ADR-0023): never build the DEM on a collapsed model.
+        _check_network_health_or_escalate(chunk, out_root, "dsm:pre", health,
+                                          check_scalebars=True, ignore_sanity=ignore_sanity)
         scale_info = _log_chunk_scale(chunk, f"{chunk.label} pre-buildDem")
         pc = chunk.point_cloud
         if pc is not None:
@@ -2372,11 +2644,15 @@ def stage_dsm(doc: Metashape.Document, ignore_sanity: bool) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def stage_ortho(doc: Metashape.Document, ignore_sanity: bool) -> None:
+def stage_ortho(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
+                health: "HealthConfig") -> None:
     for chunk in doc.chunks:
         if chunk.orthomosaic is not None:
             log(f"{chunk.label}: orthomosaic exists; skipping.")
             continue
+        # 3c PRE-condition (ADR-0023): never build the ortho on a collapsed model.
+        _check_network_health_or_escalate(chunk, out_root, "ortho:pre", health,
+                                          check_scalebars=True, ignore_sanity=ignore_sanity)
         if chunk.elevation is None:
             alarm(f"{chunk.label}: no DSM — cannot build orthomosaic on the "
                   f"elevation surface. Run the dsm stage first.",
@@ -2643,6 +2919,32 @@ def main() -> None:
                          "align stage reads the DECIDED arm from it.")
     ap.add_argument("--focal-mode", default=None, choices=["fallback", "manual"],
                     help="Override the decision artifact with an explicit arm.")
+    # Network-health collapse-guard thresholds (ADR-0023). Config params, not T1
+    # literals; recalibration guidance in docs/05.
+    ap.add_argument("--health-min-aligned-frac", type=float, default=HEALTH_MIN_ALIGNED_FRAC,
+                    help="Collapse guard: aligned cameras must stay >= this fraction "
+                         "of the baseline (pre-reduce for 3b; enabled for 3c). PRIMARY "
+                         f"discriminator. Default {HEALTH_MIN_ALIGNED_FRAC}.")
+    ap.add_argument("--health-min-tiepoints", type=int, default=HEALTH_MIN_TIEPOINTS,
+                    help="Collapse guard: NEAR-ZERO tie-point tripwire (not a "
+                         "fraction — a healthy reduce sheds a large share). Fires only "
+                         f"on near-total removal. Default {HEALTH_MIN_TIEPOINTS}.")
+    ap.add_argument("--health-scalebar-max-ratio", type=float,
+                    default=HEALTH_SCALEBAR_MAX_RATIO,
+                    help="Collapse guard: COARSE scale-bar sanity — measured length "
+                         "must be within this factor of defined (catches a model blown "
+                         f"up to km; NOT the fine scale gate). Default {HEALTH_SCALEBAR_MAX_RATIO}.")
+    ap.add_argument("--reduce-max-pass-drop-frac", type=float,
+                    default=HEALTH_MAX_PASS_DROP_FRAC,
+                    help="3a within-reduce backstop: a single run-once gradual-"
+                         "selection filter dropping > this of its input halts the run "
+                         f"(Logan's RU/PA cutoff is 0.5, so it never trips). Default {HEALTH_MAX_PASS_DROP_FRAC}.")
+    ap.add_argument("--level-max-extent-m", type=float, default=LEVEL_MAX_EXTENT_M,
+                    help="stage_level sanity: refuse to level if the marker set spans "
+                         f"more than this (transect ~10 m). Default {LEVEL_MAX_EXTENT_M}.")
+    ap.add_argument("--scalebar-accuracy-m", type=float, default=PARAMS.scalebar_accuracy_m,
+                    help="Scale-bar reference accuracy (m) set in stage_scale = the "
+                         f"optimize weight. Default {PARAMS.scalebar_accuracy_m}.")
     ap.add_argument("--ignore-sanity", action="store_true",
                     help="Downgrade critical sanity alarms from hard-stop to "
                          "loud-warn. Off by default: the pipeline stops on a "
@@ -2688,6 +2990,14 @@ def main() -> None:
     if args.stage in ("align", "all"):
         focal_mode = resolve_focal_mode(args.focal_decision, args.focal_mode)
 
+    health = HealthConfig(
+        min_aligned_frac=args.health_min_aligned_frac,
+        min_tiepoints=args.health_min_tiepoints,
+        scalebar_max_ratio=args.health_scalebar_max_ratio,
+        max_pass_drop_frac=args.reduce_max_pass_drop_frac,
+        scalebar_defined_m=args.bar_length,
+    )
+
     todo = STAGES if args.stage == "all" else [args.stage]
     for st in todo:
         log(f"=== STAGE: {st} ===")
@@ -2706,21 +3016,23 @@ def main() -> None:
                           args.marker_resid_ceiling, args.interbar_ratio_max,
                           args.min_validated_bars, args.bar_length)
         elif st == "scale":
-            stage_scale(doc, args.ignore_sanity, args.bar_length)
+            stage_scale(doc, args.out_root, args.ignore_sanity, health,
+                        args.bar_length, args.scalebar_accuracy_m)
         elif st == "reduce":
-            stage_reduce(doc, args.logan_module, args.ignore_sanity)
+            stage_reduce(doc, args.out_root, args.logan_module, args.ignore_sanity, health)
         elif st == "level":
-            stage_level(doc, args.ignore_sanity)
+            stage_level(doc, args.out_root, args.ignore_sanity, health,
+                        args.level_max_extent_m)
         elif st == "dense":
-            stage_dense(doc, args.ignore_sanity)
+            stage_dense(doc, args.out_root, args.ignore_sanity, health)
         elif st == "filter":
             stage_filter(doc, args.noise_confidence, args.ignore_sanity)
         elif st == "aoi":
             stage_aoi(doc, args.ignore_sanity)
         elif st == "dsm":
-            stage_dsm(doc, args.ignore_sanity)
+            stage_dsm(doc, args.out_root, args.ignore_sanity, health)
         elif st == "ortho":
-            stage_ortho(doc, args.ignore_sanity)
+            stage_ortho(doc, args.out_root, args.ignore_sanity, health)
         elif st == "gate":
             stage_gate(doc, args.ignore_sanity, args.reference_dem,
                        args.max_total_tilt_deg)

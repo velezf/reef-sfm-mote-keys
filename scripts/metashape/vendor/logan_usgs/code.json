@@ -1,0 +1,59 @@
+[
+  {
+    "name": "AgisoftAlignmentErrorReduction",
+    "organization": "U.S. Geological Survey",
+    "description": "Script to automate alignment and error reduction workflow in Agisoft Photoscan/Metashape",
+    "version": "v2.0",
+    "status": "Production",
+
+    "permissions": {
+      "usageType": "openSource",
+      "licenses": [
+        {
+          "name": "Public Domain, CC0-1.0",
+          "URL": "https://code.usgs.gov/pcmsc/AgisoftAlignmentErrorReduction/-/raw/v2.0/LICENSE.md"
+        }
+      ]
+    },
+
+    "homepageURL": "https://code.usgs.gov/pcmsc/AgisoftAlignmentErrorReduction",
+    "downloadURL": "https://code.usgs.gov/pcmsc/AgisoftAlignmentErrorReduction/-/archive/v2.0/AgisoftAlignmentErrorReduction-v2.0.zip",
+    "disclaimerURL": "https://code.usgs.gov/pcmsc/AgisoftAlignmentErrorReduction/-/raw/v2.0/DISCLAIMER.md",
+    "repositoryURL": "https://code.usgs.gov/pcmsc/AgisoftAlignmentErrorReduction.git",
+    "vcs": "git",
+
+    "laborHours": 120,
+
+    "tags": [
+      "Agisoft",
+      "Metashape",
+      "Photoscan",
+      "SfM",
+      "Structure from Motion",
+      "Photogrammetry"
+    ],
+
+    "languages": [
+      "Python"
+    ],
+
+    "contact": {
+      "name": "Joshua Logan",
+      "email": "jlogan@usgs.gov"
+    },
+    
+    "contact": {
+      "name": "Phillipe Wernette",
+      "email": "pwernette@usgs.gov"
+    },
+    
+    "contact": {
+      "name": "Andrew Ritchie",
+      "email": "aritchie@usgs.gov"
+    },
+
+    "date": {
+      "metadataLastUpdated": "2023-01-13"
+    }
+  }
+]
