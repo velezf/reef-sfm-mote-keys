@@ -88,6 +88,21 @@ all EDR orchestration lives in `run_pipeline.py`.
   that collapsed T1 **cannot recur** by construction. Toth's *thresholds* (RU 30 /
   PA 3.5 / RE 0.3) are unchanged — fidelity is preserved; only the control mode is
   corrected to the published capped-iterative form.
+- **`compute_rmse=False` on all three filters.** The vendored `compute_RMSE` helper
+  calls `camera.error(point, proj).norm()` **unguarded**; on **Metashape 2.3.1** that
+  returns `None` for an *aligned* camera whose post-optimize point no longer reprojects
+  (a 2.0.x→2.3.1 `Camera.error` behavior gap). It surfaced on the first live T1 reduce
+  (RU completed, then `compute_RMSE` crashed; model untouched — crash was before save);
+  T3's geometry never produced such a `None`, so the real-chunk smoke passed and missed
+  it. `compute_RMSE` is gated entirely by the `compute_rmse` kwarg, and `compute_rmse=
+  False` is a **documented Logan mode** (its source, lines 980-984): RU/PA skip only the
+  diagnostic RMSE; **RE iterates by the threshold criterion — deleting until no tie
+  point exceeds RE (0.3 px)**, which implements ESM Table S2 "Reprojection Error 0.3".
+  The vendored file stays byte-for-byte (no fork). `compute_RMSE` is *not* used to
+  commit the reduce: the `esm.reduce` RMSE is computed independently by our
+  `_reprojection_rms` (reads `TiePoints.Filter.values`, never `camera.error`, so it is
+  `None`-safe). A pure-pytest contract test locks `compute_rmse=False` against a
+  regression to `True`, and the real-chunk smoke runs the exact production reduce path.
 - **No silent fallback + vendor-time identity check.** With the transcription retired
   there is no built-in path to fall back to. A missing/unimportable vendored module
   **raises and halts** (`FileNotFoundError` from `_vendored_logan_module`, or the

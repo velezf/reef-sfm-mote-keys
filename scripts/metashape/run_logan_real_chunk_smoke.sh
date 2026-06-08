@@ -26,5 +26,5 @@ cp -a "$SRC" "$SCRATCH/scratch.psx"
 cp -a "${SRC%.psx}.files" "$SCRATCH/scratch.files"
 
 "$MS" -platform offscreen -r "$HERE/smoke_logan_real_chunk.py" "$SCRATCH/scratch.psx" \
-  2>&1 | grep -E "vendored module|fixture:|RU ok|PA ok|RE ok|SMOKE: PASS|Error|Traceback"
+  2>&1 | grep -E "fixture:|reduction_path|reproj RMSE|SMOKE: PASS|Error|Traceback|AttributeError"
 echo "scratch discarded: $SCRATCH"

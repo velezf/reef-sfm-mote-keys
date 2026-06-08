@@ -216,6 +216,16 @@ in `run_pipeline.py`. Re-pin via the commit ref + hashes in `PROVENANCE.md` + AD
 > verifies the file declares Metashape 2.0.x + uses `tie_points`, so a future mislabel
 > is caught at vendor/load time, not during a live run. **Version-gap caveat:** file
 > targets 2.0.x, we run 2.3.1 → covered by the real-chunk integration smoke.
+>
+> **2.0.x→2.3.1 `compute_RMSE` gap → we run `compute_rmse=False`.** The vendored
+> `compute_RMSE` calls `camera.error(...).norm()` unguarded; on 2.3.1 that returns
+> `None` for an aligned camera whose post-optimize point doesn't reproject, crashing on
+> T1's geometry (T3's never produced the `None`, so the smoke first missed it). We call
+> Logan's filters with `compute_rmse=False` (a documented Logan mode): RU/PA skip the
+> diagnostic RMSE, and **RE iterates by the threshold criterion — delete until no tie
+> point exceeds 0.3 px**, implementing ESM Table S2 "Reprojection Error 0.3". The
+> `esm.reduce` RMSE is reported independently via `_reprojection_rms` (`None`-safe). A
+> contract test locks `compute_rmse=False`; the smoke runs the exact production path.
 
 - **Import by file path** — `_vendored_logan_module()` loads it via
   `importlib.util.spec_from_file_location` (no `sys.path` mutation). The module is

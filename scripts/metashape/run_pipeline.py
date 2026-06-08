@@ -1910,17 +1910,27 @@ def _run_logan_reduction(chunk, out_root: Path, health: "HealthConfig",
                   f"backstop) — anomalous; halting before the cloud is destroyed.",
                   critical=True, ignore=ignore_sanity)
 
+    # compute_rmse=False on all three (ADR-0023): the vendored Logan's compute_RMSE
+    # calls camera.error(point, proj).norm() unguarded, and on Metashape 2.3.1 that
+    # returns None for an aligned camera whose (post-optimize) point no longer
+    # reprojects (a 2.0.x->2.3.1 Camera.error gap; hit T1's geometry, not T3's). With
+    # compute_rmse=False (a documented Logan mode, lines 980-984) RU/PA skip the
+    # diagnostic RMSE only, and RE iterates by the THRESHOLD criterion — deleting
+    # until no tie point exceeds RE (0.3 px), i.e. ESM Table S2 "Reprojection Error
+    # 0.3". We report the reduce RMSE independently via _reprojection_rms (which reads
+    # TiePoints.Filter.values, not camera.error, so it is None-safe).
     # RU / PA: run-once (iterate_to_level=False), 50% cutoff — fraction-gated (3a).
     _capped_pass("RU", mod.reconstruction_uncertainty, chunk, ru, 0.50, 0.1,
-                 cam_opt, ru_iterate_to_ru_level=False, compute_rmse=True)
+                 cam_opt, ru_iterate_to_ru_level=False, compute_rmse=False)
     _capped_pass("PA", mod.projection_accuracy, chunk, pa, 0.50, 0.1,
-                 cam_opt, pa_iterate_to_pa_level=False, compute_rmse=True)
-    # RE: iterate to RMSE target, 10% cutoff, final optimize with additional
-    # corrections. NOT fraction-gated (legitimately sheds a large cumulative share).
+                 cam_opt, pa_iterate_to_pa_level=False, compute_rmse=False)
+    # RE: iterate to the RE-threshold (0.3 px) criterion, 10% cutoff, final optimize
+    # with additional corrections. NOT fraction-gated (legitimately sheds a large
+    # cumulative share).
     before = _tp_count(chunk)
     mod.reprojection_error(chunk, re_, 0.10, 0.01, cam_opt,
                            PARAMS.fit_additional_after_reduction,
-                           final_tie_point_accuracy=re_, compute_rmse=True,
+                           final_tie_point_accuracy=re_, compute_rmse=False,
                            early_stop=False)
     after = _tp_count(chunk)
     chunk.label = orig_label

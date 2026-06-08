@@ -19,6 +19,7 @@ only needs to exercise the API the vendored filters touch. The caller supplies a
 throwaway copy and discards it.
 """
 import sys
+import tempfile
 from pathlib import Path
 
 import Metashape
@@ -40,45 +41,36 @@ def main() -> int:
     assert not doc.read_only, f"{psx} opened read-only (stale lock?) — abort"
     chunk = doc.chunks[0]
 
-    # Loads the vendored module BY PATH and runs the vendor-time IDENTITY check
-    # (must declare Metashape 2.0.x + use tie_points, else it raises here).
-    mod, src = rp._vendored_logan_module()
-    cam_opt = rp._logan_cam_opt()
-    print(f"vendored module: {Path(src).name}")
-
     tp = chunk.tie_points
     n0 = len(tp.points) if tp is not None else 0
     n_aligned = sum(1 for c in chunk.cameras if c.transform is not None)
-    print(f"fixture: {n_aligned} aligned cameras, {n0:,} tie points")
+    n_unaligned = sum(1 for c in chunk.cameras if c.transform is None)
+    print(f"fixture: {n_aligned} aligned + {n_unaligned} unaligned cameras, "
+          f"{n0:,} tie points")
     assert tp is not None and n0 > 0, "fixture has no tie-point cloud — not aligned?"
+
+    # Run the EXACT production reduce path: rp._run_logan_reduction drives the real
+    # vendored 2.x RU->PA->RE filters with the production cam_opt and compute_rmse=False
+    # (the documented Logan mode that avoids compute_RMSE's camera.error-None crash on
+    # 2.3.1). It also runs the vendor-time identity check (via _vendored_logan_module)
+    # and the 3a per-pass backstop. Any API drift (pre-2.0 accessor, or compute_RMSE
+    # via a regressed compute_rmse=True) would raise here. The pre-reduce RMSE is read
+    # via our own None-safe _reprojection_rms.
+    rms_pre, _ = rp._reprojection_rms(chunk)
+    out_root = Path(tempfile.mkdtemp(prefix="logan_smoke_out_"))
+    path = rp._run_logan_reduction(chunk, out_root, rp.HealthConfig(),
+                                   ignore_sanity=False, logan_module=None)
+    rms_post, _ = rp._reprojection_rms(chunk)
 
     def _n():
         t = chunk.tie_points
         return len(t.points) if t is not None else 0
 
-    # Exercise the EXACT vendored 2.x filter API the production wrapper calls. RU/PA
-    # run-once; RE with a LOOSE threshold + early_stop so the smoke stays fast (this is
-    # an API/runs-on-2.3.1 proof, not a real reduce). Any pre-2.0 `point_cloud` access
-    # inside these would raise AttributeError exactly as the mislabeled artifact did.
-    before = _n()
-    mod.reconstruction_uncertainty(chunk, 30, 0.50, 0.1, cam_opt,
-                                   ru_iterate_to_ru_level=False, compute_rmse=True)
-    print(f"RU ok: {before:,} -> {_n():,} tie points")
-
-    before = _n()
-    mod.projection_accuracy(chunk, 3.5, 0.50, 0.1, cam_opt,
-                            pa_iterate_to_pa_level=False, compute_rmse=True)
-    print(f"PA ok: {before:,} -> {_n():,} tie points")
-
-    before = _n()
-    mod.reprojection_error(chunk, 5.0, 0.10, 0.01, cam_opt, True,
-                           final_tie_point_accuracy=5.0, compute_rmse=True,
-                           early_stop=True)
-    print(f"RE ok: {before:,} -> {_n():,} tie points")
-
     # Deliberately NO doc.save() — the scratch copy is discarded by the caller.
-    print(f"LOGAN-REAL-CHUNK SMOKE: PASS (all three 2.x filters executed on a real "
-          f"2.3.1 tie_points cloud; {n0:,} -> {_n():,} tie points)")
+    print(f"reduction_path: {path}")
+    print(f"reproj RMSE (filter units): {rms_pre} -> {rms_post}")
+    print(f"LOGAN-REAL-CHUNK SMOKE: PASS (production _run_logan_reduction ran the 2.x "
+          f"RU/PA/RE on a real 2.3.1 tie_points cloud; {n0:,} -> {_n():,} tie points)")
     return 0
 
 

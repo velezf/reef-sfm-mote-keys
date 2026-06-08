@@ -256,19 +256,20 @@ def _make_fake_logan(name, ru_drop, pa_drop, re_drop):
     _run_logan_reduction(..., logan_module=name) imports it."""
     mod = types.ModuleType(name)
     mod.calls = []
+    mod.kwargs = {}  # per-filter kwargs the wrapper passed (contract assertions)
 
     def _drop(chunk, frac):
         n = len(chunk.tie_points.points)
         chunk.tie_points.points = [0] * int(round(n * (1.0 - frac)))
 
     def ru(chunk, *a, **k):
-        mod.calls.append("RU"); _drop(chunk, ru_drop)
+        mod.calls.append("RU"); mod.kwargs["RU"] = k; _drop(chunk, ru_drop)
 
     def pa(chunk, *a, **k):
-        mod.calls.append("PA"); _drop(chunk, pa_drop)
+        mod.calls.append("PA"); mod.kwargs["PA"] = k; _drop(chunk, pa_drop)
 
     def re_(chunk, *a, **k):
-        mod.calls.append("RE"); _drop(chunk, re_drop)
+        mod.calls.append("RE"); mod.kwargs["RE"] = k; _drop(chunk, re_drop)
 
     mod.reconstruction_uncertainty = ru
     mod.projection_accuracy = pa
@@ -310,6 +311,22 @@ def test_healthy_capped_reduce_does_not_false_fire(tmp_path):
     assert fake.calls == ["RU", "PA", "RE"], fake.calls
     assert "fake_logan_healthy" in path
     assert not (tmp_path / "EDR_T1" / "network_health_escalation.json").exists()
+
+
+def test_wrapper_calls_logan_with_compute_rmse_false(tmp_path):
+    # CONTRACT (ADR-0023): _run_logan_reduction must pass compute_rmse=False to all
+    # three filters. compute_rmse=True hits the vendored compute_RMSE -> camera.error
+    # None crash on 2.3.1 (the 2026-06-08 live failure). This locks the fix against a
+    # silent regression to True. No Metashape needed (fake Logan records the kwargs).
+    fake = _make_fake_logan("fake_logan_contract", ru_drop=0.10, pa_drop=0.10,
+                            re_drop=0.10)
+    chunk = _Chunk("EDR_T1", n_aligned=2348, n_enabled=2357, n_tp=10_000_000,
+                   bar_sep_m=0.25)
+    rp._run_logan_reduction(chunk, tmp_path, rp.HealthConfig(),
+                            ignore_sanity=False, logan_module=fake.__name__)
+    assert set(fake.kwargs) == {"RU", "PA", "RE"}
+    for f in ("RU", "PA", "RE"):
+        assert fake.kwargs[f].get("compute_rmse") is False, (f, fake.kwargs[f])
 
 
 def test_failed_logan_load_halts_loudly(tmp_path):
