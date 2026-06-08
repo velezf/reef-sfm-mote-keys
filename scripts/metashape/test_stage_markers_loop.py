@@ -27,12 +27,17 @@ import pytest
 
 
 def _load_run_pipeline():
-    if "Metashape" not in sys.modules:
+    # Ensure the enum names run_pipeline references at import (_DEPTH/_BLEND)
+    # exist on the Metashape stub even if another test module (collected first)
+    # already installed a barer one — otherwise import order decides pass/fail.
+    ms = sys.modules.get("Metashape")
+    if ms is None:
         ms = types.ModuleType("Metashape")
-        for name in ("MildFiltering", "ModerateFiltering",
-                     "AggressiveFiltering", "MosaicBlending"):
-            setattr(ms, name, object())
         sys.modules["Metashape"] = ms
+    for name in ("MildFiltering", "ModerateFiltering",
+                 "AggressiveFiltering", "MosaicBlending"):
+        if not hasattr(ms, name):
+            setattr(ms, name, object())
     spec = importlib.util.spec_from_file_location(
         "run_pipeline_loop_under_test", Path(__file__).with_name("run_pipeline.py"))
     mod = importlib.util.module_from_spec(spec)

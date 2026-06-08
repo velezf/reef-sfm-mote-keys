@@ -35,5 +35,9 @@ dev-dependencies = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "scripts/metashape"]
+# Collect only `test_*.py` (prefix). scripts/metashape/smoke_test.py is a
+# Metashape-only manual harness that sys.exit()s on import; it matches the
+# default `*_test.py` glob but not this prefix, so it stays out of collection.
+python_files = ["test_*.py"]
 addopts = "-ra -q"
