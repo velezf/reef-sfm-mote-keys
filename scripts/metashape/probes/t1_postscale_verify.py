@@ -5,7 +5,10 @@ All five checks must pass before reduce runs:
   1. chunk.crs is LOCAL (ADR-0024 fix applied — not WGS84).
   2. All marker reference.enabled == False (garbage GCPs neutralized).
   3. All camera reference.enabled == False (stub GPS neutralized).
-  4. transform.scale in [0.10, 0.25] — consistent with Arm B (0.153).
+  4. Matrix-derived transform scale in [0.5, 2.0].
+     Note: 0.153 (Arm B) is POST-optimizeCameras; at post-scale the matrix is
+     ~identity (scale≈1.0). chunk.transform.scale returns None on 2.3.1; scale
+     is derived from the column-0 norm of chunk.transform.matrix.
   5. Exactly 4 scale bars, all reference.enabled=True, distance=0.25 m.
 
 Exits 0 on PASS, 1 on FAIL. Halts the orchestration script on failure.
@@ -14,11 +17,12 @@ Usage: metashape.sh -platform offscreen -r probes/t1_postscale_verify.py <projec
 """
 from __future__ import annotations
 
+import math
 import sys
 
 import Metashape
 
-SCALE_LO, SCALE_HI = 0.10, 0.25    # Arm B confirmed 0.153
+SCALE_PRE_OPT_LO, SCALE_PRE_OPT_HI = 0.5, 2.0  # pre-optimize matrix scale; ~1.0 = identity
 EXPECTED_BARS = 4
 BAR_DIST_M = 0.25
 BAR_DIST_TOL_M = 0.001
@@ -36,6 +40,12 @@ def main() -> None:
     print()
 
     failures: list[str] = []
+
+    def _mat_scale(m) -> float | None:
+        try:
+            return math.sqrt(m[0, 0] ** 2 + m[1, 0] ** 2 + m[2, 0] ** 2)
+        except Exception:
+            return None
 
     # 1. CRS
     crs_wkt = getattr(chunk.crs, "wkt", "") or ""
@@ -66,12 +76,13 @@ def main() -> None:
         failures.append(msg)
         print(f"  [FAIL] {msg}  (sample: {cam_on[:5]})")
 
-    # 4. Transform scale
-    scale = chunk.transform.scale if chunk.transform else None
-    if scale is not None and SCALE_LO <= scale <= SCALE_HI:
-        print(f"  [PASS] transform.scale = {scale:.5f}  (Arm B was 0.153)")
+    # 4. Matrix-derived scale (pre-optimize; ~1.0 from identity; 0.153 is post-optimize)
+    scale = _mat_scale(chunk.transform.matrix) if chunk.transform else None
+    if scale is not None and SCALE_PRE_OPT_LO <= scale <= SCALE_PRE_OPT_HI:
+        print(f"  [PASS] matrix scale = {scale:.5f}  (pre-optimize; expect ~1.0)")
     else:
-        msg = f"transform.scale = {scale!r}  (expected {SCALE_LO}–{SCALE_HI})"
+        msg = (f"matrix scale = {scale!r}  "
+               f"(expected {SCALE_PRE_OPT_LO}–{SCALE_PRE_OPT_HI})")
         failures.append(msg)
         print(f"  [FAIL] {msg}")
 
@@ -100,7 +111,7 @@ def main() -> None:
         print("HALTING — do NOT reduce on unexpected state.")
         sys.exit(1)
     else:
-        print("POST-SCALE VERIFY: PASS — state matches Arm B. Safe to reduce.")
+        print("POST-SCALE VERIFY: PASS — CRS LOCAL, refs disabled, bars intact. Safe to reduce.")
         sys.exit(0)
 
 
