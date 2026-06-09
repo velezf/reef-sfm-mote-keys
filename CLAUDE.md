@@ -30,31 +30,33 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-09)
+## Current state / resume pointer (2026-06-09 EOD)
 
-EDR_T3 shipped + gate-passing. **EDR_T1:** markers PASS → scale applied (mtime
-2026-06-08 19:00:00 UTC, backups preserved). **BLOCKER resolved (ADR-0024):**
-`optimizeCameras` diverged in the reduce path (scale 1.0→823.77, reproj 0.15→
-1.3e152 px) — root: spurious WGS84 CRS + identity transform caused `updateTransform`
-to write garbage GCP reference locations to all 8 markers (lat≈-90°, alt≈-6.36e6 m,
-enabled=True). Scale-bar hypothesis falsified. **Fix committed** in `stage_scale`:
-`_neutralize_spurious_reference` sets LOCAL_CS + disables all marker/camera
-reference.enabled (scale bars untouched). Shared `_LOCAL_CS_WKT` constant with
-ADR-0020 DEM path. **90 tests green.** A/B confirmed (copies only): Arm A scale
-1.0→823.77 / reproj→1.3e152 (blowup); Arm B scale~0.153 / median~0.15 px (holds).
+EDR_T3 shipped + gate-passing. **EDR_T1 FULLY PREPPED FOR DENSE:**
 
-The committed reduce mode is **vendored 2.x Logan + `compute_rmse=False`** (correct +
-tested; avoids 2.3.1 camera.error-None crash; ADR-0023).
+| stage | status | notes |
+|-------|--------|-------|
+| markers | PASS | |
+| scale | PASS | ADR-0024: LOCAL_CS + refs disabled; scale 0.15246 m/unit |
+| reduce | PASS | ADR-0023 vendored Logan; 3,568,318 tie pts; sigma0 0.159 |
+| level | PASS | ADR-0025 camera-nadir UP (collinear markers); boresight 0.00°; **ACCEPTED — 14.78 m Z range is genuine depth-gradient topography** |
+| region | SET | X 28.9 m / Y 25.4 m / Z 15.3 m; coverage 99.82%; deep extension preserved |
 
-**Next gated step (on explicit go):** the LIVE model is post-scale WITHOUT the fix
-(stage_scale ran before ADR-0024). Must re-run from the pre-scale backup:
+**Snapshots on disk (EC2 `/data/edr_work/`):**
+- `edr_t1_postlevel_adr0025_20260609T220420Z.{psx,files}` — post-level, pre-region
+- `edr_t1_preregion_20260609T220902Z.{psx,files}` — pre-region write guard
+
+**NEXT ACTION (explicit go required):**
 ```bash
-# 1. Restore from edr_t1_preSTEP5_20260608T185845Z (pre-scale checkpoint)
-# 2. Re-run: --stage markers (re-validate) → --stage scale (commits LOCAL_CS fix) →
-#            --stage reduce (vendored Logan; ~10+ min) → --stage level
-# 3. Run probes/t1_postlevel_probe.py and report quality
-# 4. STOP before dense
+# Dense: High quality / Mild filtering / colors + confidence / ALLOW_DENSE + post-dense HALT
+# AOI crop before DSM is MANDATORY — loose region (~29×25×15 m) will OOM without crop
 ```
-Full session log: `docs/session-log-2026-06-09.md`.
+
+**ADRs in effect:** ADR-0023 (Logan reduce), ADR-0024 (LOCAL_CS fix), ADR-0025 (camera-nadir level — accepted)
+
+**Follow-ups (not blocking dense):**
+- `fix/probe-topo-gates`: recalibrate camera-Z and cameras-above-markers gates for topo transects
+- Push `fix/level-camera-nadir` to remote (Frank's call)
+- Merge `fix/level-camera-nadir` → main after dense + products validate full T1 path
 
 **Dense runs only on explicit go. FIREWALL P13HMEON comparison-only.**
