@@ -163,3 +163,85 @@ D. **Next gated step (on explicit go)**: backup → re-run `--stage scale` → `
 
 FIREWALL: P13HMEON comparison-only, never a construction input. NO dense without explicit
 go. NO reduce without explicit go. Model safe at mtime 19:00. Backups preserved.
+
+---
+
+## Evening session — full T1 sequence + ADR-0025 + region (2026-06-09 ~19:30–22:15 UTC)
+
+### ADR-0025: camera-nadir leveling fix
+
+**Bug:** `stage_level` used marker-plane normal as UP. T1 markers are near-collinear
+(spread_ratio eig[1]/eig[0] ≈ 0.10), giving an ill-defined plane normal → world-Z 80.6°
+off vertical, camera-Z range 23.7 m.
+
+**Fix:**
+- Extracted `_compute_level_up(mk_positions, cam_boresights, ...)` as pure-Python testable function
+- Guard 1 (collinear): spread_ratio < 0.25 → use camera-nadir UP silently
+- Guard 2 (disagreement): well-spread markers but angle > 15° → alarm + camera-nadir fallback
+- `stage_level` tilt gate skipped when `level_method == "camera_nadir"`
+- 11 new tests (RED → GREEN); full suite 198 tests green
+- Committed on `fix/level-camera-nadir` (08d30d0)
+
+### Pipeline run: markers → scale → reduce → level
+
+Restored from `edr_t1_preSTEP5_20260608T185845Z` (pre-scale, pre-ADR-0024).
+
+**Failure recovered before this run:** earlier attempt restored from `edr_t1_prereduce_20260608T204101Z`
+(which was pre-ADR-0024 — CRS=WGS84, refs enabled). PA `optimizeCameras` diverged → sigma0=14879
+→ Logan RE loop ran 42+ min without convergence. Killed, correct starting point used.
+
+**Results (correct run):**
+- markers: EXIT 0 (re-entry, already validated)
+- scale: EXIT 0 — LOCAL_CS set, 8 marker + 2422 camera reference.enabled disabled (ADR-0024)
+- reduce: EXIT 0 — 53 Logan optimizations; 3,568,318 tie pts; sigma0 0.159; RMS 0.1471 filter units; ~100 min total (Logan tail drained slowly to 0 selections at RE 0.3)
+- level: EXIT 0 — camera-nadir UP fired (spread_ratio=0.1490); boresight 0.00° from (0,0,-1); scale 0.15246 preserved
+
+**Post-level probe (camera-nadir gates):**
+- boresight tilt: **0.00°** [PASS] — was 80.6°
+- camera-Z range: 14.78 m [probe FAIL vs 4 m gate — false negative, see below]
+- cameras-above-markers: FAIL [false negative]
+- scale: 0.152463 [PASS]
+- scale-bar RMS: 10.65 mm [matches expected]
+
+### Topography diagnostic (t1_camz_diag.py)
+
+Camera-Z range classified as **genuine reef topography**, not outliers/distortion:
+- marker Z spread: 4.51 m (19/20 at −1.54 m → 15/16 at −6.06 m, smooth spatial gradient)
+- tie-point P1–P99 spread: 13.17 m (reef surface confirms large relief)
+- camera/tiepoint spread ratio: 0.74 (cameras track reef relief)
+- P5–P95 = 9.69 m = 66% of 14.78 m range (genuine spread, not outlier tails)
+- below-P5 cameras (118) at X [−8.8, −6.5] — 6+ m from weak 19/20 zone
+- plane-fit R² = 0.33 (non-planar transect, consistent with curved topography)
+- scale-bar RMS 10.65 mm — no dome distortion
+
+ADR-0025 **accepted** with caveats: world-Z = reef-normal reference (not gravity); probe
+gates (camera-Z < 4 m, global cameras-above-markers) are T3-belt-specific false negatives
+for a depth-gradient transect. Recalibration logged as `fix/probe-topo-gates` (TDD, later).
+
+### Region set (t1_set_region.py)
+
+Derived AABB in leveled world frame from cameras ∪ sparse, Z trim [P0.5, P99.5]:
+- X: [−19.4, +9.5] = 28.9 m
+- Y: [−8.4, +17.0] = 25.4 m
+- Z: [−11.8, +3.5] = 15.3 m  (deep extension preserved; within expected 14–16 m)
+- Coverage: 99.82% of trimmed sparse inside [PASS]
+- 56 cameras outside (above-P95 shallow cameras; informational)
+
+**WARNING for dense:** region is intentionally loose (survey footprint + margin).
+AOI crop before DSM is MANDATORY to avoid DEM OOM on the full 29×25×15 m volume.
+
+### Snapshots
+- `edr_t1_postlevel_adr0025_20260609T220420Z.{psx,files}` — post-level, pre-region (12G)
+- `edr_t1_preregion_20260609T220902Z.{psx,files}` — pre-region write guard (12G)
+
+### Commits pushed to origin/fix/level-camera-nadir
+```
+c392c36 chore(CLAUDE.md): update resume pointer — T1 fully prepped for dense
+8a181a1 docs(ADR-0025): accept camera-nadir leveling for T1 — topography verdict + caveats; region set
+43e5bc3 probe: add ADR-0025 camera-nadir verification section to t1_postlevel_probe
+08d30d0 fix: stage_level camera-nadir UP for collinear markers (ADR-0025)
+```
+
+### State at close
+EC2: no Metashape processes, no lock, no tmux. Live PSX mtime 2026-06-09 22:09:41 UTC.
+Branch `fix/level-camera-nadir` pushed. **Ready for AM dense GO.**
