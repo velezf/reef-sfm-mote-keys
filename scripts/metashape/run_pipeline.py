@@ -242,6 +242,13 @@ GATE_MIN_MARKER_PROJECTIONS = 2
 # (eig[2]/eig[1]). A clean (even thin belt) plane is << this; ~1 means the markers
 # are collinear / non-planar (roll ill-defined). T3 belt = 0.011; threshold 0.5.
 GATE_PLANE_FLATNESS_MAX = 0.5
+# LOCAL_CS WKT shared by _neutralize_spurious_reference (stage_scale, ADR-0024)
+# and _local_planar_projection (stage_dsm / stage_ortho, ADR-0020).  One string
+# here ensures both stages always sit in the same local metric frame.
+_LOCAL_CS_WKT = (
+    'LOCAL_CS["Local Coordinates (m)",LOCAL_DATUM["Local Datum",0],'
+    'UNIT["metre",1]]'
+)
 # --------------------------------------------------------------------------- #
 # NETWORK-HEALTH COLLAPSE GUARD (defense in depth; ADR-0023) — HARD tripwires
 # that stop a collapsed/blown-up bundle from being written as success or fed to a
@@ -1650,6 +1657,41 @@ def _check_network_health_or_escalate(chunk, out_root: Path, context: str,
 # --------------------------------------------------------------------------- #
 
 
+def _neutralize_spurious_reference(chunk) -> dict:
+    """Set chunk.crs to a local metric CS and disable every marker + camera
+    reference.enabled (ADR-0024).
+
+    Root: Metashape's default CRS for no-GPS captures is WGS84 (EPSG:4326).
+    After updateTransform() it projects each marker's internal 3-D position
+    through identity×WGS84 and stores the result as marker.reference.location
+    (enabled=True).  Those coordinates are geographic garbage (latitude ≈ -90°,
+    altitude ≈ -6.36e6 m).  Camera reference.location carries an identical stub
+    GPS fix (all cameras at the same point, acc=None).  A subsequent
+    optimizeCameras call treats these as live GCP constraints and diverges
+    catastrophically (scale 1.0→823, reproj 0.15→1.3e152).
+
+    Scale bars use their own reference.distance / reference.accuracy — not
+    marker.reference.location — so they remain untouched and continue to
+    constrain the bundle correctly.
+
+    Called by stage_scale immediately after scale-bar weighting, before save.
+    Idempotent: re-running on an already-LOCAL chunk is a no-op.
+    """
+    chunk.crs = Metashape.CoordinateSystem(_LOCAL_CS_WKT)
+    n_markers, n_cameras = 0, 0
+    for m in chunk.markers:
+        if m.reference is not None and m.reference.enabled:
+            m.reference.enabled = False
+            n_markers += 1
+    for c in chunk.cameras:
+        if c.reference is not None and c.reference.enabled:
+            c.reference.enabled = False
+            n_cameras += 1
+    log(f"{chunk.label}: CRS set LOCAL metre; disabled {n_markers} marker + "
+        f"{n_cameras} camera reference.enabled (spurious WGS84 GCP fix; ADR-0024)")
+    return {"n_markers_ref_disabled": n_markers, "n_cameras_ref_disabled": n_cameras}
+
+
 def stage_scale(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
                 health: "HealthConfig", bar_length: float = PARAMS.scalebar_length_m,
                 scalebar_accuracy_m: float = PARAMS.scalebar_accuracy_m) -> None:
@@ -1713,6 +1755,11 @@ def stage_scale(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
         # were `None` = active-but-unweighted on the human-corrected EDR_T1 bars).
         for sb in chunk.scalebars:
             sb.reference.accuracy = scalebar_accuracy_m
+        # Neutralise the spurious WGS84 chunk.crs and disable garbage marker/camera
+        # reference locations before saving, so the first downstream optimizeCameras
+        # (inside Logan reduce) sees a clean local-metric frame, not geographic GCPs
+        # that diverge the bundle (scale 1.0->823, ADR-0024).
+        ref_info = _neutralize_spurious_reference(chunk)
         _meta_set(chunk, "esm.scale", {
             "bars_created": created,
             "bars_reused_from_gui": reused,
@@ -1720,6 +1767,7 @@ def stage_scale(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
             "scalebar_accuracy_m": scalebar_accuracy_m,
             "total_scalebars": len(chunk.scalebars),
             "source": "stage_markers headless-pass validated set",
+            **ref_info,
         })
         log(f"{chunk.label}: applied scale bars — created {created}, reused "
             f"{reused} (GUI); {len(chunk.scalebars)} scale bar(s) total "
@@ -2299,9 +2347,7 @@ def _local_planar_projection(chunk: "Metashape.Chunk") -> "Metashape.OrthoProjec
     (orphan_1857_note.md / ADR-0018). The Planar matrix is identity for a
     LOCAL_CS (localframe rotation is identity). Idempotent: re-asserting an
     already-LOCAL chunk.crs is harmless, so dsm and ortho can each call it."""
-    chunk.crs = Metashape.CoordinateSystem(
-        'LOCAL_CS["Local Coordinates (m)",LOCAL_DATUM["Local Datum",0],'
-        'UNIT["metre",1]]')
+    chunk.crs = Metashape.CoordinateSystem(_LOCAL_CS_WKT)
     top_xy = Metashape.Matrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
     origin = chunk.transform.matrix.mulp(Metashape.Vector([0, 0, 0]))
     lf = chunk.crs.localframe(origin)

@@ -57,6 +57,11 @@ rp = _load_run_pipeline()
 class _Ref:
     def __init__(self):
         self.distance = None
+        self.accuracy = None
+
+
+class _MarkerRef:
+    enabled = True       # satisfies _neutralize_spurious_reference check
 
 
 class _Scalebar:
@@ -70,12 +75,14 @@ class _Marker:
     def __init__(self, mid, has_pos=True):
         self.label = f"marker {mid}"
         self.position = object() if has_pos else None
+        self.reference = _MarkerRef()
 
 
 class _Chunk:
     def __init__(self, label, markers):
         self.label = label
         self.markers = list(markers)
+        self.cameras = []                    # _neutralize_spurious_reference iterates
         self.scalebars = []
         self.meta = {}                       # _meta_get/_meta_set use a dict-like
 

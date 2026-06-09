@@ -32,28 +32,29 @@ runs only on the user's explicit GO.**
 
 ## Current state / resume pointer (2026-06-09)
 
-EDR_T3 shipped + gate-passing. **EDR_T1: reduce is BLOCKED on an `optimizeCameras`
-datum divergence** (full detail + datum dump: `docs/session-log-2026-06-08.md`
-EVENING entry; ADR-0023 addendum). State: align → markers PASS (human-corrected, 4
-bars) → scale (bars @ 0.001) done; **reduce blocked**. The model is safe on disk
-(`edr_t1.psx` mtime **19:00**, 0 SaveProject, 0 esm.reduce); all work since was on
-scratch copies.
+EDR_T3 shipped + gate-passing. **EDR_T1:** markers PASS → scale applied (mtime
+2026-06-08 19:00:00 UTC, backups preserved). **BLOCKER resolved (ADR-0024):**
+`optimizeCameras` diverged in the reduce path (scale 1.0→823.77, reproj 0.15→
+1.3e152 px) — root: spurious WGS84 CRS + identity transform caused `updateTransform`
+to write garbage GCP reference locations to all 8 markers (lat≈-90°, alt≈-6.36e6 m,
+enabled=True). Scale-bar hypothesis falsified. **Fix committed** in `stage_scale`:
+`_neutralize_spurious_reference` sets LOCAL_CS + disables all marker/camera
+reference.enabled (scale bars untouched). Shared `_LOCAL_CS_WKT` constant with
+ADR-0020 DEM path. **90 tests green.** A/B confirmed (copies only): Arm A scale
+1.0→823.77 / reproj→1.3e152 (blowup); Arm B scale~0.153 / median~0.15 px (holds).
 
-**The blocker:** one `optimizeCameras` on post-scale T1 **diverges** — reproj median
-0.15 → 14–19 px, `transform.scale` 1.0 → **823.77**, max → 1.3e152 — which hangs
-Logan's reduce. **Bar-independent** (the scale-bar over-constraint hypothesis was
-FALSIFIED: a bars-disabled control diverged too). **Root (per the read-only datum
-dump):** the chunk is in a **spurious WGS84/EPSG:4326 (degrees) CRS** (ADR-0018/0020,
-here in the *optimize* path) with every camera carrying a single-fix lat/lon
-reference and every marker carrying enabled **garbage WGS84 reference coords** (auto-
-populated when markers were added to a WGS84 chunk after align); `optimizeCameras`
-refits the datum to that degree-space garbage and diverges.
+The committed reduce mode is **vendored 2.x Logan + `compute_rmse=False`** (correct +
+tested; avoids 2.3.1 camera.error-None crash; ADR-0023).
 
-**Resume point (next session, short CPU-only burst):** 2-arm A/B on COPIES with
-**Logan's exact `optimizeCameras` call** — Arm A datum as-is (expect diverge) vs Arm
-B **local metric CRS (ADR-0020 lever) + camera/marker references cleared** (expect
-clean). If B is clean → fix = neutralise the datum (local metric CRS + strip the
-spurious WGS84 refs) **before** reduce (likely in `stage_scale`/pre-reduce). The
-committed reduce mode is **vendored 2.x Logan + `compute_rmse=False`** (correct +
-tested; independent of this blocker). Don't re-run reduce until the datum A/B picks
-the root. No dense without explicit GO.
+**Next gated step (on explicit go):** the LIVE model is post-scale WITHOUT the fix
+(stage_scale ran before ADR-0024). Must re-run from the pre-scale backup:
+```bash
+# 1. Restore from edr_t1_preSTEP5_20260608T185845Z (pre-scale checkpoint)
+# 2. Re-run: --stage markers (re-validate) → --stage scale (commits LOCAL_CS fix) →
+#            --stage reduce (vendored Logan; ~10+ min) → --stage level
+# 3. Run probes/t1_postlevel_probe.py and report quality
+# 4. STOP before dense
+```
+Full session log: `docs/session-log-2026-06-09.md`.
+
+**Dense runs only on explicit go. FIREWALL P13HMEON comparison-only.**
