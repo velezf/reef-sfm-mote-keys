@@ -26,12 +26,15 @@ OUT_ROOT_DEFAULT = Path("/data/edr_work/products")
 
 
 def _meta_get(chunk, key):
-    raw = chunk.meta.get(key)
-    if raw is None:
+    try:
+        raw = chunk.meta[key]
+    except (KeyError, RuntimeError):
+        return None
+    if not raw:
         return None
     try:
         return json.loads(raw)
-    except Exception:
+    except (json.JSONDecodeError, TypeError):
         return raw
 
 
