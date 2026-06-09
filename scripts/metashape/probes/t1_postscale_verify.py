@@ -5,10 +5,11 @@ All five checks must pass before reduce runs:
   1. chunk.crs is LOCAL (ADR-0024 fix applied — not WGS84).
   2. All marker reference.enabled == False (garbage GCPs neutralized).
   3. All camera reference.enabled == False (stub GPS neutralized).
-  4. Matrix-derived transform scale in [0.5, 2.0].
-     Note: 0.153 (Arm B) is POST-optimizeCameras; at post-scale the matrix is
-     ~identity (scale≈1.0). chunk.transform.scale returns None on 2.3.1; scale
-     is derived from the column-0 norm of chunk.transform.matrix.
+  4. Matrix-derived transform scale in [0.05, 2.0].
+     Pre-optimize (post-scale, pre-reduce): matrix scale ≈ 1.0 (identity).
+     Post-optimize (post-reduce/level): matrix scale ≈ 0.153 (Arm B confirmed).
+     chunk.transform.scale returns None on 2.3.1; derived from col-0 norm.
+     Divergence would give >>100; [0.05, 2.0] catches both valid states.
   5. Exactly 4 scale bars, all reference.enabled=True, distance=0.25 m.
 
 Exits 0 on PASS, 1 on FAIL. Halts the orchestration script on failure.
@@ -22,7 +23,11 @@ import sys
 
 import Metashape
 
-SCALE_PRE_OPT_LO, SCALE_PRE_OPT_HI = 0.5, 2.0  # pre-optimize matrix scale; ~1.0 = identity
+# Scale bounds cover both pre- and post-optimizeCameras states:
+#   pre-optimize (post-scale, pre-reduce): matrix scale ≈ 1.0 (identity from align)
+#   post-optimize (post-reduce/level): matrix scale ≈ 0.153 (Arm B confirmed)
+# Both are well within [0.05, 2.0]; divergence would give >>100.
+SCALE_PRE_OPT_LO, SCALE_PRE_OPT_HI = 0.05, 2.0
 EXPECTED_BARS = 4
 BAR_DIST_M = 0.25
 BAR_DIST_TOL_M = 0.001
