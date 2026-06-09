@@ -242,6 +242,15 @@ GATE_MIN_MARKER_PROJECTIONS = 2
 # (eig[2]/eig[1]). A clean (even thin belt) plane is << this; ~1 means the markers
 # are collinear / non-planar (roll ill-defined). T3 belt = 0.011; threshold 0.5.
 GATE_PLANE_FLATNESS_MAX = 0.5
+# Camera-nadir leveling guards (ADR-0025).
+# LEVEL_COLLINEAR_THRESHOLD: in-plane minor/major scatter ratio (eig[1]/eig[0]).
+# Small → markers near-collinear → plane roll axis ill-defined → use camera-nadir.
+# T1 near-collinear = ~0.10 (fires); well-spread grid or belt > 0.30. Threshold 0.25.
+LEVEL_COLLINEAR_THRESHOLD = 0.25
+# LEVEL_NADIR_GUARD_DEG: max angle (deg) between marker-plane normal and camera-nadir
+# UP. When NOT collinear but disagreement exceeds this, escalate and use camera-nadir
+# as fallback. A well-leveled nadir survey shows < 5°; 15° is the escalation floor.
+LEVEL_NADIR_GUARD_DEG = 15.0
 # LOCAL_CS WKT shared by _neutralize_spurious_reference (stage_scale, ADR-0024)
 # and _local_planar_projection (stage_dsm / stage_ortho, ADR-0020).  One string
 # here ensures both stages always sit in the same local metric frame.
@@ -2100,6 +2109,62 @@ def _tilt_from_z(n: list[float]) -> float:
     return math.degrees(math.acos(max(-1.0, min(1.0, abs(n[2]) / L))))
 
 
+def _compute_level_up(
+    mk_positions: list[list[float]],
+    cam_boresights: list[list[float]],
+    collinear_threshold: float = LEVEL_COLLINEAR_THRESHOLD,
+    nadir_guard_deg: float = LEVEL_NADIR_GUARD_DEG,
+) -> tuple[list[float], str, dict]:
+    """Determine the UP direction for leveling (ADR-0025).
+
+    Uses camera-nadir (negated mean camera boresight) when the marker layout is
+    near-collinear (spread_ratio < collinear_threshold) OR when the marker-plane
+    normal and camera-nadir disagree by > nadir_guard_deg (nadir_guard_fired).
+    The nadir_guard case is an escalation condition — callers must alarm on it.
+    Otherwise uses the marker-plane normal (normal case: well-spread markers).
+
+    Args:
+        mk_positions: world-frame marker positions.
+        cam_boresights: world-frame unit camera boresight vectors (camera +Z axis).
+        collinear_threshold: spread_ratio floor below which collinear guard fires.
+        nadir_guard_deg: maximum acceptable angle between marker normal and cam_up.
+
+    Returns:
+        up_vec: unit vector pointing physically UP in the current world frame.
+        method: "camera_nadir" or "marker_plane".
+        info: diagnostic dict (spread_ratio, nadir_angle_deg, guard flags, eig, …).
+    """
+    normal, _, eig = _fit_plane_normal(mk_positions)
+    # Camera nadir UP: negate the mean boresight (cameras point DOWN → -b = UP).
+    n_cams = len(cam_boresights)
+    mean_b = [sum(b[i] for b in cam_boresights) / n_cams for i in range(3)]
+    bL = math.sqrt(sum(x * x for x in mean_b)) or 1.0
+    cam_up = [-mean_b[i] / bL for i in range(3)]
+    # Apply same +Z convention as _fit_plane_normal so the angle comparison is valid.
+    if cam_up[2] < 0:
+        cam_up = [-x for x in cam_up]
+    # Collinearity: in-plane minor / major scatter ratio (eig sorted descending).
+    spread_ratio = eig[1] / eig[0] if eig[0] > 0 else 0.0
+    # Angle between marker-plane normal and camera-nadir UP (both +Z-oriented).
+    dot = max(-1.0, min(1.0, sum(normal[i] * cam_up[i] for i in range(3))))
+    nadir_angle_deg = math.degrees(math.acos(dot))
+    collinear_guard = spread_ratio < collinear_threshold
+    # nadir_guard only fires when markers are NOT collinear (else collinear_guard
+    # already explains the divergence and is the primary signal).
+    nadir_guard = (not collinear_guard) and (nadir_angle_deg > nadir_guard_deg)
+    up_vec = cam_up if (collinear_guard or nadir_guard) else normal
+    method = "camera_nadir" if (collinear_guard or nadir_guard) else "marker_plane"
+    return up_vec, method, {
+        "spread_ratio": round(spread_ratio, 5),
+        "nadir_angle_deg": round(nadir_angle_deg, 3),
+        "collinear_guard_fired": collinear_guard,
+        "nadir_guard_fired": nadir_guard,
+        "marker_normal": [round(x, 5) for x in normal],
+        "cam_up": [round(x, 5) for x in cam_up],
+        "eig": eig,
+    }
+
+
 def stage_level(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
                 health: "HealthConfig",
                 max_extent_m: float = LEVEL_MAX_EXTENT_M) -> None:
@@ -2173,22 +2238,45 @@ def stage_level(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
                   critical=True, ignore=ignore_sanity)
             continue
         vlist = sorted(vetted)
-        normal, _, eig = _fit_plane_normal([_world_xyz(T, mk[lab]) for lab in vlist])
-        # Planarity / non-collinearity guard: out-of-plane scatter (eig[2]) must be
-        # small vs the in-plane minor axis (eig[1]); ~1 means the markers are
-        # collinear / non-planar and the plane (roll especially) is ill-defined.
-        # A thin belt is still a clean plane (T3 = 0.011) — this passes belts and
-        # STOPs only on a degenerate set, rather than fitting a garbage plane.
+        mk_world = [_world_xyz(T, mk[lab]) for lab in vlist]
+        # Camera boresights in world space: used by _compute_level_up (ADR-0025).
+        # cam.transform maps camera → chunk; camera +Z is the boresight direction.
+        cam_boresights_w: list[list[float]] = []
+        for cam in chunk.cameras:
+            if cam.transform is None:
+                continue
+            bc = cam.transform.mulv(Metashape.Vector([0.0, 0.0, 1.0]))
+            bw = [T[r, 0] * bc.x + T[r, 1] * bc.y + T[r, 2] * bc.z
+                  for r in range(3)]
+            bL = math.sqrt(sum(x * x for x in bw)) or 1.0
+            cam_boresights_w.append([x / bL for x in bw])
+        up_vec, level_method, level_info = _compute_level_up(
+            mk_world, cam_boresights_w)
+        normal = level_info["marker_normal"]
+        eig = level_info["eig"]
+        # Planarity guard: catches volumetric/degenerate sets regardless of method.
         flatness = (eig[2] / eig[1]) if eig[1] > 0 else float("inf")
         if flatness > GATE_PLANE_FLATNESS_MAX:
-            alarm(f"{chunk.label}: vetted markers are ~collinear / non-planar "
-                  f"(eig2/eig1 {flatness:.4f} > {GATE_PLANE_FLATNESS_MAX}) — plane "
-                  f"roll is ill-defined. Need non-collinear targets.",
+            alarm(f"{chunk.label}: vetted markers are non-planar "
+                  f"(eig2/eig1 {flatness:.4f} > {GATE_PLANE_FLATNESS_MAX}) — "
+                  f"model is degenerate.",
                   critical=True, ignore=ignore_sanity)
-        tilt_before = _tilt_from_z(normal)
-        R = _rot_normal_to_z(normal)
+        # nadir_guard: well-spread markers but cameras disagree → escalate.
+        if level_info["nadir_guard_fired"]:
+            alarm(f"{chunk.label}: marker-plane normal and camera-nadir UP disagree "
+                  f"by {level_info['nadir_angle_deg']:.1f}° "
+                  f"(> {LEVEL_NADIR_GUARD_DEG}°, spread_ratio="
+                  f"{level_info['spread_ratio']:.3f}) — using camera-nadir as "
+                  f"fallback; investigate marker geometry.",
+                  critical=True, ignore=ignore_sanity)
+        if level_info["collinear_guard_fired"]:
+            log(f"{chunk.label}: near-collinear markers "
+                f"(spread_ratio={level_info['spread_ratio']:.4f} < "
+                f"{LEVEL_COLLINEAR_THRESHOLD}) — using camera-nadir UP.")
+        tilt_before = _tilt_from_z(up_vec)
+        R = _rot_normal_to_z(up_vec)
         _apply_world_rotation(chunk, R)
-        # Verify: the vetted plane normal now maps to ~+Z (post-level tilt ~0).
+        # Post-level verification.
         Tn = chunk.transform.matrix
         leveled = [_world_xyz(Tn, mk[lab]) for lab in vlist]
         normal_after, cen_after, _ = _fit_plane_normal(leveled)
@@ -2207,6 +2295,9 @@ def stage_level(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
             "excluded_bars": excluded,
             "plane_normal_before": [round(x, 5) for x in normal],
             "plane_flatness_eig2_eig1": round(flatness, 5),
+            "level_method": level_method,
+            "level_spread_ratio": level_info["spread_ratio"],
+            "level_nadir_angle_deg": level_info["nadir_angle_deg"],
             "marker_plane_tilt_before_deg": round(tilt_before, 4),
             "marker_plane_tilt_after_deg": round(tilt_after, 4),
             "marker_y_spread_m": round(y_spread, 4),
@@ -2218,18 +2309,23 @@ def stage_level(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
         }
         _meta_set(chunk, "esm.level", stats)
         log(f"{chunk.label}: leveled on {len(vlist)} vetted markers "
-            f"(excluded {len(excluded)} bar(s)); marker-plane tilt "
-            f"{tilt_before:.2f} -> {tilt_after:.3f} deg; scale {scale_after:.8g} "
-            f"(preserved={stats['scale_preserved']}).")
+            f"(excluded {len(excluded)} bar(s)); method={level_method}; "
+            f"tilt {tilt_before:.2f} -> {tilt_after:.3f} deg; "
+            f"scale {scale_after:.8g} (preserved={stats['scale_preserved']}).")
         if not stats["scale_preserved"]:
             alarm(f"{chunk.label}: leveling changed transform.scale "
                   f"({scale_before} -> {scale_after}). A pure rotation must "
                   f"preserve scale — fit/rotation bug.",
                   critical=True, ignore=ignore_sanity)
-        if tilt_after > GATE_LONG_TILT_MAX_DEG:
+        # Tilt gate: for marker_plane leveling, marker tilt after must be ~0.
+        # For camera_nadir leveling, the reef-surface tilt need not be 0 — log only.
+        if level_method == "marker_plane" and tilt_after > GATE_LONG_TILT_MAX_DEG:
             alarm(f"{chunk.label}: vetted marker-plane is still tilted "
                   f"{tilt_after:.3f} deg from Z after leveling — R was not applied "
                   f"correctly.", critical=True, ignore=ignore_sanity)
+        elif level_method == "camera_nadir":
+            log(f"{chunk.label}: marker-plane tilt after camera-nadir leveling: "
+                f"{tilt_after:.2f}° (informational — probe verifies camera boresight).")
         save(doc)
 
 
