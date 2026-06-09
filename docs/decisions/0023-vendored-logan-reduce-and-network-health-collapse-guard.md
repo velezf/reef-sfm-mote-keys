@@ -284,3 +284,31 @@ exists today.
   probe `probes/t1_postlevel_probe.py`; backups `edr_t1_4bar_*` / `edr_t1_collapsed_*`.
 
 #tags: metashape-api, esm-step-8, error-reduction, logan-usgs, vendored, gradual-selection, network-health, collapse-guard, stage-reduce, stage-scale, stage-level, scale-bar-accuracy, tiepoint-covariance, firewall, chat5
+
+## Addendum (2026-06-09) — reduce still BLOCKED downstream; a falsified hypothesis (wrong-turn record)
+
+The vendored-Logan + `compute_rmse=False` reduce path above is correct and tested, but the **live T1
+reduce is blocked by a separate problem**: a single `optimizeCameras` on the post-scale T1 model
+**numerically diverges** — reproj median **0.15 px → 14–19 px**, max → **1.3e152**, `transform.scale`
+**1.0 → 823.77** — which hangs Logan's RE threshold search. Model never touched (mtime 19:00, no save).
+
+**Falsified hypothesis (recorded, not deleted):** we first hypothesised a **scale-bar over-constraint**
+(bars measure ~1.69 internal vs `0.25 m @ 0.001 m` accuracy ⇒ ~1440σ). A clean A/B/C on scratch copies
+(one `optimizeCameras` each) **disproved it**: the **bars-disabled control diverged too** (median 13.8),
+and `chunk.updateTransform()` neither scaled the bars (still ~1.69 m) nor caused the divergence (the 823
+scale appears pre-optimize and is harmless). So the bars are at most a minor aggravator, **not** the cause.
+
+**Actual cause (per the read-only datum dump; see session-log-2026-06-08 EVENING):** the chunk is in a
+**spurious WGS84 (EPSG:4326, degrees) CRS** (the ADR-0018/0020 degrees-vs-metres failure, here in the
+*optimize* path) with **every camera carrying a single-fix lat/lon `reference.location`** and **every
+marker carrying enabled GARBAGE WGS84 reference coords** (latitude ≈ −90°, Z ≈ −Earth-radius — auto-
+populated when stage_markers added markers to a WGS84 chunk *after* the align optimize). `optimizeCameras`
+refits the datum to that degree-space garbage → scale 823.77 + divergence. Step 6's align optimize was
+clean because the marker references did not exist yet.
+
+**Open (next session):** a 2-arm A/B with **Logan's exact `optimizeCameras` call** — Arm A datum as-is
+(expect diverge) vs Arm B **local metric CRS (ADR-0020 lever) + camera/marker references cleared** (expect
+clean). If B is clean, the fix is to neutralise the datum (local metric CRS + strip the spurious WGS84
+references) **before** reduce — likely in `stage_scale`/a pre-reduce step — so the scale-constrained
+optimize is well-posed. The fix is reference-free (firewall holds). This ADR will be updated, or a new ADR
+opened, once that A/B picks the root and the fix is chosen.

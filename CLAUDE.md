@@ -30,15 +30,30 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-04)
+## Current state / resume pointer (2026-06-09)
 
-EDR_T3 shipped + gate-passing. **EDR_T1:** import/step4 done; the first detached
-align run was lost to the stale-lock/read-only bug above, then recovered (lock
-cleared) and the launcher+pipeline hardened (commit `a076af0`). The lost in-memory
-align was excellent (99.6% / 10.67M tie points / RMS 0.2322) so params are sound.
-**Resume point:** kick off the hardened `align → markers` detached (tmux `t1align`
-→ `run_t1_align_markers.sh`), expect ≈99.6%, STOP at the pre-dense stop, and report
-**belt-or-not** (gate #6 aspect), **marker IDs + 0.25 m scale-bar pairs**, and
-align quality. Then: Part-B robustness/spot layer is still to build (surface the
-dense on-demand-vs-spot tradeoff and stop for a call). Full handoff +
-exact commands: `docs/session-log-2026-06-04.md` (CLOSE-OUT block at top).
+EDR_T3 shipped + gate-passing. **EDR_T1: reduce is BLOCKED on an `optimizeCameras`
+datum divergence** (full detail + datum dump: `docs/session-log-2026-06-08.md`
+EVENING entry; ADR-0023 addendum). State: align → markers PASS (human-corrected, 4
+bars) → scale (bars @ 0.001) done; **reduce blocked**. The model is safe on disk
+(`edr_t1.psx` mtime **19:00**, 0 SaveProject, 0 esm.reduce); all work since was on
+scratch copies.
+
+**The blocker:** one `optimizeCameras` on post-scale T1 **diverges** — reproj median
+0.15 → 14–19 px, `transform.scale` 1.0 → **823.77**, max → 1.3e152 — which hangs
+Logan's reduce. **Bar-independent** (the scale-bar over-constraint hypothesis was
+FALSIFIED: a bars-disabled control diverged too). **Root (per the read-only datum
+dump):** the chunk is in a **spurious WGS84/EPSG:4326 (degrees) CRS** (ADR-0018/0020,
+here in the *optimize* path) with every camera carrying a single-fix lat/lon
+reference and every marker carrying enabled **garbage WGS84 reference coords** (auto-
+populated when markers were added to a WGS84 chunk after align); `optimizeCameras`
+refits the datum to that degree-space garbage and diverges.
+
+**Resume point (next session, short CPU-only burst):** 2-arm A/B on COPIES with
+**Logan's exact `optimizeCameras` call** — Arm A datum as-is (expect diverge) vs Arm
+B **local metric CRS (ADR-0020 lever) + camera/marker references cleared** (expect
+clean). If B is clean → fix = neutralise the datum (local metric CRS + strip the
+spurious WGS84 refs) **before** reduce (likely in `stage_scale`/pre-reduce). The
+committed reduce mode is **vendored 2.x Logan + `compute_rmse=False`** (correct +
+tested; independent of this blocker). Don't re-run reduce until the datum A/B picks
+the root. No dense without explicit GO.

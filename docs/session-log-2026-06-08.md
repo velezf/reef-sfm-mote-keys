@@ -90,3 +90,75 @@ gate is BUILT + proven; T1 escalating is correct. Backups preserved (premarkers/
 Repo has a remote `origin` (github velezf) and is even with origin/main — commits ARE pushed (contradicts
 old "never push" note; flag if unintended). Reduce wall-clock observed ~10 min (collapsed builtin);
 vendored-Logan RE with compute_rmse may differ.
+
+---
+
+## EVENING 2026-06-08 → 06-09 — STEP 5 reduce BLOCKED on optimizeCameras datum divergence
+
+Disconnect-safe. Model NEVER touched: `edr_t1.psx` mtime **19:00** (post-`scale`), 0 SaveProject,
+0 esm.reduce, orphaned lock cleaned, all backups preserved. All work below was on scratch COPIES.
+
+### Where we got to
+markers (re-validate PASS) + scale (bars @ 0.001, idempotent) re-ran fine. **reduce is blocked.**
+
+### The BLOCKER (proven, bar-independent)
+A single `optimizeCameras` on the post-scale T1 model **numerically diverges**:
+- reproj **median 0.15 px → 14–19 px**; **max → 1.3e152**; **transform.scale 1.0 → 823.77**.
+- The vendored-Logan reduce manifested this as: RU(-11%)+PA(-50%) OK, then RE's threshold search
+  hung because ~97% of the post-PA cloud had reproj > 8.9 px (the same degradation), crawling at
+  0.01 increments. Stopped it; nothing saved.
+
+### FALSIFIED hypothesis (honest diagnostic note; see ADR addendum)
+"Scale-bar over-constraint (1440sigma: bars 1.69 internal vs 0.25 m @ 0.001)". Disproven on scratch
+copies via a clean A/B/C (one optimizeCameras each, fresh copy, no save):
+| Arm | reproj median | max | scale |
+|---|---|---|---|
+| BEFORE (all) | 0.14988 | 0.748 | 1.0 |
+| 1 bars as-is | 19.19 | 1.3e152 | 823.77 |
+| 2 updateTransform→opt | 19.03 | 1.3e152 | 823.77 |
+| 3 bars DISABLED (control) | 13.82 | 1.3e152 | 823.77 |
+Arm 3 (control) diverged too => **bars are NOT the cause**. Arm 2 falsified candidate-fix #1:
+`chunk.updateTransform()` did NOT scale the bars (still ~1.69 m) and pre-optimize reproj stayed
+0.15 px (the 823 scale itself is harmless) — the damage is the optimize STEP.
+
+### DATUM DUMP (read-only, the decisive diagnostic — verbatim)
+```
+chunk.crs        = WGS 84 (EPSG::4326)  -- GEOGRAPHIC, DEGREES (spurious; ADR-0018/0020)
+transform.scale attr = None ; matrix col0 norm = 1.0 ; matrix = identity
+region.size   = (311.5, 204.9, 178.2)   region.center = (-15.45, 23.44, -33.60)
+chunk.marker_crs = None ; chunk.camera_crs = None
+cameras: 2422/2422 have reference.location, ALL = (-81.84433, 24.4591, 0.0)  [lat/lon, single fix]
+  camera_location_accuracy = 10 m
+markers: 8/8 have reference.location, GARBAGE WGS84 mis-projection, enabled=True, acc=None:
+  Marker 20 (73.73, -89.987, -6356740.88)   Marker 19 (74.28, -89.989, -6356740.36)
+  Marker 15 (109.61,-89.997, -6356704.58)   Marker 16 (113.41,-89.998, -6356706.09)
+  Marker 14 (91.61, -89.986, -6356719.93)   Marker 13 (90.88, -89.984, -6356721.23)
+  Marker 25 (14.57, -89.960, -6356747.57)   Marker 26 (15.94, -89.958, -6356747.44)
+  (-89.9 deg latitude, Z ~ -6,356,740 m ~ -WGS84 polar radius => pure degree-space garbage)
+marker_accuracy = 0.005 m ; scalebar_accuracy = 0.001 ; camera_location_accuracy = 10 m
+scalebars: 4 x {dist 0.25, acc 0.001, enabled True}
+```
+
+### DIAGNOSIS — fork resolved toward (B) DATUM/CRS
+The dump points hard at **fork B**: the chunk is WGS84 (degrees); every camera carries a single-fix
+lat/lon reference; every marker carries enabled GARBAGE WGS84 reference coords. `optimizeCameras`
+refits the datum to these degree-space references => scale 823.77 (degrees<->metres factor) + bundle
+divergence. **Anchor:** Step 6 align optimize held scale 1.0 / 0.15 px with this same chunk because
+markers (and their garbage refs) did not exist yet — they were added by stage_markers AFTER align, so
+the first optimize to *see* the marker references is reduce's. NOT fork A (params), NOT the scale bars.
+
+### NEXT (next session; short CPU-only burst; NOT yet run)
+2-arm A/B on copies, using **Logan's EXACT optimizeCameras call** (extract from the vendored file):
+- Arm A: datum as-is (expect diverge, reproduces blocker with the real params).
+- Arm B: set a **LOCAL metric CRS (ADR-0020 lever, e.g. LOCAL_CS)** + **clear/disable the camera AND
+  marker reference** at chunk level (the garbage marker refs + single-fix cam refs), THEN optimize.
+- A blows up + B clean => datum is root; fix = neutralize the datum (local metric CRS + drop the
+  spurious references) BEFORE reduce. Both blow up => fall back to fork A (optimize params/divergence).
+Likely fix lands in `stage_scale`/pre-reduce: enforce local metric CRS + strip auto-populated WGS84
+camera/marker references so the scale-constrained optimize is well-posed. Firewall holds (reference-free).
+
+### STATE
+- compute_rmse=False reduce mode **STANDS** (correct + tested; independent of this blocker; committed).
+- Model safe (mtime 19:00). Backups: premarkers/postgui/4bar/collapsed/preSTEP5/prereduce.
+- COST: datum analysis is off-instance (this text); the A/B optimize-confirm is CPU-bound (no GPU) ->
+  short EC2 burst next session. Instance stopped overnight.
