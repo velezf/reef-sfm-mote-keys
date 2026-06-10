@@ -2538,7 +2538,16 @@ def _camera_track_sign(chunk: "Metashape.Chunk", centroid_xy, u) -> float:
     return 1.0 if first >= last else -1.0
 
 
-def stage_aoi(doc: Metashape.Document, ignore_sanity: bool) -> None:
+def stage_aoi(doc: Metashape.Document, ignore_sanity: bool,
+              manual_centre_m: tuple = (),
+              manual_angle_deg: float = float("nan"),
+              manual_height_m: float = float("nan")) -> None:
+    """Frame the AOI region and crop the dense cloud.
+
+    Manual override (ADR-0026 area-survey path): when *manual_centre_m* is a
+    3-tuple and *manual_angle_deg* is finite, skip DEM-PCA and place the box
+    at the supplied coords; GATE#6 aspect check is logged rather than alarmed.
+    """
     for chunk in doc.chunks:
         if _meta_get(chunk, "esm.aoi") is not None:
             log(f"{chunk.label}: AOI already framed; skipping.")
@@ -2548,28 +2557,49 @@ def stage_aoi(doc: Metashape.Document, ignore_sanity: bool) -> None:
                   f"dense first.", critical=True, ignore=ignore_sanity)
             continue
         scale = chunk.transform.scale
-        # --- 1) Footprint PCA from a transient interp-OFF DEM of the FULL cloud ---
-        chunk.resetRegion()                       # encompass the whole cloud first
-        el = _build_interp_off_dem(chunk)
-        cells = list(_occupied_cells_world(el))
-        z_mid = (min(c[2] for c in cells) + max(c[2] for c in cells)) / 2
-        ang, cen_xy, evr, aspect = _pca2d([(c[0], c[1]) for c in cells])
-        chunk.remove([el])                        # drop transient DEM (idempotency)
-        # --- 2) Orientation anchor: camera track (primary), +X toward first-N ----
-        u = (math.cos(ang), math.sin(ang))
-        sign = _camera_track_sign(chunk, cen_xy, u)
-        oriented = ang if sign > 0 else ang + math.pi
-        # --- 3) Apply the yaw about world Z so the oriented major axis -> +X ------
-        T_lev = chunk.transform.matrix
-        cen_world = Metashape.Vector([cen_xy[0], cen_xy[1], z_mid])
-        center_internal = T_lev.inv().mulp(cen_world)   # invariant under transform edits
-        _apply_world_rotation(chunk, _rot_z(-oriented))
-        # --- 4) Set the canonical 10x1x5 m region (world-axis-aligned, centroid) --
+        use_manual = len(manual_centre_m) == 3 and not math.isnan(manual_angle_deg)
+        effective_height = (manual_height_m if not math.isnan(manual_height_m)
+                            else PARAMS.aoi_height_m)
+
+        if use_manual:
+            # --- Manual override: ADR-provided centre + bearing, skip DEM-PCA ----
+            oriented = math.radians(manual_angle_deg)
+            T_lev = chunk.transform.matrix
+            cen_world = Metashape.Vector([manual_centre_m[0],
+                                         manual_centre_m[1],
+                                         manual_centre_m[2]])
+            center_internal = T_lev.inv().mulp(cen_world)
+            _apply_world_rotation(chunk, _rot_z(-oriented))
+            ang = oriented
+            cen_xy = (manual_centre_m[0], manual_centre_m[1])
+            evr = None
+            aspect = None
+        else:
+            # --- 1) Footprint PCA from a transient interp-OFF DEM of the FULL cloud
+            chunk.resetRegion()                   # encompass the whole cloud first
+            el = _build_interp_off_dem(chunk)
+            cells = list(_occupied_cells_world(el))
+            z_mid = (min(c[2] for c in cells) + max(c[2] for c in cells)) / 2
+            ang, cen_xy, evr, aspect = _pca2d([(c[0], c[1]) for c in cells])
+            chunk.remove([el])                    # drop transient DEM (idempotency)
+            # --- 2) Orientation anchor: camera track, +X toward first-N ----------
+            u = (math.cos(ang), math.sin(ang))
+            sign = _camera_track_sign(chunk, cen_xy, u)
+            oriented = ang if sign > 0 else ang + math.pi
+            T_lev = chunk.transform.matrix
+            cen_world = Metashape.Vector([cen_xy[0], cen_xy[1], z_mid])
+            center_internal = T_lev.inv().mulp(cen_world)
+            _apply_world_rotation(chunk, _rot_z(-oriented))
+
+        # --- 3) Apply the yaw so the (oriented) major axis -> +X -----------------
+        # (already done above in both paths; region is now world-axis-aligned)
+
+        # --- 4) Set the AOI region ------------------------------------------------
         region = Metashape.Region()
         region.center = center_internal
         region.size = Metashape.Vector([PARAMS.aoi_length_m / scale,
                                         PARAMS.aoi_width_m / scale,
-                                        PARAMS.aoi_height_m / scale])
+                                        effective_height / scale])
         region.rot = _region_rot_world_aligned(chunk)
         chunk.region = region
         # --- 5) Crop the dense cloud to the AOI ----------------------------------
@@ -2594,12 +2624,14 @@ def stage_aoi(doc: Metashape.Document, ignore_sanity: bool) -> None:
         lastX = sum(Tf.mulp(c.center).x for c in cams[-nN:]) / nN
         plus_x_ok = firstX > lastX
         stats = {
+            "manual_override": use_manual,
             "footprint_major_angle_deg": round(math.degrees(ang), 4),
             "applied_yaw_deg": round(math.degrees(-oriented), 4),
-            "footprint_explained_var": round(evr, 4),
-            "footprint_aspect": round(aspect, 3) if aspect != float("inf") else None,
+            "footprint_explained_var": round(evr, 4) if evr is not None else None,
+            "footprint_aspect": (round(aspect, 3) if (aspect is not None
+                                  and aspect != float("inf")) else None),
             "centroid_world_xy": [round(cen_xy[0], 5), round(cen_xy[1], 5)],
-            "z_mid": round(z_mid, 5),
+            "height_m": round(effective_height, 4),
             "points_before": n_before, "points_after": n_after,
             "coverage_interp_off": round(coverage, 4),
             "anchor_firstN_X": round(firstX, 4), "anchor_lastN_X": round(lastX, 4),
@@ -2607,12 +2639,18 @@ def stage_aoi(doc: Metashape.Document, ignore_sanity: bool) -> None:
             "scale_preserved": abs(chunk.transform.scale - scale) < 1e-12,
         }
         _meta_set(chunk, "esm.aoi", stats)
-        log(f"{chunk.label}: AOI framed yaw={stats['applied_yaw_deg']:+.2f} deg, "
-            f"footprint evr={evr:.3f} aspect={stats['footprint_aspect']}, crop "
+        evr_s = "N/A" if evr is None else f"{evr:.3f}"
+        asp_s = "N/A" if aspect is None else str(stats["footprint_aspect"])
+        log(f"{chunk.label}: AOI framed {'[MANUAL] ' if use_manual else ''}"
+            f"yaw={stats['applied_yaw_deg']:+.2f} deg, "
+            f"footprint evr={evr_s} aspect={asp_s}, crop "
             f"{n_before:,} -> {n_after:,}, coverage(interp-OFF)={coverage*100:.1f}%, "
             f"+X anchor ok={plus_x_ok}.")
         # Inline gate checks available pre-DSM (4, 6, 7). Tilt/co-reg are post-DSM.
-        if evr < GATE_FOOTPRINT_EVR_MIN or aspect < GATE_FOOTPRINT_ASPECT_MIN:
+        if use_manual:
+            log(f"{chunk.label}: GATE#6 footprint-aspect check SKIPPED "
+                f"(manual override — area survey, ADR-0026).")
+        elif evr < GATE_FOOTPRINT_EVR_MIN or aspect < GATE_FOOTPRINT_ASPECT_MIN:
             alarm(f"{chunk.label}: GATE#6 footprint not belt-shaped "
                   f"(evr={evr:.3f} < {GATE_FOOTPRINT_EVR_MIN} or "
                   f"aspect={stats['footprint_aspect']} < {GATE_FOOTPRINT_ASPECT_MIN}). "
@@ -3154,6 +3192,17 @@ def main() -> None:
                     help="Downgrade critical sanity alarms from hard-stop to "
                          "loud-warn. Off by default: the pipeline stops on a "
                          "critical alarm so a dev run surfaces and iterates.")
+    ap.add_argument("--aoi-centre", default=None,
+                    help="Manual AOI centre 'cx,cy,cz' in chunk CRS metres. "
+                         "Pair with --aoi-angle to bypass auto DEM-PCA for area "
+                         "surveys (ADR-0026). Both args required together.")
+    ap.add_argument("--aoi-angle", type=float, default=float("nan"),
+                    help="Manual long-axis bearing in degrees (chunk XY frame, "
+                         "0°=+X, CCW positive). Required with --aoi-centre.")
+    ap.add_argument("--aoi-height", type=float, default=float("nan"),
+                    help=f"Override AOI crop height in metres (default "
+                         f"{PARAMS.aoi_height_m} m from PARAMS.aoi_height_m). "
+                         f"Use with --aoi-centre for area-survey Z window.")
     ap.add_argument("--verify", action="store_true",
                     help="Reopen the project READ-ONLY, confirm the artifacts in "
                          "--verify-expect are persisted on disk, and exit 0/1. "
@@ -3185,6 +3234,18 @@ def main() -> None:
         except ValueError:
             sys.exit(f"--expected-marker-ids must be comma-separated integers, got "
                      f"{args.expected_marker_ids!r}")
+
+    manual_aoi_centre: tuple = ()
+    if args.aoi_centre is not None:
+        try:
+            parts = [float(x) for x in args.aoi_centre.split(",")]
+        except ValueError:
+            sys.exit(f"--aoi-centre: could not parse floats from {args.aoi_centre!r}")
+        if len(parts) != 3:
+            sys.exit(f"--aoi-centre must be 'cx,cy,cz' (3 floats), got {len(parts)}")
+        if math.isnan(args.aoi_angle):
+            sys.exit("--aoi-centre requires --aoi-angle")
+        manual_aoi_centre = tuple(parts)
 
     gpu_names = gpu_check()
     doc = open_or_create(args.project)
@@ -3233,7 +3294,8 @@ def main() -> None:
         elif st == "filter":
             stage_filter(doc, args.noise_confidence, args.ignore_sanity)
         elif st == "aoi":
-            stage_aoi(doc, args.ignore_sanity)
+            stage_aoi(doc, args.ignore_sanity,
+                      manual_aoi_centre, args.aoi_angle, args.aoi_height)
         elif st == "dsm":
             stage_dsm(doc, args.out_root, args.ignore_sanity, health)
         elif st == "ortho":
