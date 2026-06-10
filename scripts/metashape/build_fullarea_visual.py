@@ -6,17 +6,21 @@ stage_aoi, which crops the cloud to the 10×1 m transect.
 
 Products written to <out-dir>/:
     edr_t1_fullarea_dsm_<UTC>.tif   — 2 cm DEM, GeoTIFF
-    edr_t1_fullarea_ortho_<UTC>.tif — native-GSD ortho, GeoTIFF
+    edr_t1_fullarea_ortho_<UTC>.tif — 2 cm ortho, GeoTIFF
 
 Usage (EC2 headless):
     /opt/metashape-pro/metashape.sh -platform offscreen \\
         -r /data/reef-sfm-mote-keys/scripts/metashape/build_fullarea_visual.py \\
-        -- --project /data/edr_work/edr_t1.psx \\
-           --out-dir /data/edr_work/products/EDR_T1 \\
-           --resolution 0.02
+        --project /data/edr_work/edr_t1.psx \\
+        --out-dir /data/edr_work/products/EDR_T1 \\
+        --resolution 0.02
 
 After completion, query the reported AOI Z range against the 7 m window from
 ADR-0026.  Adjust --aoi-height in stage_aoi if local relief exceeds 5.4 m.
+
+NOTE on --ortho-resolution: defaults to --resolution (the DEM resolution).
+Do NOT use 0 (native GSD) on the full 29×25 m footprint — the native GSD of
+this dataset is sub-mm; the ortho would be 100k×80k+ pixels and never finish.
 """
 from __future__ import annotations
 
@@ -129,7 +133,8 @@ def _sample_aoi_z(el: "Metashape.Elevation") -> tuple[float, float] | None:
 
 
 def build_fullarea_visual(project_path: Path, out_dir: Path,
-                          resolution: float) -> None:
+                          resolution: float,
+                          ortho_resolution: float) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = _utcnow()
     dsm_path = out_dir / f"edr_t1_fullarea_dsm_{ts}.tif"
@@ -204,18 +209,18 @@ def build_fullarea_visual(project_path: Path, out_dir: Path,
     dsm_size_mb = dsm_path.stat().st_size / 1e6
     _log(f"DSM exported: {dsm_size_mb:.1f} MB")
 
-    # --- Build orthomosaic at native GSD (surface = built DEM) ---
-    _log("Building orthomosaic @ native GSD ...")
+    # --- Build orthomosaic (surface = built DEM) ---
+    _log(f"Building orthomosaic @ {ortho_resolution*100:.0f} cm ...")
     t0 = time.time()
     chunk.buildOrthomosaic(surface_data=Metashape.ElevationData,
                            blending_mode=Metashape.MosaicBlending,
                            fill_holes=True,
-                           resolution=0)
+                           resolution=ortho_resolution)
     ortho = chunk.orthomosaic
     if ortho is None:
         sys.exit("buildOrthomosaic returned no orthomosaic object.")
     _log(f"Ortho built: {ortho.width} × {ortho.height} px  "
-         f"res={ortho.resolution:.5f} m/px  ({time.time()-t0:.1f} s)")
+         f"res={ortho.resolution:.4f} m/px  ({time.time()-t0:.1f} s)")
 
     # --- Export orthomosaic ---
     _log(f"Exporting ortho → {ortho_path} ...")
@@ -249,13 +254,18 @@ def main() -> None:
                     help="DSM resolution in metres (default 0.02 = 2 cm). "
                          "Must be >= 0.02 for the full-area footprint to pass "
                          "the 5 M-cell guard.")
+    ap.add_argument("--ortho-resolution", type=float, default=None,
+                    help="Orthomosaic resolution in metres (default: same as "
+                         "--resolution). Do NOT use 0 or sub-cm on the full "
+                         "footprint — native GSD is sub-mm and would never finish.")
     args = ap.parse_args()
 
     if args.resolution < 0.015:
         sys.exit(f"--resolution {args.resolution} m is below the 2 cm minimum "
                  f"for the full-area footprint. Use 0.02 or coarser.")
 
-    build_fullarea_visual(args.project, args.out_dir, args.resolution)
+    ortho_res = args.ortho_resolution if args.ortho_resolution is not None else args.resolution
+    build_fullarea_visual(args.project, args.out_dir, args.resolution, ortho_res)
 
 
 if __name__ == "__main__":
