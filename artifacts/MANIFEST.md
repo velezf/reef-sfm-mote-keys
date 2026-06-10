@@ -1,6 +1,6 @@
 # Artifact Manifest
 
-Generated: 2026-06-10T18:38:37Z
+Generated: 2026-06-10T18:41:17Z
 
 | path | size_bytes | sha256 | harvested |
 |------|------------|--------|-----------|
@@ -71,6 +71,73 @@ Generated: 2026-06-10T18:38:37Z
 | products/EDR_T3/sparse.ply | 22203717 | e83b64a086280d50815fdc282e96ea5bf7d44ea5df9291ea7aebb6c02a13539e | 2026-06-10 |
 | products/pipeline_summary.json | 8114 | 7b89561844de225622019a9e4f1b6e50246d41ecd3dd6283b9467b917b6f32a8 | 2026-06-10 |
 | products/q_ab_results.json | 595 | a08811e8a192b6d82d27b18cf76bcd7820e5a3bb0d719e7282209add8d171367 | 2026-06-10 |
+| qc/t3_relevel/GROUND_TRUTH_probe_20260604.md | 4745 | 06b98c02ea4cc4b28f6d65a2e26dff6399c17836e69f9425af735fa8463af5d7 | 2026-06-10 |
+| qc/t3_relevel/RESUME.md | 3119 | 3f2a92449041230803ec9a6275c8f5ad668957124ceda582da5d83ddb54839ef | 2026-06-10 |
+| qc/t3_relevel/RESUME_day2_20260603.md | 9139 | c5241ba43ea97674615e1560a0dc49ee4ae98d9b79a257cbb6c869ccf4e01f82 | 2026-06-10 |
+| qc/t3_relevel/RESUME_day3_relevel_20260604.md | 4282 | 077db315f5000f95389d9be23afa779b6dd89493266d14af00c915c5dc90e1ca | 2026-06-10 |
+| qc/t3_relevel/cpumem_20260602_140735.csv | 16028 | a25a46e01b3969820d3f5fe031e45879373f7d539efb6299912537fcb1a010cf | 2026-06-10 |
+| qc/t3_relevel/cpumem_20260602_160155.csv | 4501 | 7a7ada85aa72c4190c6dfae4e455961e6ccb444e4e22083c342fa15ab8d88b9a | 2026-06-10 |
+| qc/t3_relevel/cpumem_20260602_174052.csv | 1171 | 1b9f2fae29ec6647983107a706267acb861def6288b0ac9baed46fde9b0ea58f | 2026-06-10 |
+| qc/t3_relevel/cpumem_20260602_174444.csv | 12530 | 428fbce1a3cdc20fcbd5b02a4ea74a72b8b1f2162899525379404b618ac7e2c5 | 2026-06-10 |
+| qc/t3_relevel/cpumem_20260602_185446.csv | 401 | 7011ef7d1cb53f108a558d118716e028fb463afe9e232159840ff3be2cfe6d2a | 2026-06-10 |
+| qc/t3_relevel/cpumem_20260602_185702.csv | 5113 | 17fac474aab9e6b4abdf43848a73497f3689a1caf3de43202987840a58a832fb | 2026-06-10 |
+| qc/t3_relevel/edr_t3_dsm_pipevalidate.tif | 546329 | a5efecd68cc86398610eb98804659f1787ff0d2047a95644eb76c36e6b853d52 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_dsm_pipevalidate.tif.aux.xml | 388 | 673ea528772375cf2f3c358cd03d496d198f9a8b7f463cda9f7c2416fcad0bb5 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_dsm_planartest_gate.json | 565 | 507533ec8eca64813f49756503a5b62b60a274d0477e018364b90eb85950c1fd | 2026-06-10 |
+| qc/t3_relevel/edr_t3_dsm_planartest_gate.png | 315122 | 041f396163e73b5abae67d124bb1b0f5bdef6904aa818042dea90f6418afecb6 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_dsm_planartest_hillshade.png | 79163 | 5a23eddd80adf797b71c2c0d12413b84ceb93d9ab172759b000a8a202e84aac6 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_dsm_planartest_hillshade.png.aux.xml | 371 | cf01b9010319915d6c8ef0740214f41e93c4ff48284d03eb96ace8636273b8ac | 2026-06-10 |
+| qc/t3_relevel/edr_t3_dsm_planartest_hillshade_4xY.png | 80732 | 44c51db8ad0c6a8aacc676178aa9a84841e3b7b3d0dfa6bb74103aca8d068ea5 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_dsm_planartest_interpOFF.tif | 539507 | 2b6fd045843ad2baf125a2e965d22044b6e40c6840a4cc985864e66c51cef74f | 2026-06-10 |
+| qc/t3_relevel/edr_t3_dsm_planartest_interpOFF.tif.aux.xml | 389 | a9c1cca6e4a1ae4515d282a89086a37aaac0537530cc2593181c4e89c9f5b831 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_dsm_planartest_interpON.tif | 546329 | a5efecd68cc86398610eb98804659f1787ff0d2047a95644eb76c36e6b853d52 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_dsm_planartest_interpON.tif.aux.xml | 388 | 673ea528772375cf2f3c358cd03d496d198f9a8b7f463cda9f7c2416fcad0bb5 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_ortho_pipevalidate_preview.tif | 4295357 | 9b62e0932233ea2ee87bee4ed3c38c73f7328b23d4a23e14190ec5a3a3a42737 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_ortho_planartest_preview.jpg | 162031 | f1255d880ce24ecc80bbe495a25b777165ea6b5bdac4086bb000e6fca51fda86 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_ortho_planartest_preview.tif | 4295357 | 9b62e0932233ea2ee87bee4ed3c38c73f7328b23d4a23e14190ec5a3a3a42737 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_ortho_planartest_preview_4xY.jpg | 448502 | 43cc091fa1c93f63260e44b5780a320964765f5ee00ec19a60181b68be85e7f3 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_pipeline_provenance.txt | 139 | 5093442dddfed9696a7d0807a96a83596d597d98d884f137633f2ec8e4d5a768 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_pipevalidate_gate.json | 794 | ba52d1466257d52112486fa030b815eb7461c13d762a1096f70630abccc2903d | 2026-06-10 |
+| qc/t3_relevel/edr_t3_pipevalidate_gate.png | 255327 | fdf43e34c46f1af971b5e8390b9df7f4f8601433304e36958de2253f8fbb1a66 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_pipevalidate_render.json | 505 | afb5115d7a90a60b62daff0ddf74d2bea2632f52ea3562ec6910ff3408de6d97 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_diag.png | 383711 | 8b63f359111f63726d23e939ff10546b4c71ab85f13386241dff85a7f12a3260 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_dsm.tif | 627764 | f19ea180c283ea0dc9edfe8fa4becda5da69aefcbe7aedf6105337ecf2705bdf | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_dsm_interpOFF.tif | 640971 | f97decefe5dc70b8d949144ce8f6153455f6198d5a16855ef18784841247538e | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_final_cov.png | 276783 | 1a2947c184491752a88dd9a822af56730df3992c778f6341105f8e955afa0a67 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_final_dsm.tif | 577730 | 11a9374f1e3e3f02dea700373e1766174ce4ce4fe91f81c9fdce854bc0931c4b | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_final_dsm_interpOFF.tif | 568066 | 48c1a8315f5775d8a812616d2c95ca4d697ac3e2ba469ed2ece3689a3277c9af | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_final_gate.json | 3480 | ac0e924df6c94614b88a510bb65ef9f7c1e1cad0495a1958032430f4afae47e2 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_final_gate.png | 280013 | 57981c181468228e46675c8a3e43adb707a970c67c3495303e659da85c2a89b8 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_final_geo.json | 106 | 0e06c8c02706b9f3aa0b5f62030fd133f3b2b920a16f8c2e290a818322392871 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_final_ortho_preview.tif | 4273575 | 3c80b75b4b68de83e33eb9c1a383a512345a8d70716f0c9c556facae1f8fef75 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_gate.json | 2306 | 87293a0e3de693365f7bee2fae1c3153b69e217d51546d22abd656bb12a08cde | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_geo.json | 225 | dae19f96994fbaa4a8cb88a91a2866691b83b93bff0edd3ed7179f68e17388a5 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_ortho_preview.tif | 4835355 | 758329aaa2c4fef10b002764ce14705be2de8b58fcef8c13df9fdf0218705416 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_relevel_phase1_diagnosis.json | 3974 | 72a08f0bce5b52c10a084c67d9551461e7724e952c75cb391e1508b0c9aabaf3 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_step11_frame.json | 3056 | 8d539a1ae5b47970f1c98c7814629b847c329022da36a1ed73ea95b8d82027da | 2026-06-10 |
+| qc/t3_relevel/edr_t3_step11_frame_after.json | 3662 | b07cf04206abcc370d1c079bd7bceb782d73f7173db33b97d7ef82f8a6ed80a3 | 2026-06-10 |
+| qc/t3_relevel/edr_t3_step8_px.json | 2575 | 34c89d511abb7fec17ec4f921f5eb57d8daef87c0e131b0bdec63500d9316afa | 2026-06-10 |
+| qc/t3_relevel/edr_t3_step8_px.md | 2179 | c701982e2aa2ba3a54e54590716b025eed09702430ea8a187b2d2048810599bf | 2026-06-10 |
+| qc/t3_relevel/edr_t3_tilt_check_compare.png | 457755 | b54c7eadab76f4eb8e362412c9dc2ce1ff11d43904e098944a0312695dd89c1b | 2026-06-10 |
+| qc/t3_relevel/edr_t3_tilt_check_corroborators.json | 1199 | efb51e810bff23a67be82b7acd786f0aad42e18683a8d067483cfe37ecae4b1a | 2026-06-10 |
+| qc/t3_relevel/edr_t3_tilt_check_verdict.json | 2322 | 831e9da1a1b333073d8a0162c671a64695ef183c494a1e6912a010db80d827ca | 2026-06-10 |
+| qc/t3_relevel/gpu_20260602_140735.csv | 17860 | 6cef47cebf0714642018665565e1c17178463cbc7e72c4486927b7562c32479a | 2026-06-10 |
+| qc/t3_relevel/gpu_20260602_160155.csv | 4597 | 99db01f7d44b9841f57f4ab0e7cd4d7a366948c976d36a8668b25ea0cddc03ab | 2026-06-10 |
+| qc/t3_relevel/gpu_20260602_174052.csv | 1222 | d34a05c6d10c158e8294602bcf64a4ae113376518734f808408b285e6657bcc9 | 2026-06-10 |
+| qc/t3_relevel/gpu_20260602_174444.csv | 13133 | a0616c966d15838cd4db272b39ee6aea5f4b168e6974c54c9527857652c2fe70 | 2026-06-10 |
+| qc/t3_relevel/gpu_20260602_185446.csv | 397 | b10a896d32319ac7b19a2e3740719fcb87e763313ef5742c6df52181243a3087 | 2026-06-10 |
+| qc/t3_relevel/gpu_20260602_185702.csv | 5101 | 617e29d674a4009ad08df8fe890946430982507850f4f402a70c4d5ec2fb1303 | 2026-06-10 |
+| qc/t3_relevel/orphan_1857_note.md | 2814 | ea354094987315778c75f89f0dfeb80b008f5e2913f7985f78debc1ef36400b2 | 2026-06-10 |
+| qc/t3_relevel/phaseC_validation_20260604.json | 3368 | e65d87ee4d0cff72c6a687a188975dd277be02c79509801ec1e714e7230c48e3 | 2026-06-10 |
+| qc/t3_relevel/q_ab_band_breakdown.json | 1783 | 478aa885eae3d72f03e433a808bb2ee9c06ad9a28623498bdc3cadc2b0fe58a0 | 2026-06-10 |
+| qc/t3_relevel/q_ab_results.json | 595 | a08811e8a192b6d82d27b18cf76bcd7820e5a3bb0d719e7282209add8d171367 | 2026-06-10 |
+| qc/t3_relevel/recon_check_20260604.json | 2538 | 9a3d23ad9c92f6225d44df92bd4476011defe1e903aa07ed5d491ebc4ffea11d | 2026-06-10 |
+| qc/t3_relevel/t3_monitor_summary.txt | 630 | c6730f4ce03bbab0af1354bc7a9b0c895d78b6596b04435e7682f46cc5881809 | 2026-06-10 |
+| qc/t3_relevel/tiltvar_T_rot.tif | 508263 | 729f4096919f51a0836787c3f2372c68e3f0171df21ad7a4bbb1f6ecca6fe155 | 2026-06-10 |
+| qc/t3_relevel/tiltvar_T_rotT.tif | 499103 | b8891b99a12bd4b632ab580e81826c0066d8c31e49cd7e6eb2270ba8c3c295d7 | 2026-06-10 |
+| qc/t3_relevel/tiltvar_identity.tif | 546329 | a5efecd68cc86398610eb98804659f1787ff0d2047a95644eb76c36e6b853d52 | 2026-06-10 |
+| qc/t3_relevel/tiltvar_region_rot.tif | 499105 | acde3f7642c6b34377fab48e73e639eb03c5929cf78e49b8e26ca9e1b53cf9ea | 2026-06-10 |
+| qc/t3_relevel/tiltvar_region_rotT.tif | 508263 | ff54f655b20b8247505f5758c07947652960dfcf7af361ea1aaba07fa8673996 | 2026-06-10 |
 | run_t1_align_markers.sh | 1928 | f19218d930c78d1ab6629badebaef35fba0c392e3d7defa4dd12dab19f345004 | 2026-06-10 |
 | run_t3_align.sh | 941 | 513165339ee1089cf87a4319f58c8c7dd4ffb83a28360cdd4987493a5209060e | 2026-06-10 |
 | run_t3_dsm_retry.sh | 2187 | b6428c952c232587982a7f5b4487f817c98b99a8115a32e140e5d28a9172d133 | 2026-06-10 |
