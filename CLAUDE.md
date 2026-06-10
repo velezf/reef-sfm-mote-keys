@@ -30,33 +30,45 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-09 EOD)
+## Current state / resume pointer (2026-06-10 EOD)
 
-EDR_T3 shipped + gate-passing. **EDR_T1 FULLY PREPPED FOR DENSE:**
+EDR_T3 shipped + gate-passing. **EDR_T1 post-filter; AOI/DSM/ortho ADRs accepted; ready for products phase.**
 
 | stage | status | notes |
 |-------|--------|-------|
 | markers | PASS | |
 | scale | PASS | ADR-0024: LOCAL_CS + refs disabled; scale 0.15246 m/unit |
 | reduce | PASS | ADR-0023 vendored Logan; 3,568,318 tie pts; sigma0 0.159 |
-| level | PASS | ADR-0025 camera-nadir UP (collinear markers); boresight 0.00°; **ACCEPTED — 14.78 m Z range is genuine depth-gradient topography** |
-| region | SET | X 28.9 m / Y 25.4 m / Z 15.3 m; coverage 99.82%; deep extension preserved |
+| level | PASS | ADR-0025 camera-nadir UP (collinear markers); 14.78 m Z = genuine topo |
+| region | SET | 28.92 × 25.41 × 15.33 m; coverage 99.82% |
+| dense | PASS | 651,419,413 pts; 2.8 h; rc=0 (2026-06-10T13:35Z) |
+| filter | PASS | ADR-0015: 651M → 488M (25.1% removed, threshold=2); rc=0 |
+| aoi | PENDING | ADR-0026 ACCEPTED — box computed; needs wiring into stage_aoi before run |
+| dsm | PENDING | ADR-0027 ACCEPTED — 1 cm; no code change needed |
+| ortho | PENDING | |
 
 **Snapshots on disk (EC2 `/data/edr_work/`):**
+- `edr_t1_postdense_20260610T181702Z.{psx,files}` — 27 GB; post-dense, pre-filter (safety copy)
 - `edr_t1_postlevel_adr0025_20260609T220420Z.{psx,files}` — post-level, pre-region
-- `edr_t1_preregion_20260609T220902Z.{psx,files}` — pre-region write guard
+- Live project: `edr_t1.psx` — post-filter state; `next_stage=aoi`
 
 **NEXT ACTION (explicit go required):**
-```bash
-# Dense: High quality / Mild filtering / colors + confidence / ALLOW_DENSE + post-dense HALT
-# AOI crop before DSM is MANDATORY — loose region (~29×25×15 m) will OOM without crop
-```
+Wire ADR-0026 AOI box into `stage_aoi`, then run `--stage aoi` (and continue through dsm → ortho → gate → report).
 
-**ADRs in effect:** ADR-0023 (Logan reduce), ADR-0024 (LOCAL_CS fix), ADR-0025 (camera-nadir level — accepted)
+**AOI box (ADR-0026 — chunk CRS, LOCAL_CS metres):**
+- centre: (−2.028, 3.774, −6.477)
+- long axis (10 m): (−0.7071, 0.7071, 0) — 135° bearing
+- short axis (1 m): (−0.7071, −0.7071, 0) — 225° bearing
+- half-extents: (5.000, 0.500, 3.500) m; full box 10 × 1 × 7 m
+- Z window: [−9.977, −2.977] m (7 m, est. 5.4 m local relief + 29% margin)
+- `stage_aoi` auto-gate WILL HALT (aspect 1.14:1 < 5:1) — manual override required
 
-**Follow-ups (not blocking dense):**
-- `fix/probe-topo-gates`: recalibrate camera-Z and cameras-above-markers gates for topo transects
-- Push `fix/level-camera-nadir` to remote (Frank's call)
-- Merge `fix/level-camera-nadir` → main after dense + products validate full T1 path
+**ADRs in effect:** ADR-0023 (Logan reduce), ADR-0024 (LOCAL_CS), ADR-0025 (camera-nadir level),
+ADR-0026 (T1 AOI placement — 10×1×7 m manual transect), ADR-0027 (DSM 1 cm — no code change)
 
-**Dense runs only on explicit go. FIREWALL P13HMEON comparison-only.**
+**Open follow-ups (not blocking products):**
+- `fix/probe-topo-gates`: recalibrate camera-Z, cameras-above-markers, and region-bounds gates for topo transects
+- Blocker 1: add `scale` to `spot_controller.sh` PIPELINE_STAGES + `pipeline_state.py` STAGE_ORDER; add `_meta_set(chunk, "esm.report", ...)` to `stage_report`
+- Blocker 2: add hemisphere-flip critical alarm in camera_nadir collinear path
+
+**Products run only on explicit go. FIREWALL P13HMEON comparison-only.**
