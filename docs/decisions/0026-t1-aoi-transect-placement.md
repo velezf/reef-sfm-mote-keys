@@ -1,6 +1,6 @@
 # ADR-0026 — T1 AOI: 10×1 m transect placement for an area survey
 
-**Status:** ACCEPTED  
+**Status:** SUPERSEDED by ADR-0028 (Z window corrected 2026-06-10)  
 **Date:** 2026-06-10  
 **Supersedes:** none  
 **Related:** ADR-0020 (LOCAL-CRS DSM/ortho), ADR-0023 (reduce), ADR-0024 (LOCAL-CRS scale),
