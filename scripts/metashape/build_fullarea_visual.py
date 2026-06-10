@@ -41,6 +41,12 @@ _AOI_SHORT_UNIT = (-0.7071, -0.7071)
 _AOI_HALF_LEN = 5.0
 _AOI_HALF_WID = 0.5
 
+# LOCAL_CS WKT — mirrors the constant in run_pipeline.py (ADR-0020/0024)
+_LOCAL_CS_WKT = (
+    'LOCAL_CS["Local Coordinates (m)",LOCAL_DATUM["Local Datum",0],'
+    'UNIT["metre",1]]'
+)
+
 # Guard: abort if the 2 cm DEM would exceed this cell count (5 M guard from ADR-0027)
 _MAX_CELLS = 5_000_000
 
@@ -57,11 +63,24 @@ def _log(msg: str) -> None:
     print(f"[{ts}] {msg}", flush=True)
 
 
-def _local_planar_projection(chunk: "Metashape.Chunk") -> "Metashape.CoordinateSystem":
-    """Return the LOCAL planar CRS for the chunk (mirrors ADR-0020 recipe in
-    run_pipeline.py).  Raises if the chunk has no transform yet."""
-    crs = Metashape.CoordinateSystem("LOCAL")
-    return crs
+def _local_planar_projection(chunk: "Metashape.Chunk") -> "Metashape.OrthoProjection":
+    """Declare chunk CRS as LOCAL (metres) and return a top-down Planar projection.
+
+    Direct copy of run_pipeline._local_planar_projection (ADR-0020): the LOCAL
+    output CRS stops buildDem/buildOrthomosaic backfilling WGS-84 → OOM.
+    Idempotent: re-asserting an already-LOCAL chunk.crs is harmless.
+    """
+    chunk.crs = Metashape.CoordinateSystem(_LOCAL_CS_WKT)
+    top_xy = Metashape.Matrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    origin = chunk.transform.matrix.mulp(Metashape.Vector([0, 0, 0]))
+    lf = chunk.crs.localframe(origin)
+    proj = Metashape.OrthoProjection()
+    proj.crs = chunk.crs
+    proj.type = Metashape.OrthoProjection.Type.Planar
+    proj.matrix = (Metashape.Matrix.Rotation(top_xy)
+                   * Metashape.Matrix.Rotation(lf.rotation()))
+    _log(f"{chunk.label}: chunk.crs set LOCAL + top-down Planar projection (ADR-0020)")
+    return proj
 
 
 def _assert_writable(doc: "Metashape.Document") -> None:
