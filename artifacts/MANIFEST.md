@@ -1,6 +1,6 @@
 # Artifact Manifest
 
-Generated: 2026-06-10T18:30:42Z
+Generated: 2026-06-10T18:38:37Z
 
 | path | size_bytes | sha256 | harvested |
 |------|------------|--------|-----------|
@@ -96,6 +96,7 @@ Generated: 2026-06-10T18:30:42Z
 | state/imds_watch.log | 130 | ba478d065e5f997d079e4bf6688abcd056c278952e6fd5189b3932d445991d3c | 2026-06-10 |
 | state/spot_pipeline_state.json | 2844 | 96efd50918370ecca433a9f786f25dde814519ffe6ef910c040281701601d5fc | 2026-06-10 |
 | t1_dense.log | 4300880 | 51bd2100dfd646174a925bdff10b83e2f1e63311da82d1faebcf760b928776bc | 2026-06-10 |
+| t1_filter.log | 1185 | a84fac422066858138c67712149e913733ec3ffd54de5635b601738abd99924d | 2026-06-10 |
 | t1_fullseq_adr0025.log | 41554 | 4394658b19dfcb99d43a3295c15998dc40c0cfaba753365ff5b16c8fc1906eef | 2026-06-10 |
 | t1_reduce_level_adr0025.log | 302764 | 7304854d775236ba9027f51187f7989a3a4d6c1fde1dad50049c7430124fbb66 | 2026-06-10 |
 | t1_sequence.log | 42684 | 30e0a42473abc697582a5a450397349ca9e447fdc3e5473223fd4dbdd122a6a3 | 2026-06-10 |
