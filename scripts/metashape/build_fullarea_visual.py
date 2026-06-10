@@ -6,7 +6,7 @@ stage_aoi, which crops the cloud to the 10×1 m transect.
 
 Products written to <out-dir>/:
     edr_t1_fullarea_dsm_<UTC>.tif   — 2 cm DEM, GeoTIFF
-    edr_t1_fullarea_ortho_<UTC>.tif — 2 cm ortho, GeoTIFF
+    edr_t1_fullarea_ortho_<UTC>.tif — 2 cm ortho, GeoTIFF (on DEM surface)
 
 Usage (EC2 headless):
     /opt/metashape-pro/metashape.sh -platform offscreen \\
@@ -15,18 +15,16 @@ Usage (EC2 headless):
         --out-dir /data/edr_work/products/EDR_T1 \\
         --resolution 0.02
 
-After completion, query the reported AOI Z range against the 7 m window from
-ADR-0026.  Adjust --aoi-height in stage_aoi if local relief exceeds 5.4 m.
+After completion, the reported AOI Z range replaces the ADR-0026 model estimate.
+Adjust --aoi-height in stage_aoi if local relief exceeds 5.4 m (7 m window).
 
-NOTE on --ortho-resolution: defaults to --resolution (the DEM resolution).
-Do NOT use 0 (native GSD) on the full 29×25 m footprint — the native GSD of
-this dataset is sub-mm; the ortho would be 100k×80k+ pixels and never finish.
+IMPORTANT: do NOT call _local_planar_projection (which sets chunk.crs) when the
+dense cloud is already loaded.  Setting chunk.crs on a 487M-pt cloud triggers an
+expensive internal reprojection — even if the new CRS is identical to the old one.
+chunk.crs is already LOCAL (set by stage_scale before dense was built).
 """
 from __future__ import annotations
 
-import argparse
-import math
-import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -35,7 +33,7 @@ from pathlib import Path
 import Metashape  # type: ignore
 
 # ---------------------------------------------------------------------------
-# ADR-0026 AOI footprint for Z-range sampling (chunk CRS metres)
+# ADR-0026 AOI footprint — used for Z-range sampling from the full-area DEM
 # Centre (−2.028, 3.774); long axis 135° → unit (−0.7071, 0.7071)
 # Short axis 225° → unit (−0.7071, −0.7071); half-extents (5.0, 0.5) m
 # ---------------------------------------------------------------------------
@@ -45,16 +43,10 @@ _AOI_SHORT_UNIT = (-0.7071, -0.7071)
 _AOI_HALF_LEN = 5.0
 _AOI_HALF_WID = 0.5
 
-# LOCAL_CS WKT — mirrors the constant in run_pipeline.py (ADR-0020/0024)
-_LOCAL_CS_WKT = (
-    'LOCAL_CS["Local Coordinates (m)",LOCAL_DATUM["Local Datum",0],'
-    'UNIT["metre",1]]'
-)
+# Guard: abort if the DEM would exceed this cell count (ADR-0027 5M guard)
+_MAX_DEM_CELLS = 5_000_000
 
-# Guard: abort if the 2 cm DEM would exceed this cell count (5 M guard from ADR-0027)
-_MAX_CELLS = 5_000_000
-
-# Metashape DEM no-data sentinel (values at or below this are gaps)
+# Metashape DEM no-data sentinel
 _NODATA = -1e38
 
 
@@ -67,14 +59,15 @@ def _log(msg: str) -> None:
     print(f"[{ts}] {msg}", flush=True)
 
 
-def _local_planar_projection(chunk: "Metashape.Chunk") -> "Metashape.OrthoProjection":
-    """Declare chunk CRS as LOCAL (metres) and return a top-down Planar projection.
+def _local_planar_proj_from_existing_crs(
+        chunk: "Metashape.Chunk") -> "Metashape.OrthoProjection":
+    """Build a top-down Planar OrthoProjection from the EXISTING chunk.crs.
 
-    Direct copy of run_pipeline._local_planar_projection (ADR-0020): the LOCAL
-    output CRS stops buildDem/buildOrthomosaic backfilling WGS-84 → OOM.
-    Idempotent: re-asserting an already-LOCAL chunk.crs is harmless.
+    Does NOT assign chunk.crs — assigning it when the dense cloud is present
+    triggers an expensive 487M-pt reprojection even when the new CRS equals the
+    old one.  chunk.crs is already LOCAL (set by stage_scale, ADR-0024); we just
+    read it here.
     """
-    chunk.crs = Metashape.CoordinateSystem(_LOCAL_CS_WKT)
     top_xy = Metashape.Matrix([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
     origin = chunk.transform.matrix.mulp(Metashape.Vector([0, 0, 0]))
     lf = chunk.crs.localframe(origin)
@@ -83,14 +76,14 @@ def _local_planar_projection(chunk: "Metashape.Chunk") -> "Metashape.OrthoProjec
     proj.type = Metashape.OrthoProjection.Type.Planar
     proj.matrix = (Metashape.Matrix.Rotation(top_xy)
                    * Metashape.Matrix.Rotation(lf.rotation()))
-    _log(f"{chunk.label}: chunk.crs set LOCAL + top-down Planar projection (ADR-0020)")
+    _log(f"{chunk.label}: OrthoProjection built from existing chunk.crs={chunk.crs} "
+         f"(LOCAL, ADR-0020/0024 — NOT re-set to avoid 487M-pt reprojection)")
     return proj
 
 
 def _assert_writable(doc: "Metashape.Document") -> None:
     if doc.read_only:
-        sys.exit("Project opened read-only (stale lock?). Aborting — no compute "
-                 "wasted (2026-06-04 T1 incident).")
+        sys.exit("Project opened read-only (stale lock?). Aborting.")
 
 
 def _verify_save(doc: "Metashape.Document", path: Path) -> None:
@@ -98,43 +91,29 @@ def _verify_save(doc: "Metashape.Document", path: Path) -> None:
     doc.save()
     mtime_after = path.stat().st_mtime if path.exists() else 0.0
     if mtime_after <= mtime_before:
-        sys.exit(f"save() did not advance mtime on {path}. Aborting.")
+        sys.exit(f"save() did not advance mtime on {path}.")
     _log(f"Project saved + mtime verified ({int(mtime_after)}).")
 
 
 def _sample_aoi_z(el: "Metashape.Elevation") -> tuple[float, float] | None:
-    """Sample DEM Z values on a grid inside the ADR-0026 AOI footprint.
-
-    Returns (z_min, z_max) in chunk CRS metres, or None if no valid cells hit.
-    Uses el.altitude(Metashape.Vector([x, y])) with the LOCAL_CS coordinates.
-    """
+    """Sample DEM altitudes on a grid inside the ADR-0026 AOI footprint."""
     lx, ly = _AOI_LONG_UNIT
     sx, sy = _AOI_SHORT_UNIT
     cx, cy = _AOI_CENTRE_XY
-    step_l = 1.0   # 1 m steps along long axis
-    step_s = 0.25  # 0.25 m steps across short axis
-
-    t_vals = [i * step_l for i in range(int(-_AOI_HALF_LEN / step_l),
-                                         int(_AOI_HALF_LEN / step_l) + 1)]
-    s_vals = [j * step_s for j in range(int(-_AOI_HALF_WID / step_s),
-                                         int(_AOI_HALF_WID / step_s) + 1)]
     z_vals = []
-    for t in t_vals:
-        for s in s_vals:
+    for t in range(-5, 6):          # 1 m steps along long axis (±5 m = ±half_len)
+        for s_tenth in range(-5, 6, 2):   # 0.2 m steps across (±0.4 m < half_wid 0.5)
+            s = s_tenth * 0.1
             x = cx + t * lx + s * sx
             y = cy + t * ly + s * sy
             z = el.altitude(Metashape.Vector([x, y]))
             if z is not None and z > _NODATA:
                 z_vals.append(z)
-
-    if not z_vals:
-        return None
-    return min(z_vals), max(z_vals)
+    return (min(z_vals), max(z_vals)) if z_vals else None
 
 
 def build_fullarea_visual(project_path: Path, out_dir: Path,
-                          resolution: float,
-                          ortho_resolution: float) -> None:
+                          resolution: float) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     ts = _utcnow()
     dsm_path = out_dir / f"edr_t1_fullarea_dsm_{ts}.tif"
@@ -149,123 +128,116 @@ def build_fullarea_visual(project_path: Path, out_dir: Path,
     if not chunks:
         sys.exit("No chunk with a dense cloud found.")
     chunk = chunks[0]
-    _log(f"Chunk: {chunk.label}  scale={chunk.transform.scale:.8f} m/unit")
+    _log(f"Chunk: {chunk.label}  pts={chunk.point_cloud.point_count:,}  "
+         f"scale={chunk.transform.scale:.8f} m/unit  crs={chunk.crs}")
 
-    # --- Full cloud region (encompass entire cloud) ---
+    # --- Full-cloud region (not the transect bbox) ---
     chunk.resetRegion()
-
-    # --- Predict cell count ---
     scale = chunk.transform.scale
     reg = chunk.region
-    # Region size is in internal units; multiply by scale to get metres
     world_x = reg.size.x * scale
     world_y = reg.size.y * scale
     pred_cells = int((world_x / resolution) * (world_y / resolution))
     _log(f"Full-area footprint: {world_x:.2f} × {world_y:.2f} m  "
-         f"→ predicted cells @ {resolution*100:.0f} cm: {pred_cells:,}")
-    if pred_cells > _MAX_CELLS:
-        sys.exit(f"Predicted cell count {pred_cells:,} > guard {_MAX_CELLS:,}. "
-                 f"Increase --resolution (e.g. 0.03) or raise the guard. Aborting.")
+         f"→ predicted DEM cells @ {resolution*100:.0f} cm: {pred_cells:,}")
+    if pred_cells > _MAX_DEM_CELLS:
+        sys.exit(f"Predicted cell count {pred_cells:,} exceeds guard {_MAX_DEM_CELLS:,}. "
+                 f"Increase --resolution (≥ 0.03) or raise the guard.")
 
-    # --- Build full-area DEM (interp ON for export; does not crop cloud) ---
-    _log(f"Building DEM @ {resolution*100:.0f} cm ...")
+    # --- OrthoProjection from existing LOCAL crs (do NOT assign chunk.crs) ---
+    proj = _local_planar_proj_from_existing_crs(chunk)
+
+    # --- Build full-area DEM ---
+    _log(f"Building full-area DEM @ {resolution*100:.0f} cm ...")
     t0 = time.time()
-    proj = _local_planar_projection(chunk)
-    chunk.buildDem(source_data=Metashape.PointCloudData,
-                   interpolation=Metashape.EnabledInterpolation,
-                   projection=proj,
-                   resolution=resolution)
+    chunk.buildDem(
+        source_data=Metashape.PointCloudData,
+        interpolation=Metashape.EnabledInterpolation,
+        projection=proj,
+        resolution=resolution,
+    )
+    _log(f"buildDem returned ({time.time()-t0:.1f} s)")
     el = chunk.elevation
+    _log(f"chunk.elevation: {el}")
     if el is None:
-        sys.exit("buildDem returned no elevation object.")
-    actual_cells = el.width * el.height
-    _log(f"DEM built: {el.width} × {el.height} = {actual_cells:,} cells  "
-         f"({time.time()-t0:.1f} s)")
+        sys.exit("buildDem returned no elevation object — cannot export DSM or "
+                 "sample Z range.")
+    _log(f"DEM: {el.width} × {el.height} = {el.width*el.height:,} cells")
 
-    # --- Sample local Z relief inside the ADR-0026 AOI footprint ---
-    _log("Sampling DEM Z within ADR-0026 10×1 m AOI footprint ...")
+    # --- Z range within ADR-0026 AOI footprint ---
+    _log("Sampling DEM Z in AOI footprint ...")
     z_result = _sample_aoi_z(el)
     if z_result is not None:
         z_min, z_max = z_result
         z_range = z_max - z_min
-        _log(f"AOI footprint Z: min={z_min:.3f}  max={z_max:.3f}  "
-             f"range={z_range:.3f} m  (ADR-0026 window=7.0 m)")
-        if z_range > 7.0:
-            _log(f"WARNING: local relief {z_range:.3f} m exceeds the 7.0 m ADR-0026 "
-                 f"window.  Increase --aoi-height in stage_aoi before running.")
-        else:
-            margin = 7.0 - z_range
-            _log(f"Z window OK — {margin:.2f} m margin remaining in 7.0 m window.")
+        _log(f"AOI Z: {z_min:.3f}–{z_max:.3f} m  range={z_range:.3f} m  "
+             f"(ADR-0026 window=7.0 m — {'OK margin='+f'{7.0-z_range:.2f}m' if z_range<=7.0 else 'WARNING EXCEEDS WINDOW'})")
     else:
-        _log("WARNING: no valid DEM cells in AOI footprint — Z range not confirmed. "
-             "Verify footprint coords against DEM extent before running stage_aoi.")
+        z_result = None
+        _log("WARNING: no valid DEM cells in AOI footprint. Z range not confirmed.")
 
-    # --- Export full-area DSM ---
+    # --- Export DEM ---
     _log(f"Exporting DSM → {dsm_path} ...")
     chunk.exportRaster(path=str(dsm_path),
                        source_data=Metashape.ElevationData,
                        image_format=Metashape.ImageFormatTIFF,
                        save_alpha=False)
-    dsm_size_mb = dsm_path.stat().st_size / 1e6
-    _log(f"DSM exported: {dsm_size_mb:.1f} MB")
+    dsm_mb = dsm_path.stat().st_size / 1e6
+    _log(f"DSM exported: {dsm_mb:.1f} MB")
 
-    # --- Build orthomosaic (surface = built DEM) ---
-    _log(f"Building orthomosaic @ {ortho_resolution*100:.0f} cm ...")
+    # --- Build full-area orthomosaic on the DEM surface ---
+    _log(f"Building full-area ortho @ {resolution*100:.0f} cm (DEM surface) ...")
     t0 = time.time()
-    chunk.buildOrthomosaic(surface_data=Metashape.ElevationData,
-                           blending_mode=Metashape.MosaicBlending,
-                           fill_holes=True,
-                           resolution=ortho_resolution)
+    chunk.buildOrthomosaic(
+        surface_data=Metashape.ElevationData,
+        blending_mode=Metashape.MosaicBlending,
+        fill_holes=True,
+        resolution=resolution,
+        projection=proj,
+    )
+    _log(f"buildOrthomosaic returned ({time.time()-t0:.1f} s)")
     ortho = chunk.orthomosaic
     if ortho is None:
         sys.exit("buildOrthomosaic returned no orthomosaic object.")
-    _log(f"Ortho built: {ortho.width} × {ortho.height} px  "
-         f"res={ortho.resolution:.4f} m/px  ({time.time()-t0:.1f} s)")
+    _log(f"Ortho: {ortho.width} × {ortho.height} px  "
+         f"res={ortho.resolution:.4f} m/px")
 
-    # --- Export orthomosaic ---
+    # --- Export ortho ---
     _log(f"Exporting ortho → {ortho_path} ...")
     chunk.exportRaster(path=str(ortho_path),
                        source_data=Metashape.OrthomosaicData,
                        image_format=Metashape.ImageFormatTIFF,
                        save_alpha=False)
-    ortho_size_mb = ortho_path.stat().st_size / 1e6
-    _log(f"Ortho exported: {ortho_size_mb:.1f} MB")
+    ortho_mb = ortho_path.stat().st_size / 1e6
+    _log(f"Ortho exported: {ortho_mb:.1f} MB")
 
-    # --- Save (DEM + ortho objects are in the project) ---
+    # --- Save ---
     _verify_save(doc, project_path)
 
     _log("=" * 60)
-    _log("Full-area visual build COMPLETE")
-    _log(f"  DSM:  {dsm_path}  ({dsm_size_mb:.1f} MB)")
-    _log(f"  Ortho: {ortho_path}  ({ortho_size_mb:.1f} MB)")
+    _log("Full-area visual COMPLETE")
+    _log(f"  DSM:   {dsm_path}  ({dsm_mb:.1f} MB)")
+    _log(f"  Ortho: {ortho_path}  ({ortho_mb:.1f} MB)")
     if z_result is not None:
-        _log(f"  AOI Z range: {z_min:.3f}–{z_max:.3f} m  ({z_range:.3f} m)")
-    _log("  Label these products 'EDR_T1 site overview — non-ESM' (ADR-0026).")
+        _log(f"  AOI Z range confirmed: {z_min:.3f}–{z_max:.3f} m  ({z_range:.3f} m)")
+    _log("  Non-ESM site-overview products (ADR-0026).")
 
 
 def main() -> None:
+    import argparse
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--project", required=True, type=Path,
-                    help="Path to .psx project file.")
-    ap.add_argument("--out-dir", required=True, type=Path,
-                    help="Output directory for GeoTIFF products.")
+    ap.add_argument("--project", required=True, type=Path)
+    ap.add_argument("--out-dir", required=True, type=Path)
     ap.add_argument("--resolution", type=float, default=0.02,
-                    help="DSM resolution in metres (default 0.02 = 2 cm). "
-                         "Must be >= 0.02 for the full-area footprint to pass "
-                         "the 5 M-cell guard.")
-    ap.add_argument("--ortho-resolution", type=float, default=None,
-                    help="Orthomosaic resolution in metres (default: same as "
-                         "--resolution). Do NOT use 0 or sub-cm on the full "
-                         "footprint — native GSD is sub-mm and would never finish.")
+                    help="DEM and ortho resolution in metres (default 0.02 = 2 cm).")
     args = ap.parse_args()
 
     if args.resolution < 0.015:
-        sys.exit(f"--resolution {args.resolution} m is below the 2 cm minimum "
-                 f"for the full-area footprint. Use 0.02 or coarser.")
+        sys.exit(f"--resolution {args.resolution} m is below 1.5 cm minimum. "
+                 f"Full-area at 2 cm gives ~1.84M cells (well under 5M guard).")
 
-    ortho_res = args.ortho_resolution if args.ortho_resolution is not None else args.resolution
-    build_fullarea_visual(args.project, args.out_dir, args.resolution, ortho_res)
+    build_fullarea_visual(args.project, args.out_dir, args.resolution)
 
 
 if __name__ == "__main__":
