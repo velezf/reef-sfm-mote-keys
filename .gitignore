@@ -51,3 +51,8 @@ data/figures/contact_sheets/*/contact_sheet_*.jpg
 !data/figures/contact_sheets/*/contact_sheet_001.jpg
 !data/figures/contact_sheets/*/contact_sheet_046.jpg
 !data/figures/contact_sheets/*/contact_sheet_091.jpg
+
+# Harvested pipeline artifacts — large, regenerable via scripts/harvest_artifacts.sh
+artifacts/**
+!artifacts/MANIFEST.md
+!artifacts/**/.gitkeep
