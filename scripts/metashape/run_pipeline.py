@@ -2712,8 +2712,9 @@ def stage_gate(doc: Metashape.Document, ignore_sanity: bool,
                                 "pass": coreg_dx <= GATE_COREG_TOL_M and coreg_dy <= GATE_COREG_TOL_M},
             "6_footprint": {"evr": aoi["footprint_explained_var"],
                             "aspect": aoi["footprint_aspect"],
-                            "pass": (aoi["footprint_explained_var"] >= GATE_FOOTPRINT_EVR_MIN
-                                     and (aoi["footprint_aspect"] or 0) >= GATE_FOOTPRINT_ASPECT_MIN)},
+                            "pass": (aoi["footprint_explained_var"] is None  # manual override; gate skipped in stage_aoi
+                                     or (aoi["footprint_explained_var"] >= GATE_FOOTPRINT_EVR_MIN
+                                         and (aoi["footprint_aspect"] or 0) >= GATE_FOOTPRINT_ASPECT_MIN))},
             "7_orientation_plus_x": {"v": aoi["orientation_plus_x_ok"],
                                      "pass": bool(aoi["orientation_plus_x_ok"])},
         }
