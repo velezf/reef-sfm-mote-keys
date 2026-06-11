@@ -109,7 +109,7 @@ P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pi
 
 ### Non-blocking follow-ups
 
-- `fix/probe-topo-gates`: recalibrate `total_tilt` gate threshold for topo transects (8.71° fails a 6.0° threshold sized for flat belts); also recalibrate camera-Z and cameras-above-markers gates.
+- `fix/probe-topo-gates`: recalibrate `total_tilt` gate threshold for topo transects (8.71° fails a 6.0° threshold sized for flat belts); also recalibrate camera-Z and cameras-above-markers gates. **TODO (Chat 6):** `footprint_explained_var` None-guard (committed in `0bfb4c3` on `fix/level-camera-nadir`) is an untested code change on the wrong branch — split it to `fix/probe-topo-gates` with a RED test before merging anything.
 - `feat/aoi-dsm-postdense`: untethered from production stages; reconcile or retire.
 - `buildDem` hang root cause open: full-area DEM never built (3 confirmed hangs). Options: coarser resolution (≥ 5 cm), chunked export + external DEM, or Metashape update.
 - Push `docs/aws-resources.md` decision: file is tracked in git and contains EIP, ENI MAC, instance ID — review before push.
