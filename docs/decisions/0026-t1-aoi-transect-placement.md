@@ -1,10 +1,10 @@
 # ADR-0026 — T1 AOI: 10×1 m transect placement for an area survey
 
-**Status:** ACCEPTED  
+**Status:** ACCEPTED (Z window superseded by ADR-0028 — placement/orientation stand)  
 **Date:** 2026-06-10  
 **Supersedes:** none  
 **Related:** ADR-0020 (LOCAL-CRS DSM/ortho), ADR-0023 (reduce), ADR-0024 (LOCAL-CRS scale),
-ADR-0025 (camera-nadir level), ADR-0027 (DSM resolution)
+ADR-0025 (camera-nadir level), ADR-0027 (DSM resolution), ADR-0028 (corrected Z window)
 
 ---
 
