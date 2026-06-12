@@ -17,6 +17,7 @@ dependencies = [
     "pyyaml>=6.0",
     "requests>=2.31",
     "pydantic>=2.13.4",
+    "great-tables>=0.22.0",
 ]
 
 [project.scripts]
@@ -42,3 +43,7 @@ testpaths = ["tests", "scripts/metashape"]
 # default `*_test.py` glob but not this prefix, so it stays out of collection.
 python_files = ["test_*.py"]
 addopts = "-ra -q"
+# scripts/figures holds importable presentation helpers (e.g. the metric-mapping
+# figure generator) that the Chat-8 .qmd calls inline; put it on the path so the
+# tests in tests/ can import it directly.
+pythonpath = ["scripts/figures"]
