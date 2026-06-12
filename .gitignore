@@ -57,3 +57,8 @@ data/figures/contact_sheets/*/contact_sheet_*.jpg
 artifacts/**
 !artifacts/MANIFEST.md
 !artifacts/**/.gitkeep
+
+# P13HMEON comparison-only store (firewall 325dbc7): published USGS reference
+# DEMs + the topographic-complexity values table. Read-only on disk; NEVER a
+# pipeline input and NEVER committed (re-fetchable from DOI 10.5066/P13HMEON).
+data/comparison-only/
