@@ -26,4 +26,23 @@ __all__ = [
     "rugosity",
     "sapa",
     "vrm",
+    # harness (file I/O + reconciliation report)
+    "ReconciliationReport",
+    "MetricRecord",
+    "compute_metrics",
+    "load_dsm",
+    "load_reference_metrics",
+    "reconcile",
 ]
+
+
+def __getattr__(name: str):
+    # Lazy import: keep `reconcile.metrics` importable without rasterio.
+    if name in {
+        "ReconciliationReport", "MetricRecord", "compute_metrics",
+        "load_dsm", "load_reference_metrics", "reconcile",
+    }:
+        from reef_sfm_provenance.reconcile import harness
+
+        return getattr(harness, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
