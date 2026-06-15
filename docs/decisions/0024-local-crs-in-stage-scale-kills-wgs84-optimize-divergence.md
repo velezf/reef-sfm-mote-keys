@@ -154,4 +154,59 @@ Ten pure-pytest tests (zero Metashape dependency):
   "present but not used," and preserving the values leaves the diagnostic
   history readable.
 
-#tags: metashape-api, optimizecameras, wgs84-spurious-crs, local-crs, chunk-crs, reference-location, stage-scale, stage-reduce, logan-reduce, numerical-divergence, adr-0018-related, adr-0020-lever, adr-0023-prereq, chat6
+---
+
+## Addendum — 2026-06-15 (EDR_T1_R2; defense-in-depth in `stage_reduce`)
+
+### Trigger
+
+EDR_T1_R2's DCV GUI session (2026-06-15) set three 0.25 m scale bars manually
+**without going through `stage_scale`**. On save, Metashape called
+`updateTransform()` internally against the existing WGS84 CRS →
+`chunk.transform.scale = 1314.24`. All six marker `reference.enabled` remained
+`True` with the standard garbage coordinates (latitude ≈ −90°, Z ≈ −6.36 × 10⁶ m).
+
+Confirmed by read-only probe on the saved project:
+```
+chunk.crs                : WGS 84 (EPSG::4326)
+chunk.transform.scale    : 1314.24
+cameras location_enabled : True  (real GPS at [-81.84, 24.46, 0.0])
+markers reference.enabled: True  (all 6, garbage WGS84)
+scalebars (3)            : 0.25 m each — correct
+esm.scale                : absent (stage_scale never ran)
+```
+
+Had `--stage reduce` run next, Logan's `optimizeCameras` would have diverged
+identically to the original T1 incident documented above.
+
+### Fix: `_neutralize_spurious_reference` now called from `stage_reduce` too
+
+`stage_reduce` calls `_neutralize_spurious_reference(chunk)` immediately after
+the pre-condition health check and the scalebar-count guard, **before**
+`_run_logan_reduction`. `save(doc)` follows only if the call disabled any refs
+(prevents a redundant write when stage_scale already neutralised on the normal
+pipeline path).
+
+This makes the protection **path-independent**:
+
+| Scale-bar source | CRS at reduce entry | After guard |
+|---|---|---|
+| `stage_scale` (normal path) | already LOCAL | no-op (zeros returned) |
+| GUI / DCV (re-entry path) | WGS84 + refs enabled | neutralised + saved |
+
+### Idempotency confirmation
+
+For the normal pipeline path (stage_scale already neutralised), the
+stage_reduce call returns `{"n_markers_ref_disabled": 0,
+"n_cameras_ref_disabled": 0}` and no extra `save(doc)` is issued — genuine
+no-op.
+
+### Generalisation
+
+This is the standard fix for **every transect on this project**: any no-GPS
+capture imported into Metashape will receive the spurious WGS84 CRS and stub
+camera GPS from EXIF/defaults. The neutralisation must be in place before the
+first `optimizeCameras` call in the reduce path. Placing it in both stage_scale
+(as originally) and stage_reduce (defense-in-depth) covers all known paths.
+
+#tags: metashape-api, optimizecameras, wgs84-spurious-crs, local-crs, chunk-crs, reference-location, stage-scale, stage-reduce, logan-reduce, numerical-divergence, adr-0018-related, adr-0020-lever, adr-0023-prereq, chat6, chat7

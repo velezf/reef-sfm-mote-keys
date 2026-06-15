@@ -1692,8 +1692,12 @@ def _neutralize_spurious_reference(chunk) -> dict:
     marker.reference.location — so they remain untouched and continue to
     constrain the bundle correctly.
 
-    Called by stage_scale immediately after scale-bar weighting, before save.
-    Idempotent: re-running on an already-LOCAL chunk is a no-op.
+    Called by stage_scale immediately after scale-bar weighting (ADR-0024), and
+    by stage_reduce as defense-in-depth before Logan's optimizeCameras
+    (ADR-0024 addendum 2026-06-15) — so GUI-only scale paths that bypass
+    stage_scale still reach Logan with a clean local-metric datum.
+    Idempotent: re-running on an already-LOCAL chunk with refs off returns
+    zeros and triggers no save.
     """
     chunk.crs = Metashape.CoordinateSystem(_LOCAL_CS_WKT)
     n_markers, n_cameras = 0, 0
@@ -1827,6 +1831,16 @@ def stage_reduce(doc: Metashape.Document, out_root: Path, logan_module: "str | N
                   f"(Toth's order). Assign 25 cm scale bars in the GUI first — "
                   f"see docs/05 'Corrected step order'.",
                   critical=True, ignore=ignore_sanity)
+        # Defense-in-depth: neutralise spurious WGS84 CRS + garbage marker/camera
+        # refs before Logan's optimizeCameras. stage_scale (ADR-0024) already does
+        # this on the normal pipeline path; guard here too for GUI-only scale paths
+        # (e.g. EDR_T1_R2 DCV session 2026-06-15) that bypass stage_scale and leave
+        # chunk.crs=WGS84 with marker refs enabled. Save only when changes are made
+        # so the clean datum survives a crash before Logan starts. No-op on the
+        # normal path (stage_scale already neutralised; returns counts = 0).
+        _ref_pre = _neutralize_spurious_reference(chunk)
+        if _ref_pre["n_markers_ref_disabled"] or _ref_pre["n_cameras_ref_disabled"]:
+            save(doc)
         t0 = time.time()
         rms_pre, _ = _reprojection_rms(chunk)
         aligned_before = sum(1 for c in chunk.cameras
