@@ -160,16 +160,105 @@ for the field-data reconciliation.
 
 ### Dense point cloud build — 2026-06-15
 
-*To be appended after dense build completes.*
+| Metric | Value |
+|---|---|
+| Dense points | 47,143,867 (47.1 M) |
+| Filter (moderate confidence) | Applied; cloud retained after filter |
+| Snapshot (pre-AOI) | `snap-0b10abc94d12b78e1` (State=completed) |
+
+Dense build and filter completed without incident. The cloud was committed to the PSX and snapshotted
+before proceeding to AOI/DSM.
+
+### GATE#6 footprint-aspect check — 2026-06-15 (per-transect exception, ADR-0033)
+
+#### Failure details
+
+Running `stage_aoi` with the default DEM-PCA footprint analysis returned:
+
+| Gate | Required | Actual | Result |
+|---|---|---|---|
+| GATE#6 EVR | ≥ 0.95 | 0.877 | **FAIL** |
+| GATE#6 aspect | ≥ 5.0 | 2.671 | **FAIL** |
+
+#### Root cause — true positive on geometry, not a reconstruction failure
+
+The GATE#6 footprint-aspect check is designed to catch incomplete or poorly oriented belt-transect
+coverage. For R2, the geometry is an **out-and-back two-pass swim**, not a single belt:
+
+- **Outbound pass** (frames 001–053, n=27): centroid lateral offset −0.662 m
+- **Return pass** (frames 054–263, n=104): centroid lateral offset +0.172 m
+- **Lateral separation between passes:** 0.83 m
+
+This two-pass footprint is geometrically ~2.7:1, not the 5:1 belt the gate expects. The
+PCA footprint correctly detects this as non-belt. The gate is a **true positive on geometry**.
+
+#### Surface coherence check (verified coherent)
+
+Before applying the override, the full-cloud diagnostic DEM was rendered and the cross-track surface
+continuity was checked:
+
+- **Cross-track Z step at pass boundary:** mean 0.023 m (2.3 cm), σ = 0.009 m
+- **Along-transect Z drop:** ~1.75 m over 9.25 m (consistent with 7.977° slope)
+- **Seam:** none — the surface is continuous across the pass boundary
+- **Unique Z values (float32-fixed DEM):** 250,691 (sub-mm precision; 8 before fix — see float32
+  note below)
+
+The reconstruction is **usable**. The 2.3 cm cross-track offset is well within acceptable
+surface reconstruction noise and does not indicate misregistration between passes.
+
+#### Decision — manual override (Option A)
+
+GATE#6 is **bypassed for R2** via the `--aoi-centre` / `--aoi-angle` manual override path
+(Change 1 + Change 2 in `run_pipeline.py`). The gate result is logged, not alarmed:
+
+```
+stage_aoi: GATE#6 footprint-aspect check SKIPPED (manual override — ADR-0033 R2 per-transect exception)
+```
+
+`stage_gate` treats `footprint_explained_var is None` as a pass condition.
+
+The manual AOI placement parameters (world-frame, post-leveling):
+
+| Param | Value |
+|---|---|
+| `--aoi-centre` | `-299299.21875,-577767.15473,3304805.87500` |
+| `--aoi-angle` | `215.59` (long-axis bearing, degrees) |
+| `--aoi-height` | `10.0` m (default) |
+
+The centre was computed as the mean of all camera X,Y positions in the world frame; the angle from
+the PCA long-axis bearing of the DEM footprint.
+
+#### Float32 Z-quantization fix — permanent integration (stage_dsm)
+
+At world-frame Z ≈ 3,304,807 m (geocentric), float32 ULP = 0.25 m → only 8 unique Z levels in
+the DSM tile. Fix: `chunk.transform.translation.z` is shifted to 0 **before** `buildDem` so DSM
+tile Z values ≈ −1.5 m (float32 ULP ≈ 0.24 µm). The original `tz_orig` is stored in
+`esm.dsm.tz_orig` for world-Z recovery. The shift is idempotent (guard: `abs(tz_orig) > 100.0`).
+This recipe is permanently integrated into `stage_dsm` (Change 3 + Change 4, `run_pipeline.py`).
+
+The diagnostic probe (`/data/edr_work/probes/r2_recentered_dem.py`) restored T_z and discarded
+the transient DEM — the PSX on disk was never saved during the diagnostic.
+
+#### v2 roadmap item
+
+The per-transect geometry exception exposes a coverage+coherence gate design gap: GATE#6 should
+check surface continuity (cross-track step < threshold) and areal coverage (% non-nodata) rather
+than assuming the footprint will be a belt. This is deferred to a post-R2 gate redesign iteration.
 
 ## Consequences
 
-- (+) If the pre-dense gate passes, R2 is ready for a dense GO (next session).
+- (+) R2 single-transect reconstruction is complete through dense + filter + AOI + DSM.
 - (+) A 1:1 reconciliation on R2 closes the "strong-claim path" gap in ADR-0032.
 - (+) The swath-filter code change makes any single swath isolable for future 1:1 runs (C2, R3, …).
-- (−) R2 reconstruction is ~½ the compute of a full T1 run but still ~12–24 h on L4 (dense).
-- (−) The chunk label is `EDR_T1_R2`, not `EDR_R2` — a minor naming mismatch from the shorthand.
-- (~) Scale bars must auto-detect from R2's own imagery; if not found, the run stops (no defensible
-  scale without them per ESM Table S2).
+- (+) Float32 Z-quantization fix is permanently integrated — future DSM runs on any project with
+  high geocentric Z will automatically recenter.
+- (−) R2 uses manual AOI placement (no DEM-PCA auto-detect) — requires operator-supplied centre
+  and angle; not fully automated.
+- (−) Scale bars were manually placed in DCV GUI (not auto-detected); ~1.8% peak residual sets the
+  scale-budget ceiling for the 1:1 reconciliation.
+- (~) GATE#6 is bypassed for R2's two-pass geometry; a proper coverage+coherence gate is deferred
+  to v2.
+- (~) Marker pair 25–26 label basis still needs Frank's confirmation (physical-to-label
+  correspondence for the far-end pair — see divergence note (d) above).
 
-#tags: option2, r2, single-transect, reconciliation, swath-filter, 1:1
+#tags: option2, r2, single-transect, reconciliation, swath-filter, 1:1, gate6-override, float32-fix
