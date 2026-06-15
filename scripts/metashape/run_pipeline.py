@@ -657,6 +657,11 @@ def group_images_by_transect(image_root: Path,
     in libtiff/GDAL and would crash analyzeImages/matchPhotos mid-run.
     """
     want = transect.upper() if transect else None
+    # Parse optional swath suffix from --transect (e.g. "EDR_T1_R2" → base "EDR_T1", swath "R2").
+    # Allows single-swath project isolation without breaking multi-swath --transect EDR_T1 grouping.
+    _wm = re.match(r"(EDR_T\d+)(?:_([RC]\d+))?$", want, re.IGNORECASE) if want else None
+    want_base = _wm.group(1).upper() if _wm else want
+    want_swath = _wm.group(2).upper() if (_wm and _wm.group(2)) else None
     excl = exclude or set()
     subdirs = [p for p in image_root.iterdir() if p.is_dir()]
     groups: dict[str, list[str]] = {}
@@ -688,9 +693,13 @@ def group_images_by_transect(image_root: Path,
             unmatched += 1
             continue
         label = m.group(1).upper()
-        if want and label != want:
+        if want_base and label != want_base:
             continue
-        groups.setdefault(label, []).append(str(p))
+        if want_swath and f"_{want_swath}_" not in p.name.upper():
+            continue
+        # Collapse to --transect key for single-chunk behavior; without --transect, natural label.
+        group_key = want if want else label
+        groups.setdefault(group_key, []).append(str(p))
     if n_excluded:
         log(f"Excluded {n_excluded} image(s) by --exclude-images "
             f"(intake QC): {', '.join(sorted(excl))}")
