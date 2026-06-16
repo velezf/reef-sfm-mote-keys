@@ -47,7 +47,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-PIPELINE_STAGES=(import step4 align markers reduce level dense filter aoi dsm ortho gate report)
+PIPELINE_STAGES=(import step4 align markers scale reduce level dense filter aoi dsm ortho gate report)
 EVENT_LOG="${STATE_DIR}/controller_events.jsonl"
 mkdir -p "${STATE_DIR}"
 

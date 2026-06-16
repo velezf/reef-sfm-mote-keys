@@ -131,13 +131,17 @@ P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pi
 
 ## Open
 
-### NEXT: Reconcile R2 metric DSM vs P13HMEON R2 row
+### NEXT: step4 quality-threshold re-run + reconcile pipeline
 
-Branch `feat/reconcile-r2-transect` on EC2. Resume: `docs/session-log-2026-06-15.md`.
+Active branch for QC work: `feat/qc-frame-retention` (Mac-local, 265 green).
+Active branch for reconcile: `feat/reconcile-r2-transect` (EC2). Resume: `docs/session-log-2026-06-15.md`.
 
-1. Confirm frame convention — LOCAL_CS origin/axis sanity vs ADR-0020 / USGS Export Helper (quick, not a rebuild)
-2. Run reconciliation: rugosity, VRM, elevation-relative-to-min on R2 metric DSM vs published `EDR T1 / R2 / confidence` row in `Coral_reef_topographic_complexity_data.csv` — P13HMEON READ-ONLY, no tuning toward published values
-3. Close ADR-0033 open item: marker pair 25–26 label basis (pending Frank)
+- [x] **frame_retention ✓** — `QCValidator` outcome criterion (ADR-0034): observed = 1 − disabled/analyzed, pass ≥ 0.60; closes corpus-blind `ALARM_MAX_DISABLED` gap; 265 green.
+- [ ] **Blocker-1 → stage_report wiring** — add `_meta_set(chunk, "esm.report", ...)` to the stage that produces report inputs; add `scale` to `spot_controller.sh` PIPELINE_STAGES + `pipeline_state.py` STAGE_ORDER so `stage_report` no longer exits-3.
+- [ ] **stage_dsm export** — wire DSM stage to emit `esm.dsm` chunk metadata (path, sha256, cell size, coverage); prerequisite for manifest population and empirical QC pass.
+- [ ] **0.30 re-run on R2** — re-run `stage_step4` on `edr_r2.psx` with `--quality-threshold 0.30` (ADR-0017 floor); confirm `frame_retention` ≥ 0.60 passes; step4 is pre-alignment → re-run requires re-align → **explicit GO required**.
+- [ ] **Empirical pass** — populate R2 manifest from `esm.*` chunk metadata; run `QCValidator`; confirm `frame_retention` + `registration_ratio` both pass against the real 0.30-threshold run.
+- [ ] **Reconcile + CLI/README/docs** — compute rugosity, VRM, elevation-relative-to-min on real R2 metric DSM (`620bc3bc`) vs pinned P13HMEON R2 row (confidence-filter match = ADR-0015); close ADR-0033 marker 25–26 open item (pending Frank); CLI entry point + docs pass.
 
 ### Blockers (pipeline — fix before stage_report and spot layer)
 
@@ -152,6 +156,6 @@ Branch `feat/reconcile-r2-transect` on EC2. Resume: `docs/session-log-2026-06-15
 - `fix/probe-topo-gates`: recalibrate `total_tilt` (8.71° fails 6.0° flat-belt threshold), camera-Z, and cameras-above-markers gates for topo transects. `footprint_explained_var` None-guard (`0bfb4c3` on `fix/level-camera-nadir`) is untested — split to this branch with a RED test before merging.
 - `feat/aoi-dsm-postdense`: untethered from production stages; reconcile or retire.
 - `buildDem` hang root cause open for full-area T1 DEM (3 confirmed hangs on 487M pts).
-- Suite: 262 green. CLI pending.
+- Suite: 265 green. CLI pending.
 
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**

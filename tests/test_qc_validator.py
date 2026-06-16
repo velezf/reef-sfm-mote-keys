@@ -43,6 +43,8 @@ def make_manifest(*, parameters: dict | None = None, outcome: dict | None = None
     out = dict(
         input_image_count=2422,
         registered_image_count=2410,
+        step4_images_analyzed=522,
+        step4_images_disabled=7,        # ~1.3% — floor-cut level (ADR-0017 T3 q030)
         final_reprojection_rms_px=0.45,
         per_scalebar_errors_m=[0.0005, -0.0008, 0.0003],
         max_horizontal_accuracy_m=0.02,
@@ -242,3 +244,163 @@ def test_registration_not_evaluable_when_input_count_missing():
     m = ProcessingManifest(outcome=OutcomeBlock(registered_image_count=95))
     crit = criteria_by_name(QCValidator().validate(m))["registration_ratio"]
     assert crit.passed is None
+
+
+# ---------------------------------------------------------------------------
+# Frame retention — corpus-relative step4 disable rate (RED: criterion unimplemented)
+#
+# Threshold basis: ADR-0017 T3 A/B (scripts/metashape/probes/ab_quality_threshold.py)
+#   q050 (Toth verbatim) disabled 242/522 = 46.4% → only 26.8% of corpus aligned
+#   q030 (floor)         disabled   5/522 =  1.0% → 98.7% of corpus aligned
+# The discard band 0.30–0.50 is fully usable (235/237 = 99.2% aligned).
+# R2 at q050 disabled 140/272 = 51.5%; never tripped ALARM_MAX_DISABLED=200
+# (absolute, tuned to T3's ~522 corpus, blind to corpus size).
+#
+# Proposed criterion: "frame_retention" (outcome)
+#   observed  = 1 − (disabled / analyzed)   [retention rate, 0–1]
+#   threshold = frame_retention_min          [constructor param, default 0.60]
+#   pass      = observed >= threshold
+#   not-eval  = step4_images_analyzed is None or step4_images_disabled is None
+#
+# Threshold rationale: 0.60 (= fail if >40% disabled) cleanly separates
+#   bad  T3 q050 (53.6% retained) and R2 q050 (48.5% retained) from
+#   good T3 q030 (99.0% retained) with wide margin for legitimate mid-range loss.
+# ---------------------------------------------------------------------------
+
+
+def test_frame_retention_r2_like_51pct_disabled_fails():
+    """140/272 disabled (51.5% — R2 actual) fails the corpus-relative gate."""
+    m = make_manifest(outcome=dict(step4_images_analyzed=272, step4_images_disabled=140))
+    report = QCValidator().validate(m)
+    crit = criteria_by_name(report)["frame_retention"]
+    assert crit.category == "outcome"
+    assert crit.passed is False
+    assert crit.observed == pytest.approx(1 - 140 / 272)   # retention ≈ 0.485
+
+
+def test_frame_retention_floor_cut_passes():
+    """7/522 disabled (~1.3% — near ADR-0017 T3 0.30-floor result) passes."""
+    m = make_manifest(outcome=dict(step4_images_analyzed=522, step4_images_disabled=7))
+    report = QCValidator().validate(m)
+    crit = criteria_by_name(report)["frame_retention"]
+    assert crit.category == "outcome"
+    assert crit.passed is True
+    assert crit.observed == pytest.approx(1 - 7 / 522)     # retention ≈ 0.987
+
+
+def test_frame_retention_no_step4_stats_not_evaluable():
+    """Manifest with no step4 disable stats -> not-evaluable, never a pass."""
+    report = QCValidator().validate(
+        make_manifest(outcome=dict(step4_images_analyzed=None, step4_images_disabled=None))
+    )
+    crit = criteria_by_name(report)["frame_retention"]
+    assert crit.passed is None
+    assert report.passed is not False                       # overall not dragged to False
+
+
+# ---------------------------------------------------------------------------
+# ProcessingManifest.from_esm_report — loader from esm.report chunk meta
+#
+# esm.report is the dict written to chunk.meta["esm.report"] by stage_report
+# after all exports complete. It carries the complete QC surface: parameters
+# from PARAMS (frozen dataclass), outcome assembled from esm.step4 / esm.reduce /
+# esm.scale / esm.filter / esm.dsm plus geometry-derived per-bar residuals.
+#
+# Two tests:
+#   1. Clean run — all gates pass; verifies the loader maps every field correctly.
+#   2. Degraded run — real R2 q050 values; verifies QC catches the bad run via
+#      frame_retention AND registration_ratio (both False), not just one.
+# ---------------------------------------------------------------------------
+
+_CLEAN_RUN_REPORT = {
+    "parameters": {
+        "alignment_accuracy": "High",
+        "key_point_limit": 60000,
+        "tie_point_limit": 0,
+        "generic_preselection": True,
+        "exclude_stationary_tie_points": True,
+        "recon_uncertainty_threshold": 30.0,
+        "projection_accuracy_threshold": 3.0,
+        "reprojection_error_threshold": 0.3,
+        "scale_bar_count": 3,
+    },
+    "outcome": {
+        "input_image_count": 272,
+        "step4_images_analyzed": 272,
+        "step4_images_disabled": 4,        # 98.5% retained — well above 0.60 floor
+        "registered_image_count": 268,     # 268/272 = 98.5% — well above 90%
+        "final_reprojection_rms_px": 0.35, # within Toth-derived max 0.52
+        "per_scalebar_errors_m": [0.0002, -0.0003, 0.0001],  # max-abs 0.0003 < 0.001
+        "dense_point_count": 47_000_000,
+        "dsm_cells": 100_000,
+        "dsm_resolution_m": 0.01,
+    },
+}
+
+# Real R2 q050 values (ADR-0033 / ADR-0034):
+#   140/272 disabled = 51.5% → frame_retention 0.485 < 0.60 → FAIL
+#   131/272 registered overall = 48.2% < 0.90 → registration_ratio FAIL
+#   reproj 0.1397 px → passes (< 0.52)
+_R2_Q050_REPORT = {
+    "parameters": {
+        "alignment_accuracy": "High",
+        "key_point_limit": 60000,
+        "tie_point_limit": 0,
+        "generic_preselection": True,
+        "exclude_stationary_tie_points": True,
+        "recon_uncertainty_threshold": 30.0,
+        "projection_accuracy_threshold": 3.0,
+        "reprojection_error_threshold": 0.3,
+        "scale_bar_count": 3,
+    },
+    "outcome": {
+        "input_image_count": 272,
+        "step4_images_analyzed": 272,
+        "step4_images_disabled": 140,
+        "registered_image_count": 131,
+        "final_reprojection_rms_px": 0.1397,
+        "per_scalebar_errors_m": [0.0044, 0.0044, -0.0088],  # peak ±1.76% of 0.25 m bar
+        "dense_point_count": 47_143_867,
+        "dsm_cells": 100_000,
+        "dsm_resolution_m": 0.01,
+    },
+}
+
+
+def test_manifest_from_esm_report_populates_all_qc_fields():
+    """Loader maps every esm.report field to manifest; clean run passes all gates."""
+    m = ProcessingManifest.from_esm_report(_CLEAN_RUN_REPORT)
+
+    # Parameters
+    assert m.parameters.alignment_accuracy == "High"
+    assert m.parameters.key_point_limit == 60000
+    assert m.parameters.tie_point_limit == 0
+    assert m.parameters.generic_preselection is True
+    assert m.parameters.recon_uncertainty_threshold == pytest.approx(30.0)
+    assert m.parameters.scale_bar_count == 3
+    # Outcome
+    assert m.outcome.input_image_count == 272
+    assert m.outcome.step4_images_analyzed == 272
+    assert m.outcome.step4_images_disabled == 4
+    assert m.outcome.registered_image_count == 268
+    assert m.outcome.final_reprojection_rms_px == pytest.approx(0.35)
+    assert m.outcome.per_scalebar_errors_m == pytest.approx([0.0002, -0.0003, 0.0001])
+    assert m.outcome.dense_point_count == 47_000_000
+    assert m.outcome.dsm_cells == 100_000
+    assert m.outcome.dsm_resolution_m == pytest.approx(0.01)
+    # End-to-end QC: all gates pass
+    qc = QCValidator(scalebar_max_m=0.001).validate(m)
+    assert qc.passed is True, [(c.name, c.passed, c.observed) for c in qc.criteria if c.passed is not True]
+
+
+def test_qc_flags_degraded_run():
+    """Real R2 q050 values: QC catches the bad run via frame_retention + registration_ratio."""
+    m = ProcessingManifest.from_esm_report(_R2_Q050_REPORT)
+    qc = QCValidator().validate(m)
+    crits = criteria_by_name(qc)
+
+    assert qc.passed is False
+    assert crits["frame_retention"].passed is False
+    assert crits["frame_retention"].observed == pytest.approx(1 - 140 / 272)
+    assert crits["registration_ratio"].passed is False
+    assert crits["registration_ratio"].observed == pytest.approx(131 / 272)

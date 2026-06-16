@@ -16,6 +16,8 @@ marked not-evaluable — never crash.
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -62,10 +64,20 @@ class OutcomeBlock(BaseModel):
 
     input_image_count: int | None = None
     registered_image_count: int | None = None
+    step4_images_analyzed: int | None = None
+    """Total cameras submitted to analyzeImages() in ESM Step 4."""
+    step4_images_disabled: int | None = None
+    """Cameras disabled (quality < threshold) by ESM Step 4."""
     final_reprojection_rms_px: float | None = None
     per_scalebar_errors_m: list[float] | None = None
-    """Signed per-bar residuals (estimated − nominal length), metres."""
+    """Signed per-bar residuals (measured − defined length), metres. Positive = bar longer than defined."""
     max_horizontal_accuracy_m: float | None = None
+    dense_point_count: int | None = None
+    """Retained point count after ESM Step 13 confidence filter (esm.filter.points_after)."""
+    dsm_cells: int | None = None
+    """Width × height cell count of the exported DSM (esm.dsm.cells)."""
+    dsm_resolution_m: float | None = None
+    """DSM cell size in metres (esm.dsm.resolution_m); 0.01 per ADR-0027."""
 
 
 class ProcessingManifest(BaseModel):
@@ -78,3 +90,34 @@ class ProcessingManifest(BaseModel):
     provenance: ProvenanceBlock = Field(default_factory=ProvenanceBlock)
     parameters: ParametersBlock = Field(default_factory=ParametersBlock)
     outcome: OutcomeBlock = Field(default_factory=OutcomeBlock)
+
+    @classmethod
+    def from_esm_report(cls, report: dict[str, Any], manifest_id: str | None = None) -> "ProcessingManifest":
+        """Construct from the dict written to chunk.meta['esm.report'] by stage_report."""
+        p: dict[str, Any] = report.get("parameters") or {}
+        o: dict[str, Any] = report.get("outcome") or {}
+        return cls(
+            manifest_id=manifest_id,
+            parameters=ParametersBlock(
+                alignment_accuracy=p.get("alignment_accuracy"),
+                key_point_limit=p.get("key_point_limit"),
+                tie_point_limit=p.get("tie_point_limit"),
+                generic_preselection=p.get("generic_preselection"),
+                exclude_stationary_tie_points=p.get("exclude_stationary_tie_points"),
+                recon_uncertainty_threshold=p.get("recon_uncertainty_threshold"),
+                projection_accuracy_threshold=p.get("projection_accuracy_threshold"),
+                reprojection_error_threshold=p.get("reprojection_error_threshold"),
+                scale_bar_count=p.get("scale_bar_count"),
+            ),
+            outcome=OutcomeBlock(
+                input_image_count=o.get("input_image_count"),
+                step4_images_analyzed=o.get("step4_images_analyzed"),
+                step4_images_disabled=o.get("step4_images_disabled"),
+                registered_image_count=o.get("registered_image_count"),
+                final_reprojection_rms_px=o.get("final_reprojection_rms_px"),
+                per_scalebar_errors_m=o.get("per_scalebar_errors_m"),
+                dense_point_count=o.get("dense_point_count"),
+                dsm_cells=o.get("dsm_cells"),
+                dsm_resolution_m=o.get("dsm_resolution_m"),
+            ),
+        )

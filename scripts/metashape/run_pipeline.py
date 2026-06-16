@@ -2895,6 +2895,74 @@ def stage_ortho(doc: Metashape.Document, out_root: Path, ignore_sanity: bool,
 # --------------------------------------------------------------------------- #
 
 
+def _scalebar_errors_m(chunk: "Metashape.Chunk") -> "list[float] | None":
+    """Geometry-derived signed per-bar residuals (measured − defined), metres.
+
+    Uses the same T.mulp() approach as stage_level's health check — no PDF parsing.
+    Bars with missing positions or undefined reference distance are skipped silently.
+    Returns None when no bars can be evaluated (not an empty list — preserves not-evaluable
+    semantics in QCValidator._scalebars).
+    """
+    T = chunk.transform.matrix if chunk.transform else None
+    if T is None:
+        return None
+    errors = []
+    for sb in chunk.scalebars:
+        defined = sb.reference.distance if sb.reference else None
+        if defined is None or sb.point0 is None or sb.point1 is None:
+            continue
+        try:
+            p0, p1 = sb.point0.position, sb.point1.position
+            if p0 is None or p1 is None:
+                continue
+            w0, w1 = T.mulp(p0), T.mulp(p1)
+            measured = math.sqrt(
+                (w0.x - w1.x) ** 2 + (w0.y - w1.y) ** 2 + (w0.z - w1.z) ** 2
+            )
+            errors.append(round(measured - defined, 6))
+        except Exception:
+            continue
+    return errors if errors else None
+
+
+def _build_esm_report(chunk: "Metashape.Chunk", n_aligned: int) -> dict:
+    """Assemble the esm.report dict from existing esm.* chunk meta + live state.
+
+    Written to chunk.meta['esm.report'] by stage_report after all products
+    export successfully. Carries the full QC surface for ProcessingManifest.from_esm_report.
+    """
+    step4 = _meta_get(chunk, "esm.step4") or {}
+    reduce_m = _meta_get(chunk, "esm.reduce") or {}
+    scale_m = _meta_get(chunk, "esm.scale") or {}
+    filter_m = _meta_get(chunk, "esm.filter") or {}
+    dsm_m = _meta_get(chunk, "esm.dsm") or {}
+    thresholds = reduce_m.get("thresholds") or {}
+    return {
+        "parameters": {
+            "alignment_accuracy": PARAMS.align_accuracy,
+            "key_point_limit": PARAMS.keypoint_limit,
+            "tie_point_limit": PARAMS.tiepoint_limit,
+            "generic_preselection": PARAMS.generic_preselection,
+            "exclude_stationary_tie_points": PARAMS.exclude_stationary_tie_points,
+            "recon_uncertainty_threshold": thresholds.get("reconstruction_uncertainty"),
+            "projection_accuracy_threshold": thresholds.get("projection_accuracy"),
+            "reprojection_error_threshold": thresholds.get("reprojection_error"),
+            "scale_bar_count": scale_m.get("total_scalebars"),
+        },
+        "outcome": {
+            "input_image_count": step4.get("analyzed"),
+            "step4_images_analyzed": step4.get("analyzed"),
+            "step4_images_disabled": step4.get("disabled"),
+            "registered_image_count": n_aligned,
+            "final_reprojection_rms_px": reduce_m.get("reproj_rms_post_filter_units"),
+            "per_scalebar_errors_m": _scalebar_errors_m(chunk),
+            "dense_point_count": filter_m.get("points_after"),
+            "dsm_cells": dsm_m.get("cells"),
+            "dsm_resolution_m": dsm_m.get("resolution_m"),
+        },
+    }
+
+
 def stage_report(doc: Metashape.Document, out_root: Path,
                  gpu_names: list[str]) -> None:
     out_root.mkdir(parents=True, exist_ok=True)
@@ -2980,6 +3048,11 @@ def stage_report(doc: Metashape.Document, out_root: Path,
         n_enabled = sum(1 for c in chunk.cameras if c.enabled)
         n_aligned = sum(1 for c in chunk.cameras if c.transform)
         ts = chunk.transform.scale if chunk.transform else None
+
+        # Write the reconciliation key that pipeline_state.py checks for stage completion.
+        # Must come AFTER all product exports so an interrupted run leaves esm.report absent.
+        _meta_set(chunk, "esm.report", _build_esm_report(chunk, n_aligned))
+
         summary["chunks"].append({
             "label": chunk.label,
             "cameras_total": len(chunk.cameras),
@@ -3014,6 +3087,7 @@ def stage_report(doc: Metashape.Document, out_root: Path,
 
     (out_root / "pipeline_summary.json").write_text(json.dumps(summary, indent=2))
     log(f"Wrote pipeline_summary.json with {len(summary['chunks'])} chunk(s).")
+    save(doc)  # persist esm.report chunk.meta — must come last so an aborted run leaves meta absent
 
 
 def _file_stat(path: Path) -> dict:
