@@ -137,10 +137,9 @@ Active branch: `main` (267 green). Reconcile branch: `feat/reconcile-r2-transect
 
 - [x] **frame_retention ✓** — `QCValidator` outcome criterion (ADR-0034): observed = 1 − disabled/analyzed, pass ≥ 0.60; closes corpus-blind `ALARM_MAX_DISABLED` gap. Merged to main.
 - [x] **Blocker-1 ✓** — `esm.report` written + persisted to chunk.meta after all exports; `scale` tracked in PIPELINE_STAGES + STAGE_ORDER; `ProcessingManifest.from_esm_report()` loader; QC chain proven on real R2 q050 (3 honest failures: frame_retention 0.485, registration 0.482, scale_bar 4.4 mm). Merged to main.
-- [ ] **0.30 re-run on R2** — re-run `stage_step4` on `edr_r2.psx` with `--quality-threshold 0.30` (ADR-0017 floor) then re-align; **explicit GO required** (re-align is compute). Expect frame_retention + registration both pass; dense/DSM untouched.
-- [ ] **stage_dsm export** — `esm.dsm` already written by stage_dsm; wire sha256 + coverage fields so manifest is fully populated for empirical QC pass.
-- [ ] **Empirical pass** — run `QCValidator` against R2 manifest from real 0.30-run `esm.*` meta; confirm all outcome gates pass.
-- [ ] **Reconcile + CLI/README/docs** — rugosity, VRM, elev-relative-to-min on R2 metric DSM (`620bc3bc`) vs pinned P13HMEON R2 confidence-filter row (ADR-0015 match); close ADR-0033 marker 25–26 item (pending Frank); CLI entry point + docs pass.
+- [ ] **0.30 re-run on R2** — copy `edr_r2.psx` → `edr_r2_q030.psx` (q050 run preserved as foil); run full pipeline on the copy: step4 @0.30 → align → markers → scale → reduce → level → **[DENSE GATE]** → dense → filter → aoi → dsm. **STOP after align**: confirm retention ~99%; run `QCValidator` on post-align manifest — `frame_retention` + `registration_ratio` must both PASS before proceeding. Then **explicit GO** for dense onward.
+- [ ] **Empirical pass** — run `QCValidator` against `edr_r2_q030` manifest from `esm.*` meta post-DSM; confirm all outcome gates pass on the 0.30 run.
+- [ ] **Reconcile + CLI/README/docs** — rugosity, VRM, elev-relative-to-min on the **new 0.30 DSM** (fresh sha at export — NOT `620bc3bc`, which is the q050 foil) vs pinned P13HMEON R2 confidence-filter row (ADR-0015 match); close ADR-0033 marker 25–26 item (pending Frank); CLI entry point + docs pass.
 
 ### Blockers (pipeline — remaining)
 
