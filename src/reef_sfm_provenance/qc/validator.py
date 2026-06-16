@@ -78,6 +78,13 @@ class QCValidator:
     `scalebar_max_m` defaults to None — the scale-bar gate is parameterized
     pending calibration against observed residuals (do NOT assume the PIFSC
     0.001 m); until it is supplied the criterion reports not-evaluable.
+
+    `frame_retention_min` defaults to 0.60 — empirically anchored to ADR-0017's
+    T3 A/B: the 0.30 floor cut retained 99.0% of frames and aligned 98.7% of
+    the corpus; the 0.50 (Toth verbatim) cut retained only 46–48% and produced
+    ≤27% corpus alignment on T3. 0.60 cleanly separates both bad cases from the
+    floor-cut good case. Closes the corpus-blind ALARM_MAX_DISABLED=200 gap at
+    the QC layer (ADR-0034).
     """
 
     def __init__(
@@ -94,6 +101,7 @@ class QCValidator:
         registration_ratio_min: float = 0.90,
         final_rms_max_px: float = 0.52,
         scalebar_max_m: float | None = None,
+        frame_retention_min: float = 0.60,
     ) -> None:
         self.accuracy_expected = accuracy_expected
         self.key_point_limit_expected = key_point_limit_expected
@@ -106,6 +114,7 @@ class QCValidator:
         self.registration_ratio_min = registration_ratio_min
         self.final_rms_max_px = final_rms_max_px
         self.scalebar_max_m = scalebar_max_m
+        self.frame_retention_min = frame_retention_min
 
     # -- criterion builders -------------------------------------------------
 
@@ -148,6 +157,7 @@ class QCValidator:
             self._registration_ratio(o.input_image_count, o.registered_image_count),
             self._final_rms(o.final_reprojection_rms_px),
             self._scalebars(o.per_scalebar_errors_m),
+            self._frame_retention(o.step4_images_analyzed, o.step4_images_disabled),
         ]
 
         report = QCReport(manifest_id=manifest.manifest_id, criteria=criteria)
@@ -188,6 +198,27 @@ class QCValidator:
             passed=(worst <= self.scalebar_max_m) if evaluable else None,
             observed=worst, threshold=self.scalebar_max_m,
             source="parameterized pending residual calibration (ADR-0031)",
+        )
+
+    def _frame_retention(self, analyzed: int | None, disabled: int | None) -> QCCriterion:
+        evaluable = (
+            analyzed is not None and disabled is not None and analyzed > 0
+        )
+        retention = (1 - disabled / analyzed) if evaluable else None
+        passed = (retention >= self.frame_retention_min) if retention is not None else None
+        logger.debug(
+            "frame_retention: analyzed=%s disabled=%s retention=%s threshold=%s verdict=%s",
+            analyzed, disabled,
+            f"{retention:.4f}" if retention is not None else "N/A",
+            self.frame_retention_min,
+            passed,
+        )
+        return QCCriterion(
+            name="frame_retention", category="outcome",
+            passed=passed,
+            observed=retention,
+            threshold=self.frame_retention_min,
+            source="ADR-0017 T3 A/B: 0.30-floor retained 99% / 0.50-Toth retained 46–48% (ADR-0034)",
         )
 
     @staticmethod

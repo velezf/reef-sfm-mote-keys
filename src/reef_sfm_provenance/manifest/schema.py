@@ -62,6 +62,10 @@ class OutcomeBlock(BaseModel):
 
     input_image_count: int | None = None
     registered_image_count: int | None = None
+    step4_images_analyzed: int | None = None
+    """Total cameras submitted to analyzeImages() in ESM Step 4."""
+    step4_images_disabled: int | None = None
+    """Cameras disabled (quality < threshold) by ESM Step 4."""
     final_reprojection_rms_px: float | None = None
     per_scalebar_errors_m: list[float] | None = None
     """Signed per-bar residuals (estimated − nominal length), metres."""
