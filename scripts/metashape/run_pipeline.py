@@ -3087,6 +3087,7 @@ def stage_report(doc: Metashape.Document, out_root: Path,
 
     (out_root / "pipeline_summary.json").write_text(json.dumps(summary, indent=2))
     log(f"Wrote pipeline_summary.json with {len(summary['chunks'])} chunk(s).")
+    save(doc)  # persist esm.report chunk.meta — must come last so an aborted run leaves meta absent
 
 
 def _file_stat(path: Path) -> dict:
