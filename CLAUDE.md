@@ -30,11 +30,11 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-16 — Chat 7 in progress)
+## Current state / resume pointer (2026-06-16 — Chat 8 in progress)
 
-EDR_T3 shipped. EDR_T1 products COMPLETE. **EDR_T1_R2 metric DSM COMPLETE — reconcile is next.**
+EDR_T3 shipped. EDR_T1 products COMPLETE. **edr_r2_q030 dense→dsm IN PROGRESS (EC2 tmux q030).**
 
-Active branch: `feat/reconcile-r2-transect` (pushed to origin; EC2 on this branch, local tracking).
+Active branch: `main` (267 green; EC2 on `feat/blocker1-stage-report`, same pipeline code).
 
 ### T1 product table (area survey, 2,422 images)
 
@@ -97,6 +97,7 @@ Active branch: `feat/reconcile-r2-transect` (pushed to origin; EC2 on this branc
 | ADR-0031 | QC gate provenance: Toth Table S2 gates, conformance/outcome split, not-evaluable ≠ pass |
 | ADR-0032 | Reconciliation harness + confirmed P13HMEON contract; T1 area-survey is envelope-only (scale mismatch); Option-2 R2 1:1 is the strong-claim path |
 | ADR-0033 | Option-2 R2 single-transect reconstruction. GATE#6 bypassed (out-and-back geometry); float32 T_z fix permanently integrated in stage_dsm; frame verified (identity projection = leveled world Z). |
+| ADR-0035 | Falsified: lowering step4 quality threshold 0.50→0.30 does NOT recover R2 registration. 131 aligned at any threshold; registration ceiling is corpus geometry, not threshold artifact. frame_retention separates (0.485→0.993); registration_ratio flat (0.482 both runs). |
 
 ### Snapshots on disk (EC2 `/data/edr_work/`)
 
@@ -131,15 +132,15 @@ P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pi
 
 ## Open
 
-### NEXT: 0.30 re-run (GO pending) → reconcile pipeline
+### NEXT: 0.30 dense complete → empirical QC pass → reconcile
 
-Active branch: `main` (267 green). Reconcile branch: `feat/reconcile-r2-transect` (EC2).
+Active branch: `main` (267 green).
 
 - [x] **frame_retention ✓** — `QCValidator` outcome criterion (ADR-0034): observed = 1 − disabled/analyzed, pass ≥ 0.60; closes corpus-blind `ALARM_MAX_DISABLED` gap. Merged to main.
 - [x] **Blocker-1 ✓** — `esm.report` written + persisted to chunk.meta after all exports; `scale` tracked in PIPELINE_STAGES + STAGE_ORDER; `ProcessingManifest.from_esm_report()` loader; QC chain proven on real R2 q050 (3 honest failures: frame_retention 0.485, registration 0.482, scale_bar 4.4 mm). Merged to main.
-- [ ] **0.30 re-run on R2** — copy `edr_r2.psx` → `edr_r2_q030.psx` (q050 run preserved as foil); run full pipeline on the copy: step4 @0.30 → align → markers → scale → reduce → level → **[DENSE GATE]** → dense → filter → aoi → dsm. **STOP after align**: confirm retention ~99%; run `QCValidator` on post-align manifest — `frame_retention` + `registration_ratio` must both PASS before proceeding. Then **explicit GO** for dense onward.
-- [ ] **Empirical pass** — run `QCValidator` against `edr_r2_q030` manifest from `esm.*` meta post-DSM; confirm all outcome gates pass on the 0.30 run.
-- [ ] **Reconcile + CLI/README/docs** — rugosity, VRM, elev-relative-to-min on the **new 0.30 DSM** (fresh sha at export — NOT `620bc3bc`, which is the q050 foil) vs pinned P13HMEON R2 confidence-filter row (ADR-0015 match); close ADR-0033 marker 25–26 item (pending Frank); CLI entry point + docs pass.
+- [ ] **0.30 re-run on R2** — `edr_r2_q030.psx` (copy; q050 foil preserved as `edr_r2.psx`). step4@0.30 ✓ (270 enabled, 2 below floor), align ✓ 131/270 confirmed under production Toth params. **ADR-0035:** registration ceiling is 131 at any threshold — corpus property. Dense→filter→aoi→dsm **IN PROGRESS** (EC2 tmux `q030`, `--allow-dense --stop-before ortho`, `EXTRA_PIPELINE_ARGS=--ignore-sanity`). Resume: wait for DSM sha, then stage_report → empirical QC pass.
+- [ ] **Empirical pass** — run `stage_report` on q030 post-DSM to write `esm.report`; then `QCValidator` on the q030 manifest; note which gates pass vs fail (frame_retention expected PASS, registration_ratio still FAIL = characterized corpus ceiling per ADR-0035).
+- [ ] **Reconcile + CLI/README/docs** — rugosity, VRM, elev-relative-to-min on the **new 0.30 DSM** (fresh sha at export — NOT `620bc3bc`, which is the q050 foil) vs pinned P13HMEON R2 confidence-filter row; close ADR-0033 marker 25–26 item (pending Frank); CLI entry point + docs pass.
 
 ### Blockers (pipeline — remaining)
 

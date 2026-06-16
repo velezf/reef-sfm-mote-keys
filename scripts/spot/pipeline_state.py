@@ -35,7 +35,7 @@ STAGE_ORDER = [
     ("import",  "esm.import",  None),
     ("step4",   "esm.step4",   None),
     ("align",   "esm.align",   "tie_points"),
-    ("markers", "esm.markers", "markers"),
+    ("markers", "esm.markers_validation", "markers"),
     ("scale",   "esm.scale",   None),
     ("reduce",  "esm.reduce",  "tie_points"),
     ("level",   "esm.level",   None),
