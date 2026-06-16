@@ -2606,30 +2606,40 @@ def stage_aoi(doc: Metashape.Document, ignore_sanity: bool) -> None:
             "orientation_plus_x_ok": plus_x_ok,
             "scale_preserved": abs(chunk.transform.scale - scale) < 1e-12,
         }
-        _meta_set(chunk, "esm.aoi", stats)
         log(f"{chunk.label}: AOI framed yaw={stats['applied_yaw_deg']:+.2f} deg, "
             f"footprint evr={evr:.3f} aspect={stats['footprint_aspect']}, crop "
             f"{n_before:,} -> {n_after:,}, coverage(interp-OFF)={coverage*100:.1f}%, "
             f"+X anchor ok={plus_x_ok}.")
-        # Inline gate checks available pre-DSM (4, 6, 7). Tilt/co-reg are post-DSM.
+        # Inline gate checks (4, 6, 7). Collect bypassed IDs so provenance is honest.
+        bypassed_gates: list[str] = []
         if evr < GATE_FOOTPRINT_EVR_MIN or aspect < GATE_FOOTPRINT_ASPECT_MIN:
             alarm(f"{chunk.label}: GATE#6 footprint not belt-shaped "
                   f"(evr={evr:.3f} < {GATE_FOOTPRINT_EVR_MIN} or "
                   f"aspect={stats['footprint_aspect']} < {GATE_FOOTPRINT_ASPECT_MIN}). "
                   f"stage_aoi requires an elongated transect; square plots are out "
                   f"of scope (ADR-0021).", critical=True, ignore=ignore_sanity)
+            if ignore_sanity:
+                bypassed_gates.append("GATE#6")
         if not plus_x_ok:
             alarm(f"{chunk.label}: GATE#7 orientation sign flip — first-N cameras "
                   f"(X={firstX:.2f}) are not on the +X half (last-N X={lastX:.2f}). "
                   f"A reversed product would ship silently. Aborting.",
                   critical=True, ignore=ignore_sanity)
+            if ignore_sanity:
+                bypassed_gates.append("GATE#7")
         if coverage < GATE_COVERAGE_MIN:
             alarm(f"{chunk.label}: GATE#3 coverage(interp-OFF) {coverage*100:.1f}% < "
                   f"{GATE_COVERAGE_MIN*100:.0f}%. AOI mis-placed vs the reef band.",
                   critical=True, ignore=ignore_sanity)
+            if ignore_sanity:
+                bypassed_gates.append("GATE#3")
         if not stats["scale_preserved"]:
             alarm(f"{chunk.label}: GATE#4 framing changed scale.",
                   critical=True, ignore=ignore_sanity)
+            if ignore_sanity:
+                bypassed_gates.append("GATE#4")
+        stats["aoi_gates_bypassed"] = sorted(bypassed_gates) if bypassed_gates else None
+        _meta_set(chunk, "esm.aoi", stats)
         save(doc)
 
 
