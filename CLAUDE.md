@@ -131,22 +131,18 @@ P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pi
 
 ## Open
 
-### NEXT: step4 quality-threshold re-run + reconcile pipeline
+### NEXT: 0.30 re-run (GO pending) → reconcile pipeline
 
-Active branch for QC work: `feat/qc-frame-retention` (Mac-local, 265 green).
-Active branch for reconcile: `feat/reconcile-r2-transect` (EC2). Resume: `docs/session-log-2026-06-15.md`.
+Active branch: `main` (267 green). Reconcile branch: `feat/reconcile-r2-transect` (EC2).
 
-- [x] **frame_retention ✓** — `QCValidator` outcome criterion (ADR-0034): observed = 1 − disabled/analyzed, pass ≥ 0.60; closes corpus-blind `ALARM_MAX_DISABLED` gap; 265 green.
-- [ ] **Blocker-1 → stage_report wiring** — add `_meta_set(chunk, "esm.report", ...)` to the stage that produces report inputs; add `scale` to `spot_controller.sh` PIPELINE_STAGES + `pipeline_state.py` STAGE_ORDER so `stage_report` no longer exits-3.
-- [ ] **stage_dsm export** — wire DSM stage to emit `esm.dsm` chunk metadata (path, sha256, cell size, coverage); prerequisite for manifest population and empirical QC pass.
-- [ ] **0.30 re-run on R2** — re-run `stage_step4` on `edr_r2.psx` with `--quality-threshold 0.30` (ADR-0017 floor); confirm `frame_retention` ≥ 0.60 passes; step4 is pre-alignment → re-run requires re-align → **explicit GO required**.
-- [ ] **Empirical pass** — populate R2 manifest from `esm.*` chunk metadata; run `QCValidator`; confirm `frame_retention` + `registration_ratio` both pass against the real 0.30-threshold run.
-- [ ] **Reconcile + CLI/README/docs** — compute rugosity, VRM, elevation-relative-to-min on real R2 metric DSM (`620bc3bc`) vs pinned P13HMEON R2 row (confidence-filter match = ADR-0015); close ADR-0033 marker 25–26 open item (pending Frank); CLI entry point + docs pass.
+- [x] **frame_retention ✓** — `QCValidator` outcome criterion (ADR-0034): observed = 1 − disabled/analyzed, pass ≥ 0.60; closes corpus-blind `ALARM_MAX_DISABLED` gap. Merged to main.
+- [x] **Blocker-1 ✓** — `esm.report` written + persisted to chunk.meta after all exports; `scale` tracked in PIPELINE_STAGES + STAGE_ORDER; `ProcessingManifest.from_esm_report()` loader; QC chain proven on real R2 q050 (3 honest failures: frame_retention 0.485, registration 0.482, scale_bar 4.4 mm). Merged to main.
+- [ ] **0.30 re-run on R2** — re-run `stage_step4` on `edr_r2.psx` with `--quality-threshold 0.30` (ADR-0017 floor) then re-align; **explicit GO required** (re-align is compute). Expect frame_retention + registration both pass; dense/DSM untouched.
+- [ ] **stage_dsm export** — `esm.dsm` already written by stage_dsm; wire sha256 + coverage fields so manifest is fully populated for empirical QC pass.
+- [ ] **Empirical pass** — run `QCValidator` against R2 manifest from real 0.30-run `esm.*` meta; confirm all outcome gates pass.
+- [ ] **Reconcile + CLI/README/docs** — rugosity, VRM, elev-relative-to-min on R2 metric DSM (`620bc3bc`) vs pinned P13HMEON R2 confidence-filter row (ADR-0015 match); close ADR-0033 marker 25–26 item (pending Frank); CLI entry point + docs pass.
 
-### Blockers (pipeline — fix before stage_report and spot layer)
-
-**Blocker 1 — stage_report exits-3 false-fail:**
-- Missing `esm.report` metadata key in chunk; `scale` stage absent from `spot_controller.sh` PIPELINE_STAGES and `pipeline_state.py` STAGE_ORDER.
+### Blockers (pipeline — remaining)
 
 **Blocker 2 — hemisphere flip alarm missing:**
 - `stage_level` camera-nadir collinear path has no alarm when flip angle > 90°.
@@ -156,6 +152,6 @@ Active branch for reconcile: `feat/reconcile-r2-transect` (EC2). Resume: `docs/s
 - `fix/probe-topo-gates`: recalibrate `total_tilt` (8.71° fails 6.0° flat-belt threshold), camera-Z, and cameras-above-markers gates for topo transects. `footprint_explained_var` None-guard (`0bfb4c3` on `fix/level-camera-nadir`) is untested — split to this branch with a RED test before merging.
 - `feat/aoi-dsm-postdense`: untethered from production stages; reconcile or retire.
 - `buildDem` hang root cause open for full-area T1 DEM (3 confirmed hangs on 487M pts).
-- Suite: 265 green. CLI pending.
+- Suite: 267 green. CLI pending.
 
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
