@@ -245,6 +245,81 @@ The per-transect geometry exception exposes a coverage+coherence gate design gap
 check surface continuity (cross-track step < threshold) and areal coverage (% non-nodata) rather
 than assuming the footprint will be a belt. This is deferred to a post-R2 gate redesign iteration.
 
+### DSM frame verification — 2026-06-16
+
+#### Initial frame check (FAIL → investigated → NOT a bug)
+
+After building the metric DSM (elevation.3) with the standard `_local_planar_projection()` recipe
+(LOCAL_CS + identity Planar projection, ADR-0020), the along-transect slope was measured at
+**4.395°**, not ~7.977° as initially expected.
+
+The initial expectation was based on the `marker_plane_tilt_after = 7.977°` from `stage_level`,
+which was incorrectly assumed to equal the along-transect DEM slope. **Investigation showed this was
+a misunderstanding:**
+
+**What 7.977° actually is:** `stage_level` computes `tilt_after` from the best-fit plane through
+the 6 vetted marker positions (3 pairs × 2 endpoints) in the leveled world frame. These markers
+span both along-transect and cross-track positions. The resulting plane tilt (7.977°) is a
+combination of the along-transect slope AND cross-track slope at the marker locations — not the
+along-transect DEM slope alone.
+
+#### Mathematical proof: the DSM IS in the leveled world frame
+
+With `T_z = 0` (float32 fix, saved to PSX), the `LOCAL_CS_Z` output of `buildDem` satisfies:
+
+```
+LOCAL_CS_Z = T_z + scale * R_w[2] · internal
+           = 0   + scale * R_w[2] · internal
+           = world Z component (leveled frame)
+```
+
+where `R_w = chunk.transform.matrix[0:3, 0:3] / scale` includes the stage_level rotation
+(`R_w = R_level * R_original`). The identity `proj.matrix` correctly outputs the leveled world Z.
+
+**Option L (modifying proj.matrix) is mathematically impossible:**
+- Without translation: `DEM_Z = R_w[2] · LOCAL_CS = R_w[2] · T + scale * internal_Z ≈ 50,423 m`
+  (confirmed by probe — the large T_x = 579,643 m, T_y = 295,655 m dominate)
+- With translation fix (`[[R_w | −R_w·T], [0 0 0 1]]`):
+  `DEM_Z = R_w[2] · (LOCAL_CS − T) = scale * internal_Z` = **identical to identity projection**
+  (proof: `R_w[2]^T * R_w = e₂`, so `R_w[2] · (R_w * v) = v[2]` for any vector v)
+
+The identity proj.matrix already gives the correct leveled world Z. There is no projection bug.
+
+#### Correct DSM slopes (metric DSM, elevation.3)
+
+| Direction | Slope | Z-drop | Notes |
+|---|---|---|---|
+| Along-transect (1000 px, 9.99 m) | **4.395°** | 0.768 m | Reef slope along swim direction |
+| Cross-track (100 px, 0.99 m) | **5.590°** | 0.097 m | Reef slope perpendicular to swim |
+| Marker plane (6 vetted marker points) | **7.977°** | — | Upstream of DEM; combination of both |
+
+The 4.395° along-transect slope is consistent with the swim direction being roughly along the reef
+contour (lower slope in swim direction, steeper slope perpendicular to swim).
+
+#### T1 and T3 impact
+
+**T3:** Built with identity `_local_planar_projection()` (same recipe). T3's DSM in P13HMEON is
+also in the leveled world frame. The frame is CONSISTENT between T3 and R2 → the reconciliation
+comparison is valid.
+
+**T1:** BLOCKED on datum divergence; `stage_dsm` was never reached. Not affected.
+
+#### ADR-0020 was correct
+
+ADR-0020 explicitly tested `transform.rotation` as `proj.matrix` (equivalent to Option L) and found
+it produced wrong results (29–38° tilt, distorted footprint). The ADR correctly concluded:
+"identity is already the flattest projection; a leveling error must be fixed upstream, not in
+buildDem." This investigation confirms the conclusion: the identity projection IS correct, and the
+apparent slope discrepancy (4.395° vs 7.977°) is a measurement scope difference (DEM along-transect
+vs marker plane), not a frame error.
+
+#### GATE#3 coverage bypass (alongside GATE#6)
+
+Stage_aoi with interp-OFF coverage = 93.7% (GATE#3 threshold 95%). Bypassed with
+`--ignore-sanity`. The metric DSM with interp-ON = 99.8% coverage (interpolation fills the 6.3%
+point-cloud gaps). The 93.7% cloud coverage is the binding metric for the reconciliation (any
+interp-filled cell has uncertain Z).
+
 ## Consequences
 
 - (+) R2 single-transect reconstruction is complete through dense + filter + AOI + DSM.
@@ -252,13 +327,17 @@ than assuming the footprint will be a belt. This is deferred to a post-R2 gate r
 - (+) The swath-filter code change makes any single swath isolable for future 1:1 runs (C2, R3, …).
 - (+) Float32 Z-quantization fix is permanently integrated — future DSM runs on any project with
   high geocentric Z will automatically recenter.
+- (+) T3 and R2 use identical projection recipe (LOCAL_CS + identity Planar) → consistent leveled
+  world frame; reconciliation is frame-valid.
 - (−) R2 uses manual AOI placement (no DEM-PCA auto-detect) — requires operator-supplied centre
   and angle; not fully automated.
 - (−) Scale bars were manually placed in DCV GUI (not auto-detected); ~1.8% peak residual sets the
   scale-budget ceiling for the 1:1 reconciliation.
+- (−) AOI coverage by point cloud = 93.7% (interp-OFF, GATE#3 bypassed). The 6.3% gap cells are
+  interpolated; their Z is uncertain for high-precision rugosity metrics.
 - (~) GATE#6 is bypassed for R2's two-pass geometry; a proper coverage+coherence gate is deferred
   to v2.
 - (~) Marker pair 25–26 label basis still needs Frank's confirmation (physical-to-label
   correspondence for the far-end pair — see divergence note (d) above).
 
-#tags: option2, r2, single-transect, reconciliation, swath-filter, 1:1, gate6-override, float32-fix
+#tags: option2, r2, single-transect, reconciliation, swath-filter, 1:1, gate6-override, float32-fix, frame-verified
