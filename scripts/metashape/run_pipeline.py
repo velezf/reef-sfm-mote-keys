@@ -2946,6 +2946,7 @@ def _build_esm_report(chunk: "Metashape.Chunk", n_aligned: int) -> dict:
     scale_m = _meta_get(chunk, "esm.scale") or {}
     filter_m = _meta_get(chunk, "esm.filter") or {}
     dsm_m = _meta_get(chunk, "esm.dsm") or {}
+    dense_m = _meta_get(chunk, "esm.dense") or {}
     thresholds = reduce_m.get("thresholds") or {}
     return {
         "parameters": {
@@ -2969,6 +2970,10 @@ def _build_esm_report(chunk: "Metashape.Chunk", n_aligned: int) -> dict:
             "dense_point_count": filter_m.get("points_after"),
             "dsm_cells": dsm_m.get("cells"),
             "dsm_resolution_m": dsm_m.get("resolution_m"),
+        },
+        "dense_provenance": {
+            "depth_maps_source": dense_m.get("depth_maps_source"),
+            "depth_maps_note": dense_m.get("depth_maps_note"),
         },
     }
 

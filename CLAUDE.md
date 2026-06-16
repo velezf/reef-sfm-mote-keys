@@ -132,15 +132,15 @@ P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pi
 
 ## Open
 
-### NEXT: 0.30 dense complete → empirical QC pass → reconcile
+### NEXT: reconcile review → CLI/README/docs
 
-Active branch: `main` (267 green).
+Active branch: `main` (147 green).
 
 - [x] **frame_retention ✓** — `QCValidator` outcome criterion (ADR-0034): observed = 1 − disabled/analyzed, pass ≥ 0.60; closes corpus-blind `ALARM_MAX_DISABLED` gap. Merged to main.
 - [x] **Blocker-1 ✓** — `esm.report` written + persisted to chunk.meta after all exports; `scale` tracked in PIPELINE_STAGES + STAGE_ORDER; `ProcessingManifest.from_esm_report()` loader; QC chain proven on real R2 q050 (3 honest failures: frame_retention 0.485, registration 0.482, scale_bar 4.4 mm). Merged to main.
-- [ ] **0.30 re-run on R2** — `edr_r2_q030.psx` (copy; q050 foil preserved as `edr_r2.psx`). step4@0.30 ✓ (270 enabled, 2 below floor), align ✓ 131/270 confirmed under production Toth params. **ADR-0035:** registration ceiling is 131 at any threshold — corpus property. Dense→filter→aoi→dsm **IN PROGRESS** (EC2 tmux `q030`, `--allow-dense --stop-before ortho`, `EXTRA_PIPELINE_ARGS=--ignore-sanity`). Resume: wait for DSM sha, then stage_report → empirical QC pass.
-- [ ] **Empirical pass** — run `stage_report` on q030 post-DSM to write `esm.report`; then `QCValidator` on the q030 manifest; note which gates pass vs fail (frame_retention expected PASS, registration_ratio still FAIL = characterized corpus ceiling per ADR-0035).
-- [ ] **Reconcile + CLI/README/docs** — rugosity, VRM, elev-relative-to-min on the **new 0.30 DSM** (fresh sha at export — NOT `620bc3bc`, which is the q050 foil) vs pinned P13HMEON R2 confidence-filter row; close ADR-0033 marker 25–26 item (pending Frank); CLI entry point + docs pass.
+- [x] **0.30 re-run + empirical QC ✓** — `edr_r2_q030.psx` (copy; q050 foil preserved). step4@0.30: 270 enabled, 2 below floor. align: 131/270 (corpus ceiling per ADR-0035). Dense reused q050 depth maps (valid — identical poses; recorded in esm.dense + esm.report.dense_provenance). DSM sha `50d1f143` (999×100 @ 1 cm). QC: frame_retention PASS 0.993 ✓; registration_ratio FAIL 0.482 (characterized); scale_bar FAIL 4.4 mm > 1 mm (ADR-0031 floor); aoi_gates_bypassed GATE#3+GATE#6 (93.75% coverage, out-and-back geometry).
+- [x] **Reconcile ✓ — STOPPED FOR REVIEW** — rugosity −3.3% (1.368 vs 1.415), VRM −13.5% (0.066 vs 0.076, impl delta), mean_elevation +144% (0.591 vs 0.242 m). Root cause of mean_elev gap: our DSM covers 1.275 m Z range vs published 0.670 m — out-and-back geometry + 131/272 partial registration produces non-belt footprint (aspect 2.674, evr 0.877) capturing wider reef slope than published single-pass transect. This is the corpus ceiling materializing at the metric level. **AWAITING FRANK REVIEW**.
+- [ ] **CLI/README/docs** — CLI entry point + docs pass; close ADR-0033 marker 25–26 item (pending Frank).
 
 ### Blockers (pipeline — remaining)
 
