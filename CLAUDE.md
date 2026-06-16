@@ -131,13 +131,16 @@ P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pi
 
 ## Open
 
-### NEXT: Reconcile R2 metric DSM vs P13HMEON R2 row
+### NEXT: step4 quality-threshold re-run + reconcile pipeline
 
-Branch `feat/reconcile-r2-transect` on EC2. Resume: `docs/session-log-2026-06-15.md`.
+Active branch for QC work: `feat/qc-frame-retention` (Mac-local, 265 green).
+Active branch for reconcile: `feat/reconcile-r2-transect` (EC2). Resume: `docs/session-log-2026-06-15.md`.
 
-1. Confirm frame convention — LOCAL_CS origin/axis sanity vs ADR-0020 / USGS Export Helper (quick, not a rebuild)
-2. Run reconciliation: rugosity, VRM, elevation-relative-to-min on R2 metric DSM vs published `EDR T1 / R2 / confidence` row in `Coral_reef_topographic_complexity_data.csv` — P13HMEON READ-ONLY, no tuning toward published values
-3. Close ADR-0033 open item: marker pair 25–26 label basis (pending Frank)
+- [x] **frame_retention ✓** — `QCValidator` outcome criterion (ADR-0034): observed = 1 − disabled/analyzed, pass ≥ 0.60; closes corpus-blind `ALARM_MAX_DISABLED` gap; 265 green.
+- [ ] **Blocker-1 → export esm.report** — add `_meta_set(chunk, "esm.report", ...)` to the stage that produces report inputs; add `scale` to `spot_controller.sh` + `pipeline_state.py` STAGE_ORDER so stage_report no longer exits-3.
+- [ ] **0.30 re-run on R2** — re-run `stage_step4` on `edr_r2.psx` with `--quality-threshold 0.30` (EC2); confirm retention ≥ 0.60 gate passes; do NOT rebuild dense (step4 is pre-alignment, re-run requires re-align → explicit GO needed).
+- [ ] **Empirical pass** — run `QCValidator` against the R2 manifest populated from `esm.*` chunk metadata; confirm frame_retention and registration_ratio both pass.
+- [ ] **Reconcile + CLI/docs** — run R2 metric DSM vs P13HMEON R2 row (rugosity, VRM, elevation-relative-to-min); close ADR-0033 marker 25–26 open item (pending Frank); CLI entry point + docs pass.
 
 ### Blockers (pipeline — fix before stage_report and spot layer)
 
