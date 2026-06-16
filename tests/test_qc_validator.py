@@ -296,3 +296,111 @@ def test_frame_retention_no_step4_stats_not_evaluable():
     crit = criteria_by_name(report)["frame_retention"]
     assert crit.passed is None
     assert report.passed is not False                       # overall not dragged to False
+
+
+# ---------------------------------------------------------------------------
+# ProcessingManifest.from_esm_report — loader from esm.report chunk meta
+#
+# esm.report is the dict written to chunk.meta["esm.report"] by stage_report
+# after all exports complete. It carries the complete QC surface: parameters
+# from PARAMS (frozen dataclass), outcome assembled from esm.step4 / esm.reduce /
+# esm.scale / esm.filter / esm.dsm plus geometry-derived per-bar residuals.
+#
+# Two tests:
+#   1. Clean run — all gates pass; verifies the loader maps every field correctly.
+#   2. Degraded run — real R2 q050 values; verifies QC catches the bad run via
+#      frame_retention AND registration_ratio (both False), not just one.
+# ---------------------------------------------------------------------------
+
+_CLEAN_RUN_REPORT = {
+    "parameters": {
+        "alignment_accuracy": "High",
+        "key_point_limit": 60000,
+        "tie_point_limit": 0,
+        "generic_preselection": True,
+        "exclude_stationary_tie_points": True,
+        "recon_uncertainty_threshold": 30.0,
+        "projection_accuracy_threshold": 3.0,
+        "reprojection_error_threshold": 0.3,
+        "scale_bar_count": 3,
+    },
+    "outcome": {
+        "input_image_count": 272,
+        "step4_images_analyzed": 272,
+        "step4_images_disabled": 4,        # 98.5% retained — well above 0.60 floor
+        "registered_image_count": 268,     # 268/272 = 98.5% — well above 90%
+        "final_reprojection_rms_px": 0.35, # within Toth-derived max 0.52
+        "per_scalebar_errors_m": [0.0002, -0.0003, 0.0001],  # max-abs 0.0003 < 0.001
+        "dense_point_count": 47_000_000,
+        "dsm_cells": 100_000,
+        "dsm_resolution_m": 0.01,
+    },
+}
+
+# Real R2 q050 values (ADR-0033 / ADR-0034):
+#   140/272 disabled = 51.5% → frame_retention 0.485 < 0.60 → FAIL
+#   131/272 registered overall = 48.2% < 0.90 → registration_ratio FAIL
+#   reproj 0.1397 px → passes (< 0.52)
+_R2_Q050_REPORT = {
+    "parameters": {
+        "alignment_accuracy": "High",
+        "key_point_limit": 60000,
+        "tie_point_limit": 0,
+        "generic_preselection": True,
+        "exclude_stationary_tie_points": True,
+        "recon_uncertainty_threshold": 30.0,
+        "projection_accuracy_threshold": 3.0,
+        "reprojection_error_threshold": 0.3,
+        "scale_bar_count": 3,
+    },
+    "outcome": {
+        "input_image_count": 272,
+        "step4_images_analyzed": 272,
+        "step4_images_disabled": 140,
+        "registered_image_count": 131,
+        "final_reprojection_rms_px": 0.1397,
+        "per_scalebar_errors_m": [0.0044, 0.0044, -0.0088],  # peak ±1.76% of 0.25 m bar
+        "dense_point_count": 47_143_867,
+        "dsm_cells": 100_000,
+        "dsm_resolution_m": 0.01,
+    },
+}
+
+
+def test_manifest_from_esm_report_populates_all_qc_fields():
+    """Loader maps every esm.report field to manifest; clean run passes all gates."""
+    m = ProcessingManifest.from_esm_report(_CLEAN_RUN_REPORT)
+
+    # Parameters
+    assert m.parameters.alignment_accuracy == "High"
+    assert m.parameters.key_point_limit == 60000
+    assert m.parameters.tie_point_limit == 0
+    assert m.parameters.generic_preselection is True
+    assert m.parameters.recon_uncertainty_threshold == pytest.approx(30.0)
+    assert m.parameters.scale_bar_count == 3
+    # Outcome
+    assert m.outcome.input_image_count == 272
+    assert m.outcome.step4_images_analyzed == 272
+    assert m.outcome.step4_images_disabled == 4
+    assert m.outcome.registered_image_count == 268
+    assert m.outcome.final_reprojection_rms_px == pytest.approx(0.35)
+    assert m.outcome.per_scalebar_errors_m == pytest.approx([0.0002, -0.0003, 0.0001])
+    assert m.outcome.dense_point_count == 47_000_000
+    assert m.outcome.dsm_cells == 100_000
+    assert m.outcome.dsm_resolution_m == pytest.approx(0.01)
+    # End-to-end QC: all gates pass
+    qc = QCValidator(scalebar_max_m=0.001).validate(m)
+    assert qc.passed is True, [(c.name, c.passed, c.observed) for c in qc.criteria if c.passed is not True]
+
+
+def test_qc_flags_degraded_run():
+    """Real R2 q050 values: QC catches the bad run via frame_retention + registration_ratio."""
+    m = ProcessingManifest.from_esm_report(_R2_Q050_REPORT)
+    qc = QCValidator().validate(m)
+    crits = criteria_by_name(qc)
+
+    assert qc.passed is False
+    assert crits["frame_retention"].passed is False
+    assert crits["frame_retention"].observed == pytest.approx(1 - 140 / 272)
+    assert crits["registration_ratio"].passed is False
+    assert crits["registration_ratio"].observed == pytest.approx(131 / 272)
