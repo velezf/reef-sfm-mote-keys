@@ -2939,9 +2939,9 @@ def _build_esm_report(chunk: "Metashape.Chunk", n_aligned: int) -> dict:
     thresholds = reduce_m.get("thresholds") or {}
     return {
         "parameters": {
-            "alignment_accuracy": PARAMS.alignment_accuracy,
-            "key_point_limit": PARAMS.key_point_limit,
-            "tie_point_limit": PARAMS.tie_point_limit,
+            "alignment_accuracy": PARAMS.align_accuracy,
+            "key_point_limit": PARAMS.keypoint_limit,
+            "tie_point_limit": PARAMS.tiepoint_limit,
             "generic_preselection": PARAMS.generic_preselection,
             "exclude_stationary_tie_points": PARAMS.exclude_stationary_tie_points,
             "recon_uncertainty_threshold": thresholds.get("reconstruction_uncertainty"),
