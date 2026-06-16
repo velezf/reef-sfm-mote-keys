@@ -30,11 +30,13 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-11 — Chat 5 COMPLETE; Chat 6 in progress)
+## Current state / resume pointer (2026-06-16 — Chat 7 in progress)
 
-EDR_T3 shipped. **EDR_T1 products COMPLETE. EC2 instance stopped after Chat 5.**
+EDR_T3 shipped. EDR_T1 products COMPLETE. **EDR_T1_R2 metric DSM COMPLETE — reconcile is next.**
 
-### T1 product table
+Active branch: `feat/reconcile-r2-transect` (pushed to origin; EC2 on this branch, local tracking).
+
+### T1 product table (area survey, 2,422 images)
 
 | stage | status | notes |
 |-------|--------|-------|
@@ -60,7 +62,27 @@ EDR_T3 shipped. **EDR_T1 products COMPLETE. EC2 instance stopped after Chat 5.**
 - **Check 7 (`orientation_plus_x` False):** Benign 135°-vs-+X convention mismatch
   in `stage_gate`. No product flip. Note it; don't touch it.
 
-### ADRs in effect (Chat 5)
+### T1_R2 product table (R2 single-transect reconstruction, 272 images — ADR-0033)
+
+| stage | status | notes |
+|-------|--------|-------|
+| import | PASS | 272 TIFFs (`20230711_EDR_T1_R2_*.tif`); P1WHKTRD imagery only |
+| step4 | PASS | 132/272 retained (quality ≥ 0.50); 140 disabled |
+| align | PASS | 131/132 aligned (99.2%); pre-reduce RMS 0.1734 px |
+| markers | PASS | all 4 sub-gates PASS |
+| scale | PASS | 3 bars (pairs 15–16, 19–20, 25–26 × 0.25 m); peak residual ±1.76% |
+| reduce | PASS | Logan v2.0.x; 603,314 → 236,860 tie pts; post-reduce RMS 0.1397 px (below S2 band — explained in ADR-0033) |
+| level | PASS | camera-nadir UP; pre-level 57.41° → post-level 7.977° |
+| dense | PASS | 47,143,867 pts; EBS snapshot `snap-0b10abc94d12b78e1` |
+| filter | PASS | moderate confidence; 47.1 M → retained |
+| aoi | PASS | manual override (ADR-0033); GATE#6 skipped (out-and-back geometry); GATE#3 93.7% < 95% bypassed (--ignore-sanity); 47.1M → 12,585,711 pts |
+| dsm | PASS | 1000×100 cells @ 1 cm; float32 T_z recentered (ADR-0033); interp-ON coverage 99.8%; sha `620bc3bc` (internal tile) |
+| ortho | — | not yet built |
+| gate | — | not yet run |
+
+**Open item:** marker pair 25–26 label basis pending Frank's confirmation (physical-to-label correspondence for the far-end target).
+
+### ADRs in effect
 
 | ADR | Decision |
 |-----|----------|
@@ -69,72 +91,67 @@ EDR_T3 shipped. **EDR_T1 products COMPLETE. EC2 instance stopped after Chat 5.**
 | ADR-0025 | Camera-nadir leveling |
 | ADR-0026 | ~~Original T1 AOI Z window~~ **SUPERSEDED by ADR-0028** |
 | ADR-0027 | DSM at 1 cm |
-| ADR-0028 | Corrected Z window [−9.2, +1.8] m, surface-median-anchored. Surface is trough-to-crest (shoulder ~−2.1 m / trough ~−5.2 m / crest ~−0.7 m), NOT a uniform slope. Prior truncation: 2.58 m → 10.00 m DSM; coverage 16.3% → 97.1%. |
+| ADR-0028 | Corrected Z window [−9.2, +1.8] m, surface-median-anchored. Surface is trough-to-crest (shoulder ~−2.1 m / trough ~−5.2 m / crest ~−0.7 m). Prior truncation: 2.58 m → 10.00 m DSM; coverage 16.3% → 97.1%. |
 | ADR-0029 | Full-area ortho built PointCloudData-direct (not DEM→ortho). `buildDem` hangs on 487M-pt cloud in Metashape 2.3.1 (3 confirmed runs). Portfolio visual only — NOT the ESM Step-15 product. Transect ortho IS DEM-sourced (compliant). |
+| ADR-0030 | Reconciliation metric core (rugosity, standardized elevation, VRM; SAPA/RIE/ASD = explicit stubs) |
+| ADR-0031 | QC gate provenance: Toth Table S2 gates, conformance/outcome split, not-evaluable ≠ pass |
+| ADR-0032 | Reconciliation harness + confirmed P13HMEON contract; T1 area-survey is envelope-only (scale mismatch); Option-2 R2 1:1 is the strong-claim path |
+| ADR-0033 | Option-2 R2 single-transect reconstruction. GATE#6 bypassed (out-and-back geometry); float32 T_z fix permanently integrated in stage_dsm; frame verified (identity projection = leveled world Z). |
 
 ### Snapshots on disk (EC2 `/data/edr_work/`)
 
 - `edr_t1_postdense_20260610T181702Z.{psx,files}` — 27 GB; post-dense, pre-filter (pristine)
 - `edr_t1_postlevel_adr0025_20260609T220420Z.{psx,files}` — post-level, pre-region (pristine)
-- `edr_t1_truncated_adr0026v1_20260610T232809Z.{psx,files}` — post-truncated run (ADR-0026 v1; for ADR supersede record)
-- Live project: `edr_t1.psx` — post-products state (aoi/dsm/ortho with corrected Z window)
-- **EBS snapshot:** `snap-034d45019a4e39c43` — tag `edr_t1_postproducts_20260610T235019Z`
+- `edr_t1_truncated_adr0026v1_20260610T232809Z.{psx,files}` — post-truncated run (ADR-0026 v1)
+- Live T1 project: `edr_t1.psx` — post-products state
+- **T1 EBS snapshot:** `snap-034d45019a4e39c43` — tag `edr_t1_postproducts_20260610T235019Z`
+- Live R2 project: `edr_r2.psx` — post-DSM state (`feat/reconcile-r2-transect`)
+- **R2 EBS snapshot:** `snap-0b10abc94d12b78e1` — post-dense/filter, pre-AOI/DSM
 
-### Local products (Mac `products/EDR_T1/`, gitignored)
+### Local products (Mac `products/`, gitignored)
 
-| file | sha256 | MANIFEST |
-|------|--------|---------|
-| `edr_t1_transect_dsm_20260610T234951Z.tif` | `9cc8eb75…` | `618f325` ✓ |
-| `edr_t1_transect_ortho_20260610T234951Z.tif` | `e86deb03…` | `618f325` ✓ |
-| `edr_t1_fullarea_ortho_20260610T210155Z.tif` | `e03dbf7e…` | `a9337f3` ✓ |
+| file | sha256 | notes |
+|------|--------|-------|
+| `EDR_T1/edr_t1_transect_dsm_20260610T234951Z.tif` | `9cc8eb75…` | MANIFEST `618f325` ✓ |
+| `EDR_T1/edr_t1_transect_ortho_20260610T234951Z.tif` | `e86deb03…` | MANIFEST `618f325` ✓ |
+| `EDR_T1/edr_t1_fullarea_ortho_20260610T210155Z.tif` | `e03dbf7e…` | MANIFEST `a9337f3` ✓ |
+| `EDR_T1_R2/metric_dsm_elev_colormap.png` | — | Quarto render |
+| `EDR_T1_R2/metric_dsm_hillshade.png` | — | Quarto render |
+| `EDR_T1_R2/metric_dsm_z_profile.png` | — | Quarto render |
+| `EDR_T1_R2/diag_dsm_recentered.tif` | — | diagnostic (pre-AOI full footprint) |
+| `EDR_T1_R2/probe_leveled_dsm.tif` | — | frame-verification probe |
+| `EDR_T1_R2/diag_cross_track_coherence.png` | — | two-pass seam check |
+| `EDR_T1_R2/diag_footprint_by_pass.png` | — | outbound vs return pass |
+| `EDR_T3/dsm.tif` | — | T3 shipped product |
+| `EDR_T3/ortho.tif` | — | T3 shipped product |
 
 P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pipeline input).
 
 ---
 
-## Open for Chat 6
+## Open
 
-**EC2 is STOPPED. Chat 6 runs Mac-local.**
+### NEXT: Reconcile R2 metric DSM vs P13HMEON R2 row
 
-### Chat 6 progress (2026-06-11 — merged to main)
+Branch `feat/reconcile-r2-transect` on EC2. Resume: `docs/session-log-2026-06-15.md`.
 
-- **ADR-0030** (`feat/reconcile-metrics`, merged): pure-Python reconciliation metric core —
-  `reconcile/metrics.py` (rugosity, mean-elevation-standardized, VRM; SAPA/RIE/ASD are
-  explicit MultiscaleDTM stubs; `resample_to_cm` before any metric). TDD vs analytic fixtures.
-- **ADR-0031** (`feat/manifest-qc`, merged): `manifest/schema.py` (ProcessingManifest,
-  all-Optional contract) + `qc/validator.py` (Toth-Table-S2 gates, conformance/outcome split,
-  not-evaluable ≠ pass). Adds pydantic dep.
-- **ADR-0028/0029 files backfilled** to `docs/decisions/` from this file's record (doc-only).
-- Suite: 243 green. Both feature branches were cut from main — independent of
-  `fix/level-camera-nadir`, which still holds the pipeline-code deltas (level fix, scripts,
-  untested None-guard).
+1. Confirm frame convention — LOCAL_CS origin/axis sanity vs ADR-0020 / USGS Export Helper (quick, not a rebuild)
+2. Run reconciliation: rugosity, VRM, elevation-relative-to-min on R2 metric DSM vs published `EDR T1 / R2 / confidence` row in `Coral_reef_topographic_complexity_data.csv` — P13HMEON READ-ONLY, no tuning toward published values
+3. Close ADR-0033 open item: marker pair 25–26 label basis (pending Frank)
 
-### Blockers (fix before QC/reconcile layer)
+### Blockers (pipeline — fix before stage_report and spot layer)
 
 **Blocker 1 — stage_report exits-3 false-fail:**
-- Missing `esm.report` metadata key in chunk (stage_report reads it but no stage writes it)
-- `scale` stage is absent from `spot_controller.sh` PIPELINE_STAGES and `pipeline_state.py` STAGE_ORDER
-- Fix: add `_meta_set(chunk, "esm.report", ...)` to whichever stage produces the final report inputs; add `scale` to the controller stage list.
+- Missing `esm.report` metadata key in chunk; `scale` stage absent from `spot_controller.sh` PIPELINE_STAGES and `pipeline_state.py` STAGE_ORDER.
 
 **Blocker 2 — hemisphere flip alarm missing:**
-- `stage_level` camera-nadir collinear path has no alarm when the flip angle exceeds 90° (other-transect case).
-- Fix: add hemisphere-flip critical alarm in `camera_nadir` collinear path.
+- `stage_level` camera-nadir collinear path has no alarm when flip angle > 90°.
 
 ### Non-blocking follow-ups
 
-- `fix/probe-topo-gates`: recalibrate `total_tilt` gate threshold for topo transects (8.71° fails a 6.0° threshold sized for flat belts); also recalibrate camera-Z and cameras-above-markers gates. **TODO (Chat 6):** `footprint_explained_var` None-guard (committed in `0bfb4c3` on `fix/level-camera-nadir`) is an untested code change on the wrong branch — split it to `fix/probe-topo-gates` with a RED test before merging anything.
+- `fix/probe-topo-gates`: recalibrate `total_tilt` (8.71° fails 6.0° flat-belt threshold), camera-Z, and cameras-above-markers gates for topo transects. `footprint_explained_var` None-guard (`0bfb4c3` on `fix/level-camera-nadir`) is untested — split to this branch with a RED test before merging.
 - `feat/aoi-dsm-postdense`: untethered from production stages; reconcile or retire.
-- `buildDem` hang root cause open: full-area DEM never built (3 confirmed hangs). Options: coarser resolution (≥ 5 cm), chunked export + external DEM, or Metashape update.
-- Push `docs/aws-resources.md` decision: file is tracked in git and contains EIP, ENI MAC, instance ID — review before push.
-
-### Chat 6 scope
-
-`src/reef_sfm_provenance/` Python package (Mac-local, EC2 stopped):
-- **Intake validator** — image manifest + EXIF/CSV cross-check (ESM Steps 1–4) — *shipped Chat 4*
-- **Processing-manifest parser** — reads the Metashape PDF/HTML report + `esm.*` chunk metadata — *schema DONE (ADR-0031); parser/population pending*
-- **QC validator** — ESM Step 8 targets (reprojection RMS, tie-point count, camera coverage) — *DONE (ADR-0031); scale-bar threshold parameterized pending calibration*
-- **Metric reconciliation** — rugosity / VRM / mean-elevation on the 1 cm transect DSM vs P13HMEON EDR values (`data/comparison-only/P13HMEON/`; comparison-only, never pipeline input) — *metric core DONE (ADR-0030); actual reconciliation run pending*
-- **pytest** + CLI — *pytest in place (243); CLI pending*
-- Runs Mac-local; EC2 stays stopped unless a re-run is needed.
+- `buildDem` hang root cause open for full-area T1 DEM (3 confirmed hangs on 487M pts).
+- Suite: 262 green. CLI pending.
 
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
