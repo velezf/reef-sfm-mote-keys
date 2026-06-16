@@ -97,3 +97,65 @@ On next session:
 - EBS volume: `vol-08bcf0ab11df2c9ed`
 - Snapshot: `snap-0b10abc94d12b78e1` State=completed (`r2-pre-dense`)
 - Metashape trial expires ~2026-06-26/27
+
+---
+
+## Continuation (2026-06-16) — metric DSM built + frame verified
+
+### Stages completed (continued)
+
+| Stage | Status | Key metric |
+|-------|--------|-----------|
+| aoi | ✓ COMPLETE | Manual override (ADR-0033); coverage(interp-OFF)=93.7%; GATE#6+GATE#3 bypassed (--ignore-sanity) |
+| dsm | ✓ COMPLETE | elevation.3; 66,813 unique-Z; sub-mm step; interp-ON coverage=99.8%; 1.479 m relief |
+
+### DSM frame verification — result: PASS (criterion corrected)
+
+Initial frame-check criterion was wrong. The expected slope (~7.977°) was the
+`marker_plane_tilt_after` from `stage_level` — the best-fit plane through 6 vetted marker points
+spanning BOTH along-transect AND cross-track directions. This is NOT the along-transect DEM slope.
+
+**Actual measured slopes (metric DSM, elevation.3):**
+- Along-transect: **4.395°** (Z drop 0.768 m over 9.99 m) ← correct
+- Cross-track: **5.590°** (Z drop 0.097 m over 0.99 m)
+- Marker plane (6 pts, both axes): **7.977°** ← upstream of DEM; not a DEM slope
+
+**Proof that the DSM is in the leveled world frame (identity projection is correct):**  
+With T_z = 0 (float32 fix, saved to PSX): `LOCAL_CS_Z = T_z + s·R_w[2]·internal = s·R_w[2]·internal = world Z`.  
+The `R_w` matrix already includes the stage_level rotation, so world Z IS the leveled frame height.  
+Identity `proj.matrix` correctly outputs leveled world Z. Option L (modifying proj.matrix) was
+investigated and proved impossible: without translation subtraction it gives Z ≈ 50 km (large T_x, T_y
+dominate); with translation subtraction the result is mathematically identical to identity (R_w[2]·R_w·v = v_z).
+
+**ADR-0020 was correct:** identity is already the flattest/correct projection. No projection bug exists.
+
+Option L was abandoned. Pipeline and PSX are in the clean identity-projection state (no experimental
+edits left in run_pipeline.py). Proof probe output written to `/data/edr_work/probes/r2_probe_leveled_projection.py`
+(read-only diagnostic, never merged into pipeline).
+
+### Commits on feat/reconcile-r2-transect (final state)
+
+- `f4494d3` feat(r2): Option-2 R2 single-transect pre-dense setup (ADR-0033)
+- `ec5d39c` feat(r2): dense+filter results + GATE#6 findings + probe scripts
+- `098e0f3` feat(r2): Option-A override + float32-fix + CLI args + metric DSM (ADR-0033)
+- `75fa8a8` ADR-0033: document DSM frame verification — Option L is unnecessary
+
+### Resume checklist (next session)
+
+1. **Confirm frame convention** — verify the metric DSM's LOCAL_CS origin / axis alignment matches
+   the standard Metashape LOCAL_CS per ADR-0020 / USGS Export Helper. This is a quick sanity check
+   before reconciliation, not a rebuild.
+
+2. **RECONCILE the existing metric DSM vs the published R2 confidence row (P13HMEON READ-ONLY).**
+   - Load P13HMEON tile for the R2 transect footprint (read-only firewall — do NOT write or modify)
+   - Extract R2 footprint cells from P13HMEON
+   - Compare: rugosity (frame-invariant), VRM (local), elevation relative-to-min (frame-sensitive)
+   - NO tuning toward published values
+   - Report delta table per metric
+
+3. **Open items to close in ADR-0033:**
+   - GATE#6 override + GATE#3 --ignore-sanity already documented (commit 75fa8a8)
+   - Marker pair 25–26 label basis — **pending Frank's confirmation**
+
+4. **Do NOT rebuild the DSM.** The existing elevation.3 (float32-fixed, identity projection,
+   interp-ON, 99.8% coverage, 1.479 m relief, 66,813 unique-Z) is the valid artifact.
