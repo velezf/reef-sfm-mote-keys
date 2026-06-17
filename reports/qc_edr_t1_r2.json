@@ -1,0 +1,83 @@
+{
+  "generated_utc": "2026-06-17",
+  "chat": "10",
+  "transect": "EDR_T1_R2",
+  "reconstruction": "Q030 single-transect (edr_r2_q030.psx)",
+  "metashape_version": "2.3.1 build 22446",
+  "criteria": [
+    {
+      "criterion": "frame_retention",
+      "outcome": "PASS",
+      "observed": 0.993,
+      "threshold": 0.60,
+      "formula": "1 - (disabled / analyzed)",
+      "details": "270 enabled, 131 aligned, 139 disabled (quality < 0.30 floor); 2 below floor. Q030 vs Q050: 0.993 vs 0.485. ADR-0034.",
+      "adr_ref": "ADR-0034"
+    },
+    {
+      "criterion": "registration_ratio",
+      "outcome": "FAIL",
+      "observed": 0.482,
+      "threshold": null,
+      "details": "131/270 aligned (48.2%). Corpus geometry ceiling — out-and-back overlap pattern + limited cross-track redundancy at far end. Identical at Q030 and Q050 (corpus-blind). ADR-0035 falsified: threshold 0.50->0.30 does not recover registration.",
+      "characterized": true,
+      "adr_ref": "ADR-0033, ADR-0035"
+    },
+    {
+      "criterion": "scale_bar_residual_mm",
+      "outcome": "FAIL",
+      "observed_mm": 4.4,
+      "threshold_mm": 1.0,
+      "details": "Peak residual +/-1.76% of 250 mm = +/-4.4 mm across 3 bars (pairs 15-16, 19-20, 25-26). ADR-0031 floor 1 mm. Scale PASSED stage gate (inter-bar ratio 1.034 < 1.25; 3/3 validated). Residual attributed to underwater imaging geometry + no GCPs.",
+      "characterized": true,
+      "adr_ref": "ADR-0031, ADR-0033",
+      "scalebars": [
+        {"pair": [15, 16], "defined_m": 0.25, "len_local": 1.533463},
+        {"pair": [19, 20], "defined_m": 0.25, "len_local": 1.585033},
+        {"pair": [25, 26], "defined_m": 0.25, "len_local": 1.564386}
+      ]
+    },
+    {
+      "criterion": "markers_gate_a_parity",
+      "outcome": "ESCALATED_THEN_PASS",
+      "details": "Initial auto-detection failed parity (suspect IDs 13, 24, 26). Human GUI correction applied; final: 6 markers detected (15, 16, 19, 20, 25, 26), all even-numbered, 3 consecutive pairs. PASS after correction.",
+      "human_touch": "gui-marker-fix",
+      "prior_escalation_report": "products/EDR_T1_R2/markers_escalation.json"
+    },
+    {
+      "criterion": "markers_gate_b_coherence",
+      "outcome": "PASS",
+      "details": "All markers reprojection residual < 2.0 px ceiling. Projection counts: M15=15, M16=14, M19=9, M20=9, M25=7, M26=8."
+    },
+    {
+      "criterion": "markers_gate_c_consistency",
+      "outcome": "PASS",
+      "details": "Inter-bar length ratio 1.034 < 1.25 threshold."
+    },
+    {
+      "criterion": "markers_gate_d_sufficiency",
+      "outcome": "PASS",
+      "details": "3 validated bars >= 3 minimum."
+    },
+    {
+      "criterion": "aoi_coverage_gate3",
+      "outcome": "BYPASSED",
+      "observed_pct": 93.7,
+      "threshold_pct": 95.0,
+      "details": "93.7% < 95% threshold. Out-and-back trajectory means far end has lower coverage. Bypassed with --ignore-sanity (ADR-0033).",
+      "adr_ref": "ADR-0033"
+    },
+    {
+      "criterion": "aoi_belt_geometry_gate6",
+      "outcome": "BYPASSED",
+      "details": "GATE#6 tests for single-pass belt geometry. EDR_T1_R2 is out-and-back (double-pass), which violates the single-pass test. Bypassed as a documented non-applicable gate (ADR-0033). Not a defect.",
+      "adr_ref": "ADR-0033"
+    },
+    {
+      "criterion": "marker_25_26_label_basis",
+      "outcome": "OPEN",
+      "details": "Physical-to-label correspondence for the far-end target (pair 25-26) unconfirmed pending Frank review. Positions are accurate (projection residuals < 2 px); a label swap between 25 and 26 does not affect the plane fit or scale. Open item: ADR-0033."
+    }
+  ],
+  "overall_assessment": "Corpus geometry sets a firm registration ceiling (48.2% alignment rate); all other FAIL criteria are characterized and non-disqualifying. The reconstruction is the best achievable from this out-and-back imagery corpus."
+}

@@ -1,0 +1,5 @@
+reference,along_deg,cross_deg,mean_elev_m,mean_elev_delta_pct,rugosity,rugosity_delta_pct,vrm_python,vrm_delta_pct,dsm_sha256_prefix,notes
+camera-nadir+Zero-pitch,0.09,6.39,0.309,+27.7,1.372,-3.0,0.065,-14.1,dcec116b,"Canonical; clipped 10x1 DSM; ADR-0036; cross residual = survey-unanchorable (ADR-0037)"
+marker-plane,0.44,12.15,0.376,+55.4,1.333,-5.8,0.084,+10.1,8db23560,"FALSIFIED (ADR-0037); collinear spread_ratio=0.00085 << 0.25; _compute_level_up guard fires; all metrics worse"
+published,~0,~1,0.242,—,1.415,—,0.076,—,—,"Toth 2025 ESM Table S2; VRM = MultiscaleDTM R 5x5 cm focal"
+gravity-unmeasured,—,—,—,—,—,—,—,—,—,"No survey anchor for absolute vertical; no row computable"

@@ -1,0 +1,124 @@
+---
+generated_utc: "2026-06-17"
+chat: "10"
+transect: EDR_T1_R2
+survey_date: "2023-07-11"
+
+software:
+  metashape_version: "2.3.1 build 22446"
+  platform: "Linux (EC2)"
+  python: "3.x (Metashape bundled)"
+  pipeline_entry: "scripts/metashape/run_pipeline.py"
+
+infrastructure:
+  ec2_instance_type: g6.4xlarge
+  ec2_region: us-east-1
+  data_volume: /data  # 984 GB NVMe, 28% used
+  r2_ebs_snapshot: snap-0b10abc94d12b78e1
+  snapshot_tag: edr_r2_postdense_filter_pre_aoi_dsm
+
+source_imagery:
+  dataset: P1WHKTRD
+  citation: "Johnson et al. 2025, DOI 10.5066/P1WHKTRD"
+  file_count: 272
+  pattern: "20230711_EDR_T1_R2_*.tif"
+  sha256_manifest: /data/edr_work/EDR_T1_R2_image_hashes.json
+
+projects:
+  foil_q050:
+    path: /data/edr_work/edr_r2.psx
+    note: "NEVER WRITE — Q050 foil (edr_r2.psx); original registration baseline"
+  master_q030:
+    path: /data/edr_work/edr_r2_q030.psx
+    chunk_zip_sha256: 43547ec5a7cc06da47e2204ebd1381f630f949037aeab53f799885aa9fc019c6
+    note: "Source Q030 reconstruction; DO NOT WRITE"
+  work_zeropitch:
+    path: /data/edr_work/edr_r2_q030_zeropitch_20260617.psx
+    note: "WORK copy with Zero-pitch rotation applied (ADR-0036)"
+
+pipeline_stages:
+  step4_quality_threshold: 0.30
+  step4_retained: 270
+  step4_aligned: 131
+  step4_disabled: 139
+  align_rms_pre_reduce_px: 0.1734
+  reduce_method: "Logan v2.0.x (vendored; ADR-0023)"
+  reduce_tiepoints_in: 603314
+  reduce_tiepoints_out: 236860
+  reduce_rms_post_px: 0.1397
+  level_method: "camera-nadir (ADR-0025; collinear markers, spread_ratio 0.00085)"
+  level_pre_deg: 57.41
+  level_post_deg: 7.977
+  dense_points: 47143867
+  dense_ebs_snapshot: snap-0b10abc94d12b78e1
+  filter_confidence: moderate
+  filter_points_retained: 12585711
+  aoi_coverage_pct: 93.7
+  aoi_gates_bypassed: [GATE3, GATE6]
+  scale_bars:
+    - {pair: [15, 16], defined_m: 0.25, peak_residual_pct: 1.76}
+    - {pair: [19, 20], defined_m: 0.25, peak_residual_pct: 1.76}
+    - {pair: [25, 26], defined_m: 0.25, peak_residual_pct: 1.76}
+
+dsm_products:
+  pre_zeropitch:
+    file: edr_t1_r2_q030_dsm_20260616.tif
+    sha256_prefix: 50d1f143
+    dims: 999x100
+    resolution_m: 0.01
+    footprint_m: "9.99x1.00"
+    leveling: camera-nadir
+    canonical: false
+
+  zeropitch_full:
+    file: edr_t1_r2_q030_zeropitch_dsm.tif
+    sha256_prefix: 2c04b8a2
+    dims: 1007x118
+    resolution_m: 0.01
+    footprint_m: "10.07x1.18"
+    leveling: camera-nadir + Zero-pitch
+    note: "Belt widened by yaw -1.51 deg component; not canonical"
+    canonical: false
+
+  zeropitch_clipped_10x1:
+    file: edr_t1_r2_q030_zeropitch_10x1_dsm.tif
+    sha256: dcec116be19a5c74d53f45e07454bdb0ee980ba3d40c9a5f142f5bdcfff8f369
+    sha256_prefix: dcec116b
+    dims: 1007x100
+    resolution_m: 0.01
+    footprint_m: "10.07x1.00"
+    clip: "9/9 symmetric Y-trim from zeropitch_full"
+    leveling: camera-nadir + Zero-pitch (ADR-0036)
+    canonical: true
+    adr_ref: ADR-0036
+
+  markerplane_sensitivity:
+    file: edr_t1_r2_q030_markerplane_dsm.tif
+    sha256_prefix: 8db23560
+    dims: 1005x100
+    resolution_m: 0.01
+    footprint_m: "10.05x1.00"
+    leveling: marker-plane (FALSIFIED — ADR-0037)
+    canonical: false
+    note: "Sensitivity measurement only; hypothesis falsified"
+
+reconcile_summary:
+  canonical_state: zeropitch_clipped_10x1
+  published_ref: "Toth 2025 ESM Table S2"
+  mean_elevation_m: {ours: 0.309, published: 0.242, delta_pct: +27.7}
+  rugosity: {ours: 1.372, published: 1.415, delta_pct: -3.0}
+  vrm_python: {ours: 0.065, published_multiscaledtm: 0.076, delta_pct: -14.1}
+  residual_attribution:
+    mean_elevation: "Survey-unanchorable cross-axis convention (ours 6.39 deg vs published ~1 deg); marker-plane alt falsified ADR-0037; not a fixable artifact"
+    rugosity: "Characterized; stable across passes; sparse-coverage fidelity deficit"
+    vrm: "Python impl +13% vs MultiscaleDTM (ADR-0032); real gap ~-24% = genuine surface smoothness"
+
+adr_refs:
+  - {id: ADR-0023, summary: "Vendored Logan reduce"}
+  - {id: ADR-0025, summary: "Camera-nadir leveling"}
+  - {id: ADR-0031, summary: "QC gate provenance; scale_bar 1mm floor"}
+  - {id: ADR-0033, summary: "Option-2 R2 reconstruction; GATE#6 bypassed; float32 T_z fix"}
+  - {id: ADR-0034, summary: "frame_retention QC criterion"}
+  - {id: ADR-0035, summary: "Falsified: step4 threshold does not recover registration"}
+  - {id: ADR-0036, summary: "Zero-pitch frame reproduction; corrected attribution"}
+  - {id: ADR-0037, summary: "Marker-plane sensitivity; hypothesis falsified"}
