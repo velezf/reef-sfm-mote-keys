@@ -8,6 +8,11 @@ __pycache__/
 # Jupyter
 .ipynb_checkpoints/
 
+# Binary products — live on EC2 / local disk, never committed
+# (individual globs below catch strays anywhere in the tree; products/ is the
+# canonical local pull target and excluded wholesale)
+products/
+
 # Raw data cache — gitignored per workflow doc, .gitkeep sentinel only
 data/raw/*
 !data/raw/.gitkeep

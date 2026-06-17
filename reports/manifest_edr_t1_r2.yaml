@@ -122,3 +122,45 @@ adr_refs:
   - {id: ADR-0035, summary: "Falsified: step4 threshold does not recover registration"}
   - {id: ADR-0036, summary: "Zero-pitch frame reproduction; corrected attribution"}
   - {id: ADR-0037, summary: "Marker-plane sensitivity; hypothesis falsified"}
+
+# Full insurance bundle — EC2 /data/export/edr_t1_r2/ (25 artifacts, 362 MB)
+# Pull:  rsync -av reef-ec2:/data/export/edr_t1_r2/ products/EDR_T1_R2/pulled/
+# Verify: cd products/EDR_T1_R2/pulled && sha256sum -c MANIFEST.sha256
+binary_export_bundle:
+  export_path_ec2: /data/export/edr_t1_r2
+  artifact_count: 25
+  total_size: 362M
+  artifacts:
+    # DSMs
+    - {file: edr_t1_r2_q030_zeropitch_10x1_dsm.tif,  sha256: dcec116be19a5c74d53f45e07454bdb0ee980ba3d40c9a5f142f5bdcfff8f369, role: canonical_dsm}
+    - {file: edr_t1_r2_q030_zeropitch_dsm.tif,        sha256: 2c04b8a2e17ff1ac5da4ec9c223f4abb84fc75db30e566ca5b5bc8b648215c8a, role: zeropitch_full}
+    - {file: edr_t1_r2_q030_dsm_20260616.tif,         sha256: 50d1f14360109929f280dad1a6c6ea250aacea4f750eb9815115008d0a9618fc, role: pre_zeropitch}
+    - {file: edr_t1_r2_q030_markerplane_dsm.tif,      sha256: 8db235603baa74eec057e35731ba34cf8b8aa152e4a5c99243a9e32d0bfc1a7c, role: sensitivity_markerplane}
+    # EC2-named duplicates (same content as canonical names above)
+    - {file: edr_r2_q030_zeropitch_dsm_20260617.tif,  sha256: 2c04b8a2e17ff1ac5da4ec9c223f4abb84fc75db30e566ca5b5bc8b648215c8a, role: zeropitch_full_ec2name}
+    - {file: edr_r2_q030_markerplane_dsm_20260617.tif, sha256: 8db235603baa74eec057e35731ba34cf8b8aa152e4a5c99243a9e32d0bfc1a7c, role: sensitivity_markerplane_ec2name}
+    # Point clouds
+    - {file: dense.ply,   sha256: ac18ebc085fe6f6629892baadf8fc189ba8ffb656d6bcec812f8242511ddc7b4, size: 348M, role: dense_point_cloud}
+    - {file: sparse.ply,  sha256: 1b18a6a9e52a3c2a4076da4ac528fb17d26ef0aa0f99657ca52cb38569e38e34, size: 6.1M, role: sparse_point_cloud}
+    # Metashape report
+    - {file: processing_report.pdf, sha256: 3d1d25cc52b11b3c674097082d0357c95f8e308c50c0c50b51177ae3118b9e58, role: metashape_report}
+    # Camera + marker data
+    - {file: cameras.json,                sha256: 4fa3e91e808e74b04e3ba8e007e106d3a5b9d525bde1905be23977594a73da5d, role: camera_poses}
+    - {file: scalebars.json,              sha256: 0530ff01572f22dcef112532160d9b8615c915e0f2790ff07ecc9e3248389541, role: scalebar_assignments}
+    - {file: validated_scalebars.json,    sha256: b47998adbf1237fab2b661e0d901a9ab823bc7c20ec13cbfa90a424dccc3bf57, role: scalebar_validation}
+    - {file: markers_validation.json,     sha256: 3a3ef30b805236762e8aed9f54056096d6018f70d73658038df4cc9af2264897, role: marker_qc}
+    - {file: markers_escalation.json,     sha256: cd8b72ed11729d97df5329f3ee0f45ba873d728d47865f12f3638f6f22c8911a, role: marker_escalation}
+    - {file: network_health_escalation.json, sha256: 577303dc6dde5344544cf2c28870c9124f3783b8adab7e9c599e56eb9b032c28, role: network_health}
+    # Diagnostic rasters
+    - {file: diag_dsm_recentered.tif,     sha256: 7f412ee097e3a32478370e32cbac510adb59a0d10b67483b24de26ba8b843cff, role: diag_recentered_dsm}
+    - {file: probe_leveled_dsm.tif,       sha256: c8f3f51fa06b5cb96ee7c7db358dbecb81b1b0b69b009775a039c5083b900fae, role: diag_leveled_probe}
+    # Diagnostic figures
+    - {file: diag_cross_track_coherence.png, sha256: 6001b1652daf442a5c7db0b95133f17d863842b4d8b541c8714e4d6e532bf982}
+    - {file: diag_dsm_elev_colormap.png,  sha256: aed3305811a67d44b9e60aad1a26f75b72cb4b639a181de4a586f228658ddb87}
+    - {file: diag_dsm_hillshade.png,      sha256: 352e2d1804da27efee21520c676ea65cb609b7160f3ac6183513bbce19c40c12}
+    - {file: diag_footprint_by_pass.png,  sha256: 22a3099de6ea8cd0cfc86a6d7e2a0820dec927bfeeba1e09040d3f0bd0606d07}
+    - {file: metric_dsm_elev_colormap.png, sha256: 557d7dfca432ee137e4cbcc8ec7d58b85bcc237a1234edc6745a49c2ae7fcaea}
+    - {file: metric_dsm_hillshade.png,    sha256: 67e8a2aa0abfdcafeba26ca467d5f4826b7ba256a1499ff47a66ba9140aac90a}
+    - {file: metric_dsm_z_profile.png,    sha256: 2ac6c8f4a36b2417c5342c3edcf8ee2d9021d42769b25f1e742702a0ea71688f}
+    # Source imagery provenance
+    - {file: EDR_T1_R2_image_hashes.json, sha256: fe3ff9faf71d38103692489cbda1e65c46ba48eb60d3a6ed821a02e384d4833c, role: source_imagery_sha256s}
