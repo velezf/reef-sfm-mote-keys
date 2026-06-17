@@ -159,3 +159,23 @@ Active branch: `main` (147 green).
 - Suite: 267 green. CLI pending.
 
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
+
+## SESSION STATE
+Chat 6 package: green (267), frame_retention + Blocker-1 on main.
+0.30 re-run (edr_r2_q030.psx): 131/270 align = corpus ceiling (ADR-0035).
+  DSM 50d1f143 (depth maps reused from q050 = valid, q050≡q030, recorded).
+  QC: frame_retention PASS, registration FAIL (characterized), scale_bar FAIL (4.4mm, ADR-0031 floor).
+  GATE#3 + GATE#6 bypasses recorded in provenance.
+Reconcile FIRST PASS (NOT a valid 1:1):
+  VRM  -23.1%  SETTLED — real surface/coverage gap, apples-to-apples MultiscaleDTM (Python +13% per ADR-0032). No redo.
+  rugosity -3.3%  footprint-contaminated (global metric), pending footprint match.
+  elevation +144%  footprint mismatch (swath vs 10x1 belt, GATE#6). NOT valid.
+NEXT:
+  1. Footprint diagnosis -> match analyzed DSM footprint to published 10x1m belt
+     (along-axis from markers/AOI, NOT from the published metric). Re-reconcile rugosity + elevation only.
+  2. CLI entry points + README + docs/06-provenance-layer.md.
+  3. Chat 7+ (QGIS, Quarto, outreach).
+HARD CONSTRAINTS:
+  - edr_r2.psx = q050 foil, never write. Work on edr_r2_q030.psx.
+  - P13HMEON = comparison-only firewall. Reconcile basis DSM = 50d1f143, NOT 620bc3bc.
+  - Verify every artifact from disk; agent self-reports are hypotheses.
