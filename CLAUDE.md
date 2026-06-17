@@ -30,11 +30,11 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-16 — Chat 8 COMPLETE → Chat 9 entry)
+## Current state / resume pointer (2026-06-17 — Chat 10 COMPLETE → Chat 11 entry)
 
-EDR_T3 shipped. EDR_T1 products COMPLETE. **edr_r2_q030 DSM COMPLETE (sha `50d1f143`); reconcile in progress (VRM sign confirmed; footprint diagnosis next).**
+EDR_T3 shipped. EDR_T1 products COMPLETE. **Zero-pitch frame MERGED to main. Leveling-reference sensitivity measured + recorded (ADR-0037). Reconcile settled.**
 
-Active branch: `main` (147 green; EC2 fast-forwarded to `febe38a` on `feat/blocker1-stage-report`).
+Active branch: `main`. feat/zero-pitch-frame merged.
 
 ### T1 product table (area survey, 2,422 images)
 
@@ -98,6 +98,8 @@ Active branch: `main` (147 green; EC2 fast-forwarded to `febe38a` on `feat/block
 | ADR-0032 | Reconciliation harness + confirmed P13HMEON contract; T1 area-survey is envelope-only (scale mismatch); Option-2 R2 1:1 is the strong-claim path |
 | ADR-0033 | Option-2 R2 single-transect reconstruction. GATE#6 bypassed (out-and-back geometry); float32 T_z fix permanently integrated in stage_dsm; frame verified (identity projection = leveled world Z). |
 | ADR-0035 | Falsified: lowering step4 quality threshold 0.50→0.30 does NOT recover R2 registration. 131 aligned at any threshold; registration ceiling is corpus geometry, not threshold artifact. frame_retention separates (0.485→0.993); registration_ratio flat (0.482 both runs). |
+| ADR-0036 | Zero-pitch frame reproduction (Alignment Helper Step 11). Midline: Marker 26 ↔ Marker 16 (9.805 m, 1.51° to X). `math.atan` ratio convention (not atan2). Right-multiply `chunk.transform.rotation *= euler2mat([yaw, pitch, 0])`. Geometry: along 4.11°→0.086°, cross 6.39° (unchanged), raw 1.275→0.680 m. FOOTPRINT: yaw −1.51° widened belt (self-introduced); clip 9/9 symmetric → true 10×1 m (sha `dcec116b`). Master CLEAN (pitch 4.1071°, chunk.zip `43547ec5`). Reconcile on clipped 10×1: mean_elevation +27.7% = survey-unanchorable cross convention (marker-plane tested + falsified ADR-0037; cross 6.39° vs published ~1°); rugosity −3.0% (characterized); VRM −14% Python (settled). |
+| ADR-0037 | Falsified: marker-plane leveling is NOT a better vertical reference than camera-nadir for T1\_R2. 6 markers collinear (spread\_ratio 0.00085 ≪ 0.25); `_compute_level_up` collinear guard correctly falls back to camera-nadir. Bypassing guard: cross 6.39°→12.15°, mean\_elev +27.7%→+55.4% — WORSE on all metrics. Cross-axis reference is survey-unanchorable; camera-nadir + Zero-pitch is the trustworthy bound. Sensitivity table: camera-nadir+ZP (+27.7%), marker-plane (+55.4%); spread = 27.7 ppt. |
 
 ### Snapshots on disk (EC2 `/data/edr_work/`)
 
@@ -106,7 +108,9 @@ Active branch: `main` (147 green; EC2 fast-forwarded to `febe38a` on `feat/block
 - `edr_t1_truncated_adr0026v1_20260610T232809Z.{psx,files}` — post-truncated run (ADR-0026 v1)
 - Live T1 project: `edr_t1.psx` — post-products state
 - **T1 EBS snapshot:** `snap-034d45019a4e39c43` — tag `edr_t1_postproducts_20260610T235019Z`
-- Live R2 project: `edr_r2.psx` — post-DSM state (`feat/reconcile-r2-transect`)
+- Live R2 project: `edr_r2.psx` — post-DSM state (`feat/reconcile-r2-transect`) — FOIL Q050, NEVER WRITE
+- `edr_r2_q030.psx` — source q030 (chunk.zip sha `43547ec5`); do not write
+- `edr_r2_q030_zeropitch_20260617.psx` — WORK copy with Zero-pitch rotation applied (ADR-0036); DSM exported `edr_r2_q030_zeropitch_dsm_20260617.tif`
 - **R2 EBS snapshot:** `snap-0b10abc94d12b78e1` — post-dense/filter, pre-AOI/DSM
 
 ### Local products (Mac `products/`, gitignored)
@@ -123,6 +127,9 @@ Active branch: `main` (147 green; EC2 fast-forwarded to `febe38a` on `feat/block
 | `EDR_T1_R2/probe_leveled_dsm.tif` | — | frame-verification probe |
 | `EDR_T1_R2/diag_cross_track_coherence.png` | — | two-pass seam check |
 | `EDR_T1_R2/diag_footprint_by_pass.png` | — | outbound vs return pass |
+| `EDR_T1_R2/edr_t1_r2_q030_zeropitch_dsm.tif` | `2c04b8a2…` | Zero-pitch DSM (feat/zero-pitch-frame); 1007×118, 10.07×1.18 m (yaw widened belt) |
+| `EDR_T1_R2/edr_t1_r2_q030_zeropitch_10x1_dsm.tif` | `dcec116b…` | Clipped 10×1 m (9/9 symmetric trim from zeropitch DSM); reconcile basis |
+| `EDR_T1_R2/edr_t1_r2_q030_markerplane_dsm.tif` | `8db23560…` | Marker-plane DSM (sensitivity only; ADR-0037); 1005×100 after clip |
 | `EDR_T3/dsm.tif` | — | T3 shipped product |
 | `EDR_T3/ortho.tif` | — | T3 shipped product |
 
@@ -132,18 +139,16 @@ P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pi
 
 ## Open
 
-### NEXT: reconcile review → CLI/README/docs
+### NEXT: CLI/README/docs (deferred)
 
-Active branch: `main` (147 green).
+Active branch: `main` (feat/zero-pitch-frame merged).
 
-- [x] **frame_retention ✓** — `QCValidator` outcome criterion (ADR-0034): observed = 1 − disabled/analyzed, pass ≥ 0.60; closes corpus-blind `ALARM_MAX_DISABLED` gap. Merged to main.
-- [x] **Blocker-1 ✓** — `esm.report` written + persisted to chunk.meta after all exports; `scale` tracked in PIPELINE_STAGES + STAGE_ORDER; `ProcessingManifest.from_esm_report()` loader; QC chain proven on real R2 q050 (3 honest failures: frame_retention 0.485, registration 0.482, scale_bar 4.4 mm). Merged to main.
-- [x] **0.30 re-run + empirical QC ✓** — `edr_r2_q030.psx` (copy; q050 foil preserved). step4@0.30: 270 enabled, 2 below floor. align: 131/270 (corpus ceiling per ADR-0035). Dense reused q050 depth maps (valid — identical poses; recorded in esm.dense + esm.report.dense_provenance). DSM sha `50d1f143` (999×100 @ 1 cm). QC: frame_retention PASS 0.993 ✓; registration_ratio FAIL 0.482 (characterized); scale_bar FAIL 4.4 mm > 1 mm (ADR-0031 floor); aoi_gates_bypassed GATE#3+GATE#6 (93.75% coverage, out-and-back geometry).
-- [ ] **Reconcile — IN PROGRESS (VRM sign confirmed; footprint work pending)** — ran `reconcile()` on sha `50d1f143` vs EDR_T1/R2/confidence. Confirmed numbers:
-  - **rugosity −3.3%** (1.368 vs 1.415): footprint-extent-sensitive (global 3D/2D). Non-belt AOI (aspect 2.674) → footprint-contaminated, NOT a clean confirmation.
-  - **VRM −23.1% real** (MultiscaleDTM on our DSM: 0.0584 vs published 0.0760): SIGN CONFIRMED. Python 0.066 / MultiscaleDTM 0.0584 = +13.0% HIGH (matches ADR-0032 T3 +13–15% band). After removing impl bias, our surface is genuinely smoother — sparse-coverage fidelity signal, not implementation noise. Method: MultiscaleDTM R on sha `50d1f143`, w=5×5 cells @ 1 cm, 2026-06-16. Touches ZERO P13HMEON DEMs.
-  - **mean_elevation +144%** (0.591 vs 0.242 m): NOT a valid 1:1. Our DSM spans 1.275 m Z relief vs published 0.670 m. GATE#6 bypassed (aspect 2.674) → non-belt footprint crossing cross-slope relief. Footprint must match published transect before extent-sensitive metrics are interpreted.
-  - **Next pass:** (1) diagnose relief gap — is our 10×1 m belt oriented/located across cross-slope vs along published single-pass transect?; (2) match footprint to published transect and re-reconcile rugosity + mean_elev. Then STOP for review.
+- [x] **frame_retention ✓** — Merged to main.
+- [x] **Blocker-1 ✓** — `esm.report` + `ProcessingManifest` + QC chain. Merged to main.
+- [x] **0.30 re-run + empirical QC ✓** — `edr_r2_q030.psx`. frame_retention PASS 0.993; registration/scale\_bar characterized.
+- [x] **Reconcile COMPLETE** — Zero-pitch reproduced; clipped 10×1 DSM (sha `dcec116b`); mean\_elevation +27.7% (survey-unanchorable, ADR-0037); rugosity −3.0%; VRM −14.1% Python. Settled.
+- [x] **Leveling-reference sensitivity COMPLETE** — marker-plane hypothesis falsified (ADR-0037). Camera-nadir + Zero-pitch is the trustworthy bound.
+- [x] **ADR-0036 + ADR-0037 written; feat/zero-pitch-frame MERGED to main.**
 - [ ] **CLI/README/docs** — CLI entry point + docs pass; close ADR-0033 marker 25–26 item (pending Frank).
 
 ### Blockers (pipeline — remaining)
@@ -156,26 +161,29 @@ Active branch: `main` (147 green).
 - `fix/probe-topo-gates`: recalibrate `total_tilt` (8.71° fails 6.0° flat-belt threshold), camera-Z, and cameras-above-markers gates for topo transects. `footprint_explained_var` None-guard (`0bfb4c3` on `fix/level-camera-nadir`) is untested — split to this branch with a RED test before merging.
 - `feat/aoi-dsm-postdense`: untethered from production stages; reconcile or retire.
 - `buildDem` hang root cause open for full-area T1 DEM (3 confirmed hangs on 487M pts).
-- Suite: 267 green. CLI pending.
+- Suite: 12/12 green on feat/zero-pitch-frame (147 on main). CLI pending.
 
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
 ## SESSION STATE
-Chat 6 package: green (267), frame_retention + Blocker-1 on main.
-0.30 re-run (edr_r2_q030.psx): 131/270 align = corpus ceiling (ADR-0035).
-  DSM 50d1f143 (depth maps reused from q050 = valid, q050≡q030, recorded).
-  QC: frame_retention PASS, registration FAIL (characterized), scale_bar FAIL (4.4mm, ADR-0031 floor).
-  GATE#3 + GATE#6 bypasses recorded in provenance.
-Reconcile FIRST PASS (NOT a valid 1:1):
-  VRM  -23.1%  SETTLED — real surface/coverage gap, apples-to-apples MultiscaleDTM (Python +13% per ADR-0032). No redo.
-  rugosity -3.3%  footprint-contaminated (global metric), pending footprint match.
-  elevation +144%  footprint mismatch (swath vs 10x1 belt, GATE#6). NOT valid.
-NEXT:
-  1. Footprint diagnosis -> match analyzed DSM footprint to published 10x1m belt
-     (along-axis from markers/AOI, NOT from the published metric). Re-reconcile rugosity + elevation only.
-  2. CLI entry points + README + docs/06-provenance-layer.md.
-  3. Chat 7+ (QGIS, Quarto, outreach).
+Chat 10 COMPLETE. feat/zero-pitch-frame MERGED to main. ADR-0036 + ADR-0037 written and committed.
+
+Zero-pitch + reconcile (SETTLED):
+  Clipped 10×1 DSM sha dcec116b (1007×100). Reconcile AUTHORITATIVE:
+    mean_elevation  0.309 vs 0.242 (+27.7%)  survey-unanchorable (ADR-0037; marker-plane alt +55.4% — WORSE)
+    rugosity        1.372 vs 1.415 (-3.0%)   stable, characterized
+    vrm (Python)    0.065 vs 0.076 (-14.1%)  impl bias + real smoothness; settled
+
+Leveling-reference sensitivity (ADR-0037 — FALSIFIED):
+  Marker-plane applied transiently (restore-in-finally); master sha 43547ec5 verified clean throughout.
+  Result: cross 6.39°->12.15°, mean_elev +55.4%. Cause: collinear markers (spread_ratio 0.00085).
+  Camera-nadir + Zero-pitch = trustworthy bound.
+
+NEXT (Chat 11):
+  1. CLI entry points + README.
+  2. Close ADR-0033 marker 25–26 label item (pending Frank).
 HARD CONSTRAINTS:
-  - edr_r2.psx = q050 foil, never write. Work on edr_r2_q030.psx.
-  - P13HMEON = comparison-only firewall. Reconcile basis DSM = 50d1f143, NOT 620bc3bc.
+  - edr_r2.psx = q050 foil, NEVER WRITE OR OPEN. edr_r2_q030.psx = source, never write.
+  - WORK copy for zero-pitch: edr_r2_q030_zeropitch_20260617.psx.
+  - P13HMEON = comparison-only firewall.
   - Verify every artifact from disk; agent self-reports are hypotheses.
