@@ -30,11 +30,11 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-16 — Chat 8 in progress)
+## Current state / resume pointer (2026-06-16 — Chat 8 COMPLETE → Chat 9 entry)
 
-EDR_T3 shipped. EDR_T1 products COMPLETE. **edr_r2_q030 dense→dsm IN PROGRESS (EC2 tmux q030).**
+EDR_T3 shipped. EDR_T1 products COMPLETE. **edr_r2_q030 DSM COMPLETE (sha `50d1f143`); reconcile in progress (VRM sign confirmed; footprint diagnosis next).**
 
-Active branch: `main` (267 green; EC2 on `feat/blocker1-stage-report`, same pipeline code).
+Active branch: `main` (147 green; EC2 fast-forwarded to `febe38a` on `feat/blocker1-stage-report`).
 
 ### T1 product table (area survey, 2,422 images)
 
