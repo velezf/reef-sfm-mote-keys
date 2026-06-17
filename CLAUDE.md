@@ -30,11 +30,11 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-17 — Chat 10 COMPLETE → Chat 11 entry)
+## Current state / resume pointer (2026-06-17 — Chat 11 COMPLETE → Chat 12 entry)
 
-EDR_T3 shipped. EDR_T1 products COMPLETE. **Zero-pitch frame MERGED to main. Leveling-reference sensitivity measured + recorded (ADR-0037). Reconcile settled.**
+EDR_T3 shipped. EDR_T1 products COMPLETE. **Reconcile settled. Reports committed. Full binary bundle staged on EC2. main at `a2710dc`.**
 
-Active branch: `main`. feat/zero-pitch-frame merged.
+Active branch: `main`.
 
 ### T1 product table (area survey, 2,422 images)
 
@@ -149,7 +149,10 @@ Active branch: `main` (feat/zero-pitch-frame merged).
 - [x] **Reconcile COMPLETE** — Zero-pitch reproduced; clipped 10×1 DSM (sha `dcec116b`); mean\_elevation +27.7% (survey-unanchorable, ADR-0037); rugosity −3.0%; VRM −14.1% Python. Settled.
 - [x] **Leveling-reference sensitivity COMPLETE** — marker-plane hypothesis falsified (ADR-0037). Camera-nadir + Zero-pitch is the trustworthy bound.
 - [x] **ADR-0036 + ADR-0037 written; feat/zero-pitch-frame MERGED to main.**
+- [x] **Reports committed** — `reports/reconcile_edr_t1_r2.{json,md}`, `leveling_sensitivity.{csv,md}`, `qc_edr_t1_r2.{json,md}`, `manifest_edr_t1_r2.yaml` (25 artifact sha256s). `a2710dc`.
+- [x] **Binary bundle staged** — EC2 `/data/export/edr_t1_r2/` (25 artifacts, 362 MB). `sha256sum -c MANIFEST.sha256` all OK. `.gitignore` updated to exclude `products/`.
 - [ ] **CLI/README/docs** — CLI entry point + docs pass; close ADR-0033 marker 25–26 item (pending Frank).
+- [ ] **Pull full binary bundle to Mac** — `rsync -av reef-ec2:/data/export/edr_t1_r2/ products/EDR_T1_R2/pulled/ && sha256sum -c products/EDR_T1_R2/pulled/MANIFEST.sha256` (dense.ply = 348 MB).
 
 ### Blockers (pipeline — remaining)
 
@@ -166,22 +169,28 @@ Active branch: `main` (feat/zero-pitch-frame merged).
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
 ## SESSION STATE
-Chat 10 COMPLETE. feat/zero-pitch-frame MERGED to main. ADR-0036 + ADR-0037 written and committed.
+Chat 11 COMPLETE. main at `a2710dc`. All text artifacts committed; binary bundle staged on EC2.
 
-Zero-pitch + reconcile (SETTLED):
+Zero-pitch + reconcile (SETTLED — carried from Chat 10):
   Clipped 10×1 DSM sha dcec116b (1007×100). Reconcile AUTHORITATIVE:
     mean_elevation  0.309 vs 0.242 (+27.7%)  survey-unanchorable (ADR-0037; marker-plane alt +55.4% — WORSE)
     rugosity        1.372 vs 1.415 (-3.0%)   stable, characterized
     vrm (Python)    0.065 vs 0.076 (-14.1%)  impl bias + real smoothness; settled
 
-Leveling-reference sensitivity (ADR-0037 — FALSIFIED):
-  Marker-plane applied transiently (restore-in-finally); master sha 43547ec5 verified clean throughout.
-  Result: cross 6.39°->12.15°, mean_elev +55.4%. Cause: collinear markers (spread_ratio 0.00085).
-  Camera-nadir + Zero-pitch = trustworthy bound.
+Reports (committed Chat 11, `a2710dc`):
+  reports/reconcile_edr_t1_r2.{json,md}   all 4 DSM states + residual attribution
+  reports/leveling_sensitivity.{csv,md}    sensitivity table; marker-plane falsified
+  reports/qc_edr_t1_r2.{json,md}          gate-by-gate QC; frame_retention PASS 0.993
+  reports/manifest_edr_t1_r2.yaml         25-artifact sha256 bundle; Metashape/EC2/EBS IDs
 
-NEXT (Chat 11):
-  1. CLI entry points + README.
-  2. Close ADR-0033 marker 25–26 label item (pending Frank).
+Binary bundle (EC2 /data/export/edr_t1_r2/, 362 MB, 25 artifacts):
+  MANIFEST.sha256 verified OK (all 25). dense.ply = 348 MB. Pull pending (see NEXT).
+  Canonical DSM: edr_t1_r2_q030_zeropitch_10x1_dsm.tif sha dcec116b.
+
+NEXT (Chat 12):
+  1. Pull full binary bundle to Mac (dense.ply = 348 MB), verify MANIFEST.
+  2. CLI entry points + README.
+  3. Close ADR-0033 marker 25–26 label item (pending Frank).
 HARD CONSTRAINTS:
   - edr_r2.psx = q050 foil, NEVER WRITE OR OPEN. edr_r2_q030.psx = source, never write.
   - WORK copy for zero-pitch: edr_r2_q030_zeropitch_20260617.psx.
