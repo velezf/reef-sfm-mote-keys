@@ -98,7 +98,7 @@ Active branch: `feat/zero-pitch-frame` (pushed; 12/12 green). `main` at `76d964f
 | ADR-0032 | Reconciliation harness + confirmed P13HMEON contract; T1 area-survey is envelope-only (scale mismatch); Option-2 R2 1:1 is the strong-claim path |
 | ADR-0033 | Option-2 R2 single-transect reconstruction. GATE#6 bypassed (out-and-back geometry); float32 T_z fix permanently integrated in stage_dsm; frame verified (identity projection = leveled world Z). |
 | ADR-0035 | Falsified: lowering step4 quality threshold 0.50→0.30 does NOT recover R2 registration. 131 aligned at any threshold; registration ceiling is corpus geometry, not threshold artifact. frame_retention separates (0.485→0.993); registration_ratio flat (0.482 both runs). |
-| ADR-0036 | Zero-pitch frame reproduction (Alignment Helper Step 11). Midline: Marker 26 ↔ Marker 16 (9.805 m, 1.51° to X). `math.atan` ratio convention (not atan2). Right-multiply `chunk.transform.rotation *= euler2mat([yaw, pitch, 0])`. Geometry: along 4.11°→0.11°, cross 6.39° (footprint variation — rotation contributes <0.01°), raw 1.275→0.680 m (≈ pub elev_range 0.670). Reconcile: mean_elevation +32.3% residual attributed to cross-axis slope difference (6.39° vs pub ~1.3°), NOT a failure. VRM and rugosity stable. STOPPED for review. |
+| ADR-0036 | Zero-pitch frame reproduction (Alignment Helper Step 11). Midline: Marker 26 ↔ Marker 16 (9.805 m, 1.51° to X). `math.atan` ratio convention (not atan2). Right-multiply `chunk.transform.rotation *= euler2mat([yaw, pitch, 0])`. Geometry: along 4.11°→0.11°, cross 6.39°, raw 1.275→0.680 m. FOOTPRINT: yaw −1.51° widened belt to 1.18 m (self-introduced); clip 9/9 symmetric → true 10×1 m (sha `dcec116b`). Master `edr_r2_q030.psx` verified CLEAN (pitch 4.1071°, chunk.zip `43547ec5` unchanged). Reconcile on clipped 10×1: mean_elevation +27.7% (attributed to cross-axis 6.39° vs pub ~1.3°, genuine surface geometry); rugosity −3.0% (characterized); VRM −14% Python (impl bias + real smoothness, settled). |
 
 ### Snapshots on disk (EC2 `/data/edr_work/`)
 
@@ -126,7 +126,8 @@ Active branch: `feat/zero-pitch-frame` (pushed; 12/12 green). `main` at `76d964f
 | `EDR_T1_R2/probe_leveled_dsm.tif` | — | frame-verification probe |
 | `EDR_T1_R2/diag_cross_track_coherence.png` | — | two-pass seam check |
 | `EDR_T1_R2/diag_footprint_by_pass.png` | — | outbound vs return pass |
-| `EDR_T1_R2/edr_t1_r2_q030_zeropitch_dsm.tif` | `2c04b8a2…` | Zero-pitch DSM (feat/zero-pitch-frame); along 0.11°, cross 6.39°, raw 0.680 m |
+| `EDR_T1_R2/edr_t1_r2_q030_zeropitch_dsm.tif` | `2c04b8a2…` | Zero-pitch DSM (feat/zero-pitch-frame); 1007×118, 10.07×1.18 m (yaw widened belt) |
+| `EDR_T1_R2/edr_t1_r2_q030_zeropitch_10x1_dsm.tif` | `dcec116b…` | Clipped 10×1 m (9/9 symmetric trim from zeropitch DSM); reconcile basis |
 | `EDR_T3/dsm.tif` | — | T3 shipped product |
 | `EDR_T3/ortho.tif` | — | T3 shipped product |
 
@@ -143,11 +144,11 @@ Active branch: `feat/zero-pitch-frame` (12/12 green, pushed).
 - [x] **frame_retention ✓** — `QCValidator` outcome criterion (ADR-0034): observed = 1 − disabled/analyzed, pass ≥ 0.60; closes corpus-blind `ALARM_MAX_DISABLED` gap. Merged to main.
 - [x] **Blocker-1 ✓** — `esm.report` written + persisted to chunk.meta after all exports; `scale` tracked in PIPELINE_STAGES + STAGE_ORDER; `ProcessingManifest.from_esm_report()` loader; QC chain proven on real R2 q050 (3 honest failures: frame_retention 0.485, registration 0.482, scale_bar 4.4 mm). Merged to main.
 - [x] **0.30 re-run + empirical QC ✓** — `edr_r2_q030.psx` (copy; q050 foil preserved). step4@0.30: 270 enabled, 2 below floor. align: 131/270 (corpus ceiling per ADR-0035). Dense reused q050 depth maps (valid — identical poses; recorded in esm.dense + esm.report.dense_provenance). DSM sha `50d1f143` (999×100 @ 1 cm). QC: frame_retention PASS 0.993 ✓; registration_ratio FAIL 0.482 (characterized); scale_bar FAIL 4.4 mm > 1 mm (ADR-0031 floor); aoi_gates_bypassed GATE#3+GATE#6 (93.75% coverage, out-and-back geometry).
-- [x] **Reconcile COMPLETE — zero-pitch second pass** — reproduced Alignment Helper Step 11 (Zero pitch) on WORK copy `edr_r2_q030_zeropitch_20260617.psx`; DSM sha `2c04b8a2` (1007×118 @ 1 cm). Geometry: along 0.11°, cross 6.39°, raw relief 0.680 m (matches published elev_range 0.670 m). Reconcile vs T1_R2/confidence:
-  - **rugosity −2.8%** (1.376 vs 1.415): stable vs pre-zeropitch 1.368 (+0.008 from tilt removal). Footprint-contaminated (global 3D/2D, non-belt GATE#6). Characterized.
-  - **VRM −14.0% (Python)** (0.0654 vs 0.0760): slope-invariant metric, unchanged from pre-zeropitch 0.066 within noise. Python impl +13% vs MultiscaleDTM → real gap ~−24% = genuine surface smoothness (ADR-0032, confirmed pre/post). Settled, no redo.
-  - **mean_elevation +32.3%** (0.320 vs 0.242 m): improved from +144% on untilted DSM. Remaining gap attributed to cross-axis 6.39° (vs published ~1.3°) + footprint 1.19 m vs 1.0 m width. NOT a failure — characterized as cross-axis/footprint residual.
-  - **STOPPED for review.** ADR for zero-pitch frame + cross-axis residual to follow.
+- [x] **Reconcile COMPLETE — zero-pitch second pass + footprint regression** — reproduced Alignment Helper Step 11; WORK copy zeropitch PSX; DSM sha `2c04b8a2` (1007×118 @ 1 cm); master `edr_r2_q030.psx` verified CLEAN (pitch 4.1071°, read_only=True, chunk.zip `43547ec5` unchanged). Footprint regression: yaw −1.51° component widened belt to 1.18 m (self-introduced, NOT GATE#6). Clipped 9/9 symmetric to 100 rows = true 10×1 m; sha `dcec116b` (1007×100). Reconcile on clipped 10×1 vs T1_R2/confidence:
+  - **rugosity −3.0%** (1.372 vs 1.415): stable (was −3.3% pre, −2.8% full). Characterized.
+  - **VRM −14.1% (Python)** (0.065 vs 0.076): slope-invariant, stable across all passes. Python +13% vs MultiscaleDTM (ADR-0032); real gap ~−24% = genuine surface smoothness. Settled, no redo.
+  - **mean_elevation +27.7%** (0.309 vs 0.242): improved from +144% → +32.3% (full) → +27.7% (clipped). Remaining gap = cross-axis 6.39° vs published ~1.3°. Estimated cross-slope contribution: (0.5 m)×tan(6.39°) ≈ 0.056 m; observed delta 0.067 m. Characterized as genuine surface geometry — NOT a self-introduced artifact, NOT GATE#6.
+  - **STOPPED for review.** ADR-0036 attribution corrected; merge pending Frank review.
 - [ ] **CLI/README/docs** — CLI entry point + docs pass; close ADR-0033 marker 25–26 item (pending Frank).
 
 ### Blockers (pipeline — remaining)
@@ -174,11 +175,13 @@ Zero-pitch frame (Alignment Helper Step 11 reproduction):
   Midline: Marker 26 <-> Marker 16 (9.805 m, 1.51° to X; atan-ratio convention).
   Geometry verified: along 4.11°->0.11° (< 0.30° ✓); cross 6.39° (footprint, not rotation ✓); raw 0.680 m (< 1.00 m ✓).
 
-Reconcile SECOND PASS (zeropitch DSM 2c04b8a2 vs T1_R2/confidence):
-  mean_elevation  0.320 vs 0.242 (+32.3%)  was +144%. Residual = cross-axis 6.39° + footprint 1.19 m vs 1.0 m. Characterized, NOT a failure.
-  rugosity        1.376 vs 1.415 (-2.8%)   was -3.3%. Stable. Footprint-contaminated (global 3D/2D, GATE#6). Characterized.
-  vrm (Python)    0.0654 vs 0.0760 (-14%)  was 0.066 (-13%). Slope-invariant, stable. Python +13% vs MultiscaleDTM bias (ADR-0032). Real gap ~-24% = genuine surface smoothness. Settled, no redo.
-STOPPED for review.
+Master integrity: CLEAN — edr_r2_q030.psx read_only=True; pitch 4.1071° (not 0.11°); chunk.zip 43547ec5 unchanged. foil edr_r2.psx untouched.
+Zeropitch DSM (2c04b8a2): 1007×118 = 10.07×1.18 m — yaw -1.51° widened belt by 18 cm (self-introduced, not GATE#6).
+Clipped 10×1 DSM (dcec116b): 1007×100 = 10.07×1.00 m. Reconcile vs T1_R2/confidence (AUTHORITATIVE numbers):
+  mean_elevation  0.309 vs 0.242 (+27.7%)  was +144% (pre), +32.3% (full). Residual = cross-axis 6.39° vs pub ~1.3°. Cross-slope expected ~0.056 m, observed 0.067 m. NOT GATE#6, NOT self-introduced.
+  rugosity        1.372 vs 1.415 (-3.0%)   was -3.3%, stable across all passes. Characterized.
+  vrm (Python)    0.0653 vs 0.076 (-14.1%) was -13.2%, slope-invariant, stable. Python +13% vs MultiscaleDTM (ADR-0032). Settled.
+STOPPED for review. Merge pending Frank.
 
 NEXT:
   1. Review / ADR — attribute cross-axis residual; decide whether footprint-match pass warranted.
