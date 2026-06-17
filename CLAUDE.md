@@ -152,7 +152,7 @@ Active branch: `main` (feat/zero-pitch-frame merged).
 - [x] **Reports committed** — `reports/reconcile_edr_t1_r2.{json,md}`, `leveling_sensitivity.{csv,md}`, `qc_edr_t1_r2.{json,md}`, `manifest_edr_t1_r2.yaml` (25 artifact sha256s). `a2710dc`.
 - [x] **Binary bundle staged** — EC2 `/data/export/edr_t1_r2/` (25 artifacts, 362 MB). `sha256sum -c MANIFEST.sha256` all OK. `.gitignore` updated to exclude `products/`.
 - [ ] **CLI/README/docs** — CLI entry point + docs pass; close ADR-0033 marker 25–26 item (pending Frank).
-- [ ] **Pull full binary bundle to Mac** — `rsync -av reef-ec2:/data/export/edr_t1_r2/ products/EDR_T1_R2/pulled/ && sha256sum -c products/EDR_T1_R2/pulled/MANIFEST.sha256` (dense.ply = 348 MB).
+- [x] **Pull full binary bundle to Mac** — 25/25 sha256 OK; dense.ply (347 MB) verified on disk.
 
 ### Blockers (pipeline — remaining)
 
