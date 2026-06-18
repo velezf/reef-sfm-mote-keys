@@ -164,35 +164,38 @@ Active branch: `main` (feat/zero-pitch-frame merged).
 - `fix/probe-topo-gates`: recalibrate `total_tilt` (8.71° fails 6.0° flat-belt threshold), camera-Z, and cameras-above-markers gates for topo transects. `footprint_explained_var` None-guard (`0bfb4c3` on `fix/level-camera-nadir`) is untested — split to this branch with a RED test before merging.
 - `feat/aoi-dsm-postdense`: untethered from production stages; reconcile or retire.
 - `buildDem` hang root cause open for full-area T1 DEM (3 confirmed hangs on 487M pts).
-- Suite: 12/12 green on feat/zero-pitch-frame (147 on main). CLI pending.
+- Suite: 265 passing on main (up from 159). CLI wired. Pending: QC module review, push, README, marker 25–26 item.
 
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
 ## SESSION STATE
-Chat 11 COMPLETE. main at `a2710dc`. All text artifacts committed; binary bundle staged on EC2.
+Chat 12 IN PROGRESS. main at `f47d1d0` (4 commits ahead of origin, NOT YET PUSHED).
 
-Zero-pitch + reconcile (SETTLED — carried from Chat 10):
-  Clipped 10×1 DSM sha dcec116b (1007×100). Reconcile AUTHORITATIVE:
-    mean_elevation  0.309 vs 0.242 (+27.7%)  survey-unanchorable (ADR-0037; marker-plane alt +55.4% — WORSE)
-    rugosity        1.372 vs 1.415 (-3.0%)   stable, characterized
-    vrm (Python)    0.065 vs 0.076 (-14.1%)  impl bias + real smoothness; settled
+Zero-pitch + reconcile (SETTLED — Chat 10/11):
+  Clipped 10×1 DSM sha dcec116b. mean_elevation +27.7% survey-unanchorable (ADR-0037).
+  rugosity −3.0%, vrm −14.1% Python impl bias. All characterized and settled.
 
-Reports (committed Chat 11, `a2710dc`):
-  reports/reconcile_edr_t1_r2.{json,md}   all 4 DSM states + residual attribution
-  reports/leveling_sensitivity.{csv,md}    sensitivity table; marker-plane falsified
-  reports/qc_edr_t1_r2.{json,md}          gate-by-gate QC; frame_retention PASS 0.993
-  reports/manifest_edr_t1_r2.yaml         25-artifact sha256 bundle; Metashape/EC2/EBS IDs
+reef_sfm_provenance package (Chat 12 — built this session):
+  265 tests passing (was 159). Unpushed commits: 396ae28 → 129a87c → 5a6db9a → f47d1d0.
+  One QCReport canonical: qc/validator.py (criteria/bool|None). QCStatus enum removed.
+  Three QC layers wired in validate_full(): Toth S2 + stage_gate + markers sub-gates.
+  Key files added: models.py, run_manifest.py, exceptions.py, logging_config.py,
+    intake.py, metashape_report.py, provenance.py, reports.py, cli.py (Typer),
+    qc/structural.py, qc/checker.py, reconcile/reconciler.py, reconcile/metrics_interface.py.
+  GateBlock + MarkersGateBlock added to manifest/schema.py (from esm.gate + esm.markers_validation).
+  pyproject.toml: typer/rich/orjson/prov added; reef-audit alias added.
 
-Binary bundle (EC2 /data/export/edr_t1_r2/, 362 MB, 25 artifacts):
-  MANIFEST.sha256 verified OK (all 25). dense.ply = 348 MB. Pull pending (see NEXT).
+Binary bundle (Mac products/, gitignored): 25/25 sha256 OK (Chat 11).
   Canonical DSM: edr_t1_r2_q030_zeropitch_10x1_dsm.tif sha dcec116b.
 
-NEXT (Chat 12):
-  1. Pull full binary bundle to Mac (dense.ply = 348 MB), verify MANIFEST.
-  2. CLI entry points + README.
-  3. Close ADR-0033 marker 25–26 label item (pending Frank).
+NEXT (Chat 12 continued):
+  1. Review QC module (qc/validator.py + qc/structural.py) in detail — next immediate task.
+  2. Push 4 commits to origin/main.
+  3. README pass.
+  4. Close ADR-0033 marker 25–26 label item (pending Frank).
 HARD CONSTRAINTS:
   - edr_r2.psx = q050 foil, NEVER WRITE OR OPEN. edr_r2_q030.psx = source, never write.
   - WORK copy for zero-pitch: edr_r2_q030_zeropitch_20260617.psx.
   - P13HMEON = comparison-only firewall.
+  - QCpackage = untested design sketch — never copy verbatim; build from existing patterns.
   - Verify every artifact from disk; agent self-reports are hypotheses.
