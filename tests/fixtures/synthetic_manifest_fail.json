@@ -1,0 +1,8 @@
+{
+  "run_id": "EDR_T1_synthetic_fail",
+  "site": "EasternDryRocks",
+  "transect": "T1",
+  "camera_alignment": {"images_total": 272, "images_aligned": 131},
+  "error_metrics": {"reprojection_error_px": 0.8, "scalebar_error_m": 0.005},
+  "artifacts": []
+}
