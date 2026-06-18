@@ -404,3 +404,216 @@ def test_qc_flags_degraded_run():
     assert crits["frame_retention"].observed == pytest.approx(1 - 140 / 272)
     assert crits["registration_ratio"].passed is False
     assert crits["registration_ratio"].observed == pytest.approx(131 / 272)
+
+
+# ---------------------------------------------------------------------------
+# GateBlock + MarkersGateBlock — schema and classmethods
+# ---------------------------------------------------------------------------
+
+# Synthetic esm.gate dict matching stage_gate output (T1 shape: 2/7 fail).
+_ESM_GATE_T1 = {
+    "chunk": "T1",
+    "checks": {
+        "1_long_tilt_deg":      {"v": 0.37,  "max": 0.5,  "pass": True},
+        "2_total_tilt_deg":     {"v": 8.71,  "max": 6.0,  "pass": False},
+        "3_coverage_interp_off":{"v": 0.971, "min": 0.95, "pass": True},
+        "4_long_extent_m":      {"v": 9.98,  "target": 10.0, "pass": True},
+        "5_coreg_dx_dy_m":      {"v": [0.0, 0.0], "pass": True},
+        "6_footprint":          {"evr": 0.974, "aspect": 7.2, "pass": True},
+        "7_orientation_plus_x": {"v": False, "pass": False},
+        "8_reference_dem_advisory": {
+            "available": False, "advisory": True,
+            "flag": None, "note": "comparison-only",
+        },
+    },
+    "core_failed": ["2_total_tilt_deg", "7_orientation_plus_x"],
+    "PASS": False,
+    "reference_firewall": "comparison-only",
+}
+
+# Synthetic esm.gate dict for a clean run (all 7 core checks pass).
+_ESM_GATE_CLEAN = {
+    "chunk": "T3",
+    "checks": {
+        "1_long_tilt_deg":      {"v": 0.10,  "max": 0.5,  "pass": True},
+        "2_total_tilt_deg":     {"v": 1.88,  "max": 6.0,  "pass": True},
+        "3_coverage_interp_off":{"v": 0.997, "min": 0.95, "pass": True},
+        "4_long_extent_m":      {"v": 10.01, "target": 10.0, "pass": True},
+        "5_coreg_dx_dy_m":      {"v": [0.0, 0.0], "pass": True},
+        "6_footprint":          {"evr": 0.98, "aspect": 8.5, "pass": True},
+        "7_orientation_plus_x": {"v": True,  "pass": True},
+        "8_reference_dem_advisory": {
+            "available": False, "advisory": True, "flag": None,
+        },
+    },
+    "core_failed": [],
+    "PASS": True,
+}
+
+# Synthetic esm.markers_validation for a headless-pass run.
+_ESM_MARKERS_PASS = {
+    "status": "headless-pass",
+    "gates": {
+        "a_parity":    {"gate": "a_parity",    "ok": True,  "n_markers": 8, "odd_count": 0, "orphans": [], "proposed_pairs": [[15, 16], [19, 20], [25, 26], [27, 28]]},
+        "b_coherence": {"gate": "b_coherence", "ok": True,  "ceiling_px": 2.0, "flagged": [], "flagged_ids": [], "load_bearing_flagged": []},
+        "c_consistency":{"gate": "c_consistency","ok": True, "ratio": 1.034, "max_ratio": 1.25, "lengths": [1.533, 1.585, 1.564, 1.540]},
+        "d_sufficiency":{"gate": "d_sufficiency","ok": True, "n_validated_bars": 4, "min_validated_bars": 3},
+    },
+    "thresholds": {"resid_ceiling_px": 2.0, "interbar_ratio_max": 1.25, "min_validated_bars": 3},
+}
+
+# Synthetic esm.markers_validation for a failed run (gate a + d fail).
+_ESM_MARKERS_FAIL = {
+    "status": "escalated",
+    "failed_gates": ["a_parity", "d_sufficiency"],
+    "gates": {
+        "a_parity":    {"gate": "a_parity",    "ok": False, "n_markers": 3, "odd_count": 1, "orphans": [27], "proposed_pairs": [[15, 16]]},
+        "b_coherence": {"gate": "b_coherence", "ok": True,  "ceiling_px": 2.0, "flagged": [], "flagged_ids": [], "load_bearing_flagged": []},
+        "c_consistency":{"gate": "c_consistency","ok": True, "ratio": None, "max_ratio": 1.25, "lengths": [1.533]},
+        "d_sufficiency":{"gate": "d_sufficiency","ok": False, "n_validated_bars": 1, "min_validated_bars": 3},
+    },
+    "thresholds": {"resid_ceiling_px": 2.0, "interbar_ratio_max": 1.25, "min_validated_bars": 3},
+}
+
+
+def test_gate_block_from_esm_gate_t1():
+    """GateBlock correctly parses the T1 esm.gate dict (2/7 core fail)."""
+    gate = ProcessingManifest.from_esm_gate(_ESM_GATE_T1)
+    assert gate.chunk_label == "T1"
+    assert gate.passed is False
+    assert gate.core_failed == ["2_total_tilt_deg", "7_orientation_plus_x"]
+    assert len(gate.checks) == 8
+    by_id = {c.check_id: c for c in gate.checks}
+    assert by_id["1_long_tilt_deg"].passed is True
+    assert by_id["2_total_tilt_deg"].passed is False
+    assert by_id["8_reference_dem_advisory"].advisory is True
+    assert by_id["8_reference_dem_advisory"].passed is None
+
+
+def test_gate_block_clean_run_passes():
+    gate = ProcessingManifest.from_esm_gate(_ESM_GATE_CLEAN)
+    assert gate.passed is True
+    assert gate.core_failed == []
+    by_id = {c.check_id: c for c in gate.checks}
+    for check_id in ("1_long_tilt_deg", "2_total_tilt_deg", "3_coverage_interp_off",
+                     "4_long_extent_m", "5_coreg_dx_dy_m", "6_footprint", "7_orientation_plus_x"):
+        assert by_id[check_id].passed is True, f"{check_id} should pass"
+
+
+def test_gate_block_empty_dict():
+    gate = ProcessingManifest.from_esm_gate({})
+    assert gate.passed is None
+    assert gate.checks == []
+
+
+def test_markers_gate_block_from_esm_pass():
+    mg = ProcessingManifest.from_esm_markers_validation(_ESM_MARKERS_PASS)
+    assert mg.overall_status == "headless-pass"
+    assert mg.gate_a_parity is True
+    assert mg.gate_b_passed is True
+    assert mg.gate_b_coherence_px == pytest.approx(2.0)
+    assert mg.gate_c_ratio == pytest.approx(1.034)
+    assert mg.gate_c_passed is True
+    assert mg.gate_d_bars == 4
+    assert mg.gate_d_passed is True
+
+
+def test_markers_gate_block_from_esm_fail():
+    mg = ProcessingManifest.from_esm_markers_validation(_ESM_MARKERS_FAIL)
+    assert mg.overall_status == "escalated"
+    assert mg.gate_a_parity is False
+    assert mg.gate_d_bars == 1
+    assert mg.gate_d_passed is False
+
+
+def test_markers_gate_block_empty():
+    mg = ProcessingManifest.from_esm_markers_validation({})
+    assert mg.overall_status is None
+    assert mg.gate_a_parity is None
+
+
+# ---------------------------------------------------------------------------
+# validate_full — pipeline gate + markers gate + Toth Table S2 in one report
+# ---------------------------------------------------------------------------
+
+def test_validate_full_includes_all_three_category_types():
+    """validate_full emits conformance + outcome + pipeline_gate + markers_gate criteria."""
+    m = make_manifest()
+    m.gate = ProcessingManifest.from_esm_gate(_ESM_GATE_CLEAN)
+    m.markers_gate = ProcessingManifest.from_esm_markers_validation(_ESM_MARKERS_PASS)
+    report = QCValidator(scalebar_max_m=0.002).validate_full(m)
+    categories = {c.category for c in report.criteria}
+    assert "conformance" in categories
+    assert "outcome" in categories
+    assert "pipeline_gate" in categories
+    assert "markers_gate" in categories
+
+
+def test_validate_full_clean_run_passes():
+    """A fully passing manifest with clean gate/markers data yields passed=True."""
+    m = make_manifest()
+    m.gate = ProcessingManifest.from_esm_gate(_ESM_GATE_CLEAN)
+    m.markers_gate = ProcessingManifest.from_esm_markers_validation(_ESM_MARKERS_PASS)
+    report = QCValidator(scalebar_max_m=0.002).validate_full(m)
+    crits = criteria_by_name(report)
+    assert crits["gate_2_total_tilt_deg"].passed is True
+    assert crits["markers_gate_a_parity"].passed is True
+    assert crits["markers_gate_d_sufficiency"].passed is True
+    assert report.passed is True
+
+
+def test_validate_full_t1_gate_failures_propagate():
+    """T1 gate (2/7 fail) makes the overall report fail even if Toth checks pass."""
+    m = make_manifest()
+    m.gate = ProcessingManifest.from_esm_gate(_ESM_GATE_T1)
+    m.markers_gate = ProcessingManifest.from_esm_markers_validation(_ESM_MARKERS_PASS)
+    report = QCValidator(scalebar_max_m=0.002).validate_full(m)
+    crits = criteria_by_name(report)
+    assert crits["gate_2_total_tilt_deg"].passed is False
+    assert crits["gate_7_orientation_plus_x"].passed is False
+    assert report.passed is False
+
+
+def test_validate_full_advisory_gate_8_never_causes_failure():
+    """Advisory check 8 has passed=None and does NOT contribute to report failure."""
+    m = make_manifest()
+    m.gate = ProcessingManifest.from_esm_gate(_ESM_GATE_T1)
+    report = QCValidator().validate_full(m)
+    crits = criteria_by_name(report)
+    # Advisory check must be not-evaluable (None), not False.
+    assert crits["gate_8_reference_dem_advisory"].passed is None
+
+
+def test_validate_full_markers_fail_propagates():
+    m = make_manifest()
+    m.gate = ProcessingManifest.from_esm_gate(_ESM_GATE_CLEAN)
+    m.markers_gate = ProcessingManifest.from_esm_markers_validation(_ESM_MARKERS_FAIL)
+    report = QCValidator().validate_full(m)
+    crits = criteria_by_name(report)
+    assert crits["markers_gate_a_parity"].passed is False
+    assert crits["markers_gate_d_sufficiency"].passed is False
+    assert report.passed is False
+
+
+def test_validate_full_empty_gate_blocks_not_evaluable():
+    """Empty gate/markers gate blocks yield not-evaluable sentinels, not failures."""
+    m = make_manifest()
+    # gate and markers_gate fields are default-empty
+    report = QCValidator().validate_full(m)
+    crits = criteria_by_name(report)
+    assert crits["pipeline_gate_overall"].passed is None
+    assert crits["markers_gate_overall"].passed is None
+    # Toth Table S2 checks are not affected (still evaluable from make_manifest params).
+    assert crits["alignment_accuracy"].passed is True
+
+
+def test_manifest_gate_fields_serialize_round_trip():
+    """GateBlock and MarkersGateBlock survive JSON round-trip."""
+    m = make_manifest()
+    m.gate = ProcessingManifest.from_esm_gate(_ESM_GATE_T1)
+    m.markers_gate = ProcessingManifest.from_esm_markers_validation(_ESM_MARKERS_PASS)
+    again = ProcessingManifest.model_validate_json(m.model_dump_json())
+    assert again.gate.passed == m.gate.passed
+    assert again.gate.core_failed == m.gate.core_failed
+    assert again.markers_gate.overall_status == "headless-pass"
+    assert again.markers_gate.gate_d_bars == 4
