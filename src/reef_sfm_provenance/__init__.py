@@ -18,4 +18,6 @@ try:
 except PackageNotFoundError:  # editable install before metadata is built
     __version__ = "0.0.0+dev"
 
-__all__ = ["__version__"]
+from .models import QCStatus, RunManifest  # noqa: E402
+
+__all__ = ["__version__", "QCStatus", "RunManifest"]

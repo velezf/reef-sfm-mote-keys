@@ -26,14 +26,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
-from reef_sfm_provenance.manifest.schema import ProcessingManifest
+from reef_sfm_provenance.manifest.schema import GateBlock, MarkersGateBlock, ProcessingManifest
 
 logger = logging.getLogger(__name__)
 
 TOTH_TABLE_S2 = "Toth et al. 2025 ESM Table S2 (ADR-0010)"
 TOTH_STEP_8 = "Toth et al. 2025 ESM Step 8 (ADR-0031)"
 
-Category = Literal["conformance", "outcome"]
+Category = Literal["conformance", "outcome", "pipeline_gate", "markers_gate"]
 
 
 class QCCriterion(BaseModel):
@@ -85,7 +85,23 @@ class QCValidator:
     ≤27% corpus alignment on T3. 0.60 cleanly separates both bad cases from the
     floor-cut good case. Closes the corpus-blind ALARM_MAX_DISABLED=200 gap at
     the QC layer (ADR-0034).
+
+    Pipeline gate thresholds (``gate_*``) mirror the ``GATE_*`` constants in
+    ``run_pipeline.py`` and are used by ``validate_full()`` to verify the
+    ``esm.gate`` verdict matches expected bounds.
     """
+
+    # Pipeline gate defaults — mirror run_pipeline.py GATE_* constants exactly.
+    # These are the authoritative calibrated values; do not change without an ADR.
+    GATE_LONG_TILT_MAX_DEG: float = 0.5
+    GATE_TOTAL_TILT_MAX_DEG: float = 6.0
+    GATE_COVERAGE_MIN: float = 0.95
+    GATE_SCALE_EXTENT_TOL_M: float = 0.02
+    GATE_FOOTPRINT_EVR_MIN: float = 0.95
+    GATE_FOOTPRINT_ASPECT_MIN: float = 5.0
+    GATE_MARKER_RESID_CEILING_PX: float = 2.0
+    GATE_INTERBAR_RATIO_MAX: float = 1.25
+    GATE_MIN_VALIDATED_BARS: int = 3
 
     def __init__(
         self,
@@ -102,6 +118,14 @@ class QCValidator:
         final_rms_max_px: float = 0.52,
         scalebar_max_m: float | None = None,
         frame_retention_min: float = 0.60,
+        gate_long_tilt_max_deg: float = 0.5,
+        gate_total_tilt_max_deg: float = 6.0,
+        gate_coverage_min: float = 0.95,
+        gate_footprint_evr_min: float = 0.95,
+        gate_footprint_aspect_min: float = 5.0,
+        gate_marker_resid_ceiling_px: float = 2.0,
+        gate_interbar_ratio_max: float = 1.25,
+        gate_min_validated_bars: int = 3,
     ) -> None:
         self.accuracy_expected = accuracy_expected
         self.key_point_limit_expected = key_point_limit_expected
@@ -115,6 +139,14 @@ class QCValidator:
         self.final_rms_max_px = final_rms_max_px
         self.scalebar_max_m = scalebar_max_m
         self.frame_retention_min = frame_retention_min
+        self.gate_long_tilt_max_deg = gate_long_tilt_max_deg
+        self.gate_total_tilt_max_deg = gate_total_tilt_max_deg
+        self.gate_coverage_min = gate_coverage_min
+        self.gate_footprint_evr_min = gate_footprint_evr_min
+        self.gate_footprint_aspect_min = gate_footprint_aspect_min
+        self.gate_marker_resid_ceiling_px = gate_marker_resid_ceiling_px
+        self.gate_interbar_ratio_max = gate_interbar_ratio_max
+        self.gate_min_validated_bars = gate_min_validated_bars
 
     # -- criterion builders -------------------------------------------------
 
@@ -220,6 +252,77 @@ class QCValidator:
             threshold=self.frame_retention_min,
             source="ADR-0017 T3 A/B: 0.30-floor retained 99% / 0.50-Toth retained 46–48% (ADR-0034)",
         )
+
+    # -- pipeline gate + markers gate criteria --------------------------------
+
+    def validate_full(self, manifest: ProcessingManifest) -> QCReport:
+        """Run Toth Table S2 + pipeline gate + markers gate criteria together.
+
+        Extends ``validate()`` with criteria drawn from ``manifest.gate``
+        (esm.gate) and ``manifest.markers_gate`` (esm.markers_validation).
+        Criteria whose manifest blocks are empty are emitted as not-evaluable
+        (passed=None) following the same convention as ``validate()``.
+        """
+        base = self.validate(manifest)
+        gate_crits = self._gate_criteria(manifest.gate)
+        markers_crits = self._markers_gate_criteria(manifest.markers_gate)
+        all_criteria = base.criteria + gate_crits + markers_crits
+        report = QCReport(manifest_id=manifest.manifest_id, criteria=all_criteria)
+        self._log_summary(report)
+        return report
+
+    def _gate_criteria(self, gate: GateBlock) -> list[QCCriterion]:
+        """Convert a GateBlock into QCCriterion objects (pipeline_gate category)."""
+        _SRC = "run_pipeline.py stage_gate (esm.gate)"
+        if not gate.checks:
+            # No gate data — emit a single not-evaluable sentinel.
+            return [QCCriterion(
+                name="pipeline_gate_overall",
+                category="pipeline_gate",
+                passed=None,
+                observed=None,
+                threshold=None,
+                source=_SRC,
+            )]
+        crits: list[QCCriterion] = []
+        for chk in gate.checks:
+            crits.append(QCCriterion(
+                name=f"gate_{chk.check_id}",
+                category="pipeline_gate",
+                passed=chk.passed,
+                observed=chk.observed,
+                threshold=chk.threshold,
+                source=_SRC + (" (advisory)" if chk.advisory else ""),
+            ))
+        return crits
+
+    def _markers_gate_criteria(self, mg: MarkersGateBlock) -> list[QCCriterion]:
+        """Convert a MarkersGateBlock into QCCriterion objects (markers_gate category)."""
+        _SRC = "run_pipeline.py stage_markers (esm.markers_validation; ADR-0022)"
+
+        def _crit(name: str, passed: bool | None, observed: Any, threshold: Any) -> QCCriterion:
+            return QCCriterion(
+                name=name, category="markers_gate",
+                passed=passed, observed=observed, threshold=threshold, source=_SRC,
+            )
+
+        if mg.overall_status is None and mg.gate_a_parity is None:
+            return [_crit("markers_gate_overall", None, None, None)]
+
+        return [
+            _crit("markers_gate_a_parity", mg.gate_a_parity,
+                  "ok" if mg.gate_a_parity else "orphans-present",
+                  "all markers paired (consecutive IDs)"),
+            _crit("markers_gate_b_coherence", mg.gate_b_passed,
+                  mg.gate_b_coherence_px,
+                  self.gate_marker_resid_ceiling_px),
+            _crit("markers_gate_c_consistency", mg.gate_c_passed,
+                  mg.gate_c_ratio,
+                  self.gate_interbar_ratio_max),
+            _crit("markers_gate_d_sufficiency", mg.gate_d_passed,
+                  mg.gate_d_bars,
+                  self.gate_min_validated_bars),
+        ]
 
     @staticmethod
     def _log_summary(report: QCReport) -> None:

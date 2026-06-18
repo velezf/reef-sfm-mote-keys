@@ -9,6 +9,9 @@ every field is Optional.
 """
 
 from reef_sfm_provenance.manifest.schema import (
+    GateBlock,
+    GateCheckResult,
+    MarkersGateBlock,
     OutcomeBlock,
     ParametersBlock,
     ProcessingManifest,
@@ -16,6 +19,9 @@ from reef_sfm_provenance.manifest.schema import (
 )
 
 __all__ = [
+    "GateBlock",
+    "GateCheckResult",
+    "MarkersGateBlock",
     "OutcomeBlock",
     "ParametersBlock",
     "ProcessingManifest",

@@ -45,4 +45,8 @@ def __getattr__(name: str):
         from reef_sfm_provenance.reconcile import harness
 
         return getattr(harness, name)
+    if name in {"reconcile_metrics", "load_published_metrics"}:
+        from reef_sfm_provenance.reconcile import reconciler
+
+        return getattr(reconciler, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

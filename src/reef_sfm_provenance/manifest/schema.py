@@ -1,11 +1,14 @@
 """ProcessingManifest — typed contract for one Metashape processing run.
 
-Three blocks, mirroring the three questions a reviewer asks:
+Four blocks, mirroring the four questions a reviewer asks:
 
-  provenance  what ran, where, on exactly which bytes
-  parameters  what was asked of Metashape (Toth et al. 2025 ESM Table S2
-              vocabulary; ADR-0010 makes Table S2 binding, not the PIFSC SOP)
-  outcome     what came back (ESM Step 8 QC observables)
+  provenance    what ran, where, on exactly which bytes
+  parameters    what was asked of Metashape (Toth et al. 2025 ESM Table S2
+                vocabulary; ADR-0010 makes Table S2 binding, not the PIFSC SOP)
+  outcome       what came back (ESM Step 8 QC observables)
+  gate          the pipeline's own QC verdict (esm.gate; stage_gate checks 1–8)
+  markers_gate  the marker-layer validation verdict (esm.markers_validation;
+                gates a–d from stage_markers; ADR-0022)
 
 Every field is Optional by design: this schema is the CONTRACT, and the
 population paths (Metashape PDF/HTML report parser, `esm.*` chunk metadata,
@@ -80,6 +83,66 @@ class OutcomeBlock(BaseModel):
     """DSM cell size in metres (esm.dsm.resolution_m); 0.01 per ADR-0027."""
 
 
+class GateCheckResult(BaseModel):
+    """One pipeline gate check from stage_gate (esm.gate.checks[check_id])."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    check_id: str
+    """Key as written by stage_gate (e.g. '1_long_tilt_deg')."""
+    passed: bool | None
+    """None for advisory-only checks (check 8)."""
+    observed: Any
+    threshold: Any
+    advisory: bool = False
+    characterized: bool = False
+    note: str | None = None
+
+
+class GateBlock(BaseModel):
+    """Pipeline QC verdict from stage_gate, stored in esm.gate.
+
+    Checks 1–7 are the hard ship/no-ship core (reference-free). Check 8 is
+    advisory-only (P13HMEON reference roughness comparison) and never
+    contributes to ``core_failed``. See run_pipeline.py GATE_* constants for
+    the authoritative threshold values.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunk_label: str | None = None
+    checks: list[GateCheckResult] = Field(default_factory=list)
+    core_failed: list[str] = Field(default_factory=list)
+    passed: bool | None = None
+
+
+class MarkersGateBlock(BaseModel):
+    """Marker-layer validation verdict from stage_markers (esm.markers_validation).
+
+    Gates a–d (ADR-0022):
+      a  parity — every marker has a consecutive-ID partner (no orphans)
+      b  coherence — per-marker reprojection residual below ceiling_px
+      c  consistency — inter-bar local-length ratio <= max_ratio (scale-free)
+      d  sufficiency — validated bar count >= min_validated_bars
+
+    ``overall_status`` is the top-level field: 'headless-pass' | 'escalated'.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    overall_status: str | None = None
+    gate_a_parity: bool | None = None
+    gate_b_coherence_px: float | None = None
+    """Ceiling used for gate (b) — not the observed worst residual."""
+    gate_b_passed: bool | None = None
+    gate_c_ratio: float | None = None
+    """Observed inter-bar max/min length ratio (None if < 2 bars)."""
+    gate_c_passed: bool | None = None
+    gate_d_bars: int | None = None
+    """Count of validated bars (both endpoints coherent)."""
+    gate_d_passed: bool | None = None
+
+
 class ProcessingManifest(BaseModel):
     """One Metashape processing run, end to end."""
 
@@ -90,6 +153,68 @@ class ProcessingManifest(BaseModel):
     provenance: ProvenanceBlock = Field(default_factory=ProvenanceBlock)
     parameters: ParametersBlock = Field(default_factory=ParametersBlock)
     outcome: OutcomeBlock = Field(default_factory=OutcomeBlock)
+    gate: GateBlock = Field(default_factory=GateBlock)
+    markers_gate: MarkersGateBlock = Field(default_factory=MarkersGateBlock)
+
+    @classmethod
+    def from_esm_gate(cls, gate_dict: dict[str, Any]) -> "GateBlock":
+        """Parse the esm.gate dict written by stage_gate into a GateBlock.
+
+        Can be used standalone to build a GateBlock, or called inside
+        ``from_esm_report`` when esm.gate is embedded in the same payload.
+        """
+        if not gate_dict:
+            return GateBlock()
+        raw_checks: dict[str, Any] = gate_dict.get("checks") or {}
+        checks: list[GateCheckResult] = []
+        for check_id, c in raw_checks.items():
+            advisory = bool(c.get("advisory", False))
+            passed = None if advisory else c.get("pass")
+            # Observed value — most checks use 'v', footprint uses evr+aspect,
+            # coreg uses 'v' as a list, advisory uses available/flag.
+            if check_id.startswith("6_"):
+                observed: Any = {"evr": c.get("evr"), "aspect": c.get("aspect")}
+            elif advisory:
+                observed = {"available": c.get("available"), "flag": c.get("flag")}
+            else:
+                observed = c.get("v")
+            # Threshold — max / min / target depending on check.
+            threshold: Any = c.get("max") or c.get("min") or c.get("target")
+            checks.append(GateCheckResult(
+                check_id=check_id,
+                passed=passed,
+                observed=observed,
+                threshold=threshold,
+                advisory=advisory,
+                note=c.get("note"),
+            ))
+        return GateBlock(
+            chunk_label=gate_dict.get("chunk"),
+            checks=checks,
+            core_failed=gate_dict.get("core_failed") or [],
+            passed=gate_dict.get("PASS"),
+        )
+
+    @classmethod
+    def from_esm_markers_validation(cls, val_dict: dict[str, Any]) -> "MarkersGateBlock":
+        """Parse the esm.markers_validation dict written by stage_markers."""
+        if not val_dict:
+            return MarkersGateBlock()
+        gates: dict[str, Any] = val_dict.get("gates") or {}
+        ga = gates.get("a_parity") or {}
+        gb = gates.get("b_coherence") or {}
+        gc = gates.get("c_consistency") or {}
+        gd = gates.get("d_sufficiency") or {}
+        return MarkersGateBlock(
+            overall_status=val_dict.get("status"),
+            gate_a_parity=ga.get("ok"),
+            gate_b_coherence_px=gb.get("ceiling_px"),
+            gate_b_passed=gb.get("ok"),
+            gate_c_ratio=gc.get("ratio"),
+            gate_c_passed=gc.get("ok"),
+            gate_d_bars=gd.get("n_validated_bars"),
+            gate_d_passed=gd.get("ok"),
+        )
 
     @classmethod
     def from_esm_report(cls, report: dict[str, Any], manifest_id: str | None = None) -> "ProcessingManifest":

@@ -1,11 +1,23 @@
-"""reef_sfm_provenance.qc — QC gates over a ProcessingManifest.
+"""reef_sfm_provenance.qc — QC gates, two layers.
 
-Chat-6 layer: turns a populated (or half-populated) `ProcessingManifest`
-into a `QCReport` — one entry per criterion, split into *conformance*
-(were Toth ESM Table S2 parameters actually applied; ADR-0010) and
-*outcome* (did the run meet the ESM Step 8 quality observables).
+* ``validator.py``  — ``QCValidator``: Toth ESM Table S2 conformance/outcome
+  over a ``ProcessingManifest``; ``bool | None`` three-state; ADR-0010.
+* ``structural.py`` — ``StructuralQCValidator``: artifact presence and disk
+  integrity over a ``RunManifest``; ``bool | None`` three-state.
+* ``checker.py``    — ``run_qc`` convenience wrapper over the structural layer.
 """
 
+from reef_sfm_provenance.qc.checker import run_qc
+from reef_sfm_provenance.qc.structural import StructuralQCReport, StructuralQCValidator
 from reef_sfm_provenance.qc.validator import QCCriterion, QCReport, QCValidator
 
-__all__ = ["QCCriterion", "QCReport", "QCValidator"]
+__all__ = [
+    # Toth Table S2 layer (ProcessingManifest)
+    "QCCriterion",
+    "QCReport",
+    "QCValidator",
+    # Structural layer (RunManifest)
+    "StructuralQCReport",
+    "StructuralQCValidator",
+    "run_qc",
+]
