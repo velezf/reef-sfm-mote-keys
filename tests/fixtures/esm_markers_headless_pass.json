@@ -1,0 +1,40 @@
+{
+  "status": "headless-pass",
+  "proposed_pairs": [[15, 16], [19, 20], [25, 26]],
+  "validated_scalebars": [
+    {"a": 15, "b": 16, "len_local": 0.123450},
+    {"a": 19, "b": 20, "len_local": 0.123670},
+    {"a": 25, "b": 26, "len_local": 0.123560}
+  ],
+  "gates": {
+    "a_parity": {
+      "gate": "a_parity", "ok": true,
+      "n_markers": 6, "odd_count": false,
+      "proposed_pairs": [[15, 16], [19, 20], [25, 26]],
+      "orphans": []
+    },
+    "b_coherence": {
+      "gate": "b_coherence", "ok": true,
+      "ceiling_px": 2.0, "min_projections": 2,
+      "flagged": [], "flagged_ids": [], "load_bearing_flagged": []
+    },
+    "c_consistency": {
+      "gate": "c_consistency", "ok": true,
+      "ratio": 1.018, "max_ratio": 1.25,
+      "n_bars": 3, "lengths": [0.123450, 0.123670, 0.123560]
+    },
+    "d_sufficiency": {
+      "gate": "d_sufficiency", "ok": true,
+      "n_validated_bars": 3, "min_validated_bars": 3
+    }
+  },
+  "thresholds": {
+    "resid_ceiling_px": 2.0,
+    "interbar_ratio_max": 1.25,
+    "min_validated_bars": 3,
+    "min_projections": 2,
+    "calibration_note": "Defaults calibrated on a known-good reference transect."
+  },
+  "provenance": "/data/edr_work/markers_provenance/T1_R2/markers_validation.json",
+  "marker_source": "headless"
+}

@@ -1,0 +1,21 @@
+{
+  "chunk": "T1_area_survey",
+  "checks": {
+    "1_long_tilt_deg":       {"v": 0.086, "max": 0.5,  "pass": true},
+    "2_total_tilt_deg":      {"v": 3.12,  "max": 6.0,  "pass": true},
+    "3_coverage_interp_off": {"v": 0.982, "min": 0.95, "pass": true},
+    "4_long_extent_m":       {"v": 10.003,"target": 10.0, "pass": true},
+    "5_coreg_dx_dy_m":       {"v": [0.0, 0.0],            "pass": true},
+    "6_footprint":           {"evr": 0.991, "aspect": 11.2,"pass": true},
+    "7_orientation_plus_x":  {"v": true,                   "pass": true},
+    "8_reference_dem_advisory": {
+      "available": false, "path": null,
+      "advisory": true, "flag": null,
+      "note": "comparison-only; advisory; the hard gate is the reference-free core (1-7)."
+    }
+  },
+  "cross": {"cross_tilt_deg": 2.14, "note": "cross is the under-constrained DOF"},
+  "core_failed": [],
+  "PASS": true,
+  "reference_firewall": "comparison-only; not read by any construction stage; advisory gate #8 only"
+}

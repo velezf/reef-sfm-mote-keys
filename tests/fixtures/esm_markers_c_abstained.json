@@ -1,0 +1,32 @@
+{
+  "_note": "Gate c abstains when <2 bars (ok=True, ratio=None). Gate d fails because only 1 bar found.",
+  "status": "escalated",
+  "failed_gates": ["d_sufficiency"],
+  "gates": {
+    "a_parity": {
+      "gate": "a_parity", "ok": true,
+      "n_markers": 2, "odd_count": false,
+      "proposed_pairs": [[15, 16]],
+      "orphans": []
+    },
+    "b_coherence": {
+      "gate": "b_coherence", "ok": true,
+      "ceiling_px": 2.0, "min_projections": 2,
+      "flagged": [], "flagged_ids": [], "load_bearing_flagged": []
+    },
+    "c_consistency": {
+      "gate": "c_consistency", "ok": true,
+      "ratio": null, "n_bars": 1, "abstained": true
+    },
+    "d_sufficiency": {
+      "gate": "d_sufficiency", "ok": false,
+      "n_validated_bars": 1, "min_validated_bars": 3
+    }
+  },
+  "suspect_ids": [],
+  "thresholds": {
+    "resid_ceiling_px": 2.0, "interbar_ratio_max": 1.25,
+    "min_validated_bars": 3, "min_projections": 2
+  },
+  "provenance": "/data/edr_work/markers_provenance/T1/markers_escalation.json"
+}

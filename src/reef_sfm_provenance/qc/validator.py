@@ -275,11 +275,13 @@ class QCValidator:
         """Convert a GateBlock into QCCriterion objects (pipeline_gate category)."""
         _SRC = "run_pipeline.py stage_gate (esm.gate)"
         if not gate.checks:
-            # No gate data — emit a single not-evaluable sentinel.
+            # No per-check data — emit a sentinel using the block's own verdict
+            # (None when the block is default-empty, True/False when it was
+            # constructed from a summary-only payload with no per-check details).
             return [QCCriterion(
                 name="pipeline_gate_overall",
                 category="pipeline_gate",
-                passed=None,
+                passed=gate.passed,
                 observed=None,
                 threshold=None,
                 source=_SRC,

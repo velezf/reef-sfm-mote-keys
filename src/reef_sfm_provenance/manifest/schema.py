@@ -212,16 +212,25 @@ class ProcessingManifest(BaseModel):
             gate_b_coherence_px=gb.get("ceiling_px"),
             gate_b_passed=gb.get("ok"),
             gate_c_ratio=gc.get("ratio"),
-            gate_c_passed=gc.get("ok"),
+            # gate_c abstains when <2 bars (ok=True, abstained=True); map to None so
+            # the QCReport does not report a false pass for a check that never ran.
+            gate_c_passed=None if gc.get("abstained") else gc.get("ok"),
             gate_d_bars=gd.get("n_validated_bars"),
             gate_d_passed=gd.get("ok"),
         )
 
     @classmethod
     def from_esm_report(cls, report: dict[str, Any], manifest_id: str | None = None) -> "ProcessingManifest":
-        """Construct from the dict written to chunk.meta['esm.report'] by stage_report."""
+        """Construct from the dict written to chunk.meta['esm.report'] by stage_report.
+
+        Also consumes ``stage_gate`` and ``stage_markers_validation`` when present —
+        stage_report embeds both in the same summary dict (run_pipeline.py lines
+        3099, 3090).  If absent the gate blocks default to empty.
+        """
         p: dict[str, Any] = report.get("parameters") or {}
         o: dict[str, Any] = report.get("outcome") or {}
+        gate_dict: dict[str, Any] = report.get("stage_gate") or {}
+        markers_dict: dict[str, Any] = report.get("stage_markers_validation") or {}
         return cls(
             manifest_id=manifest_id,
             parameters=ParametersBlock(
@@ -246,4 +255,6 @@ class ProcessingManifest(BaseModel):
                 dsm_cells=o.get("dsm_cells"),
                 dsm_resolution_m=o.get("dsm_resolution_m"),
             ),
+            gate=cls.from_esm_gate(gate_dict),
+            markers_gate=cls.from_esm_markers_validation(markers_dict),
         )

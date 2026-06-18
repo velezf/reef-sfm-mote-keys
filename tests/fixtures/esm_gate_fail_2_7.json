@@ -1,0 +1,22 @@
+{
+  "_note": "Mirrors the actual T1_R2 gate verdict (ADR-0036 backstory). Check 2 fails because real reef-wall cross-axis slope (8.71 deg) exceeds the 6.0 deg flat-belt threshold. Check 7 fails due to 135-deg-vs-+X convention mismatch — documented non-blocker.",
+  "chunk": "T1_R2",
+  "checks": {
+    "1_long_tilt_deg":       {"v": 0.37,  "max": 0.5,  "pass": true},
+    "2_total_tilt_deg":      {"v": 8.71,  "max": 6.0,  "pass": false},
+    "3_coverage_interp_off": {"v": 0.971, "min": 0.95, "pass": true},
+    "4_long_extent_m":       {"v": 9.998, "target": 10.0, "pass": true},
+    "5_coreg_dx_dy_m":       {"v": [0.0, 0.0],              "pass": true},
+    "6_footprint":           {"evr": 0.982, "aspect": 9.8,  "pass": true},
+    "7_orientation_plus_x":  {"v": false,                   "pass": false},
+    "8_reference_dem_advisory": {
+      "available": false, "path": null,
+      "advisory": true, "flag": null,
+      "note": "comparison-only; advisory; the hard gate is the reference-free core (1-7)."
+    }
+  },
+  "cross": {"cross_tilt_deg": 6.39, "note": "cross is the under-constrained DOF"},
+  "core_failed": ["2_total_tilt_deg", "7_orientation_plus_x"],
+  "PASS": false,
+  "reference_firewall": "comparison-only; not read by any construction stage; advisory gate #8 only"
+}

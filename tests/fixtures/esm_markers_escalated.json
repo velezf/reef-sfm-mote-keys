@@ -1,0 +1,35 @@
+{
+  "status": "escalated",
+  "failed_gates": ["b_coherence", "d_sufficiency"],
+  "gates": {
+    "a_parity": {
+      "gate": "a_parity", "ok": true,
+      "n_markers": 6, "odd_count": false,
+      "proposed_pairs": [[15, 16], [19, 20], [25, 26]],
+      "orphans": []
+    },
+    "b_coherence": {
+      "gate": "b_coherence", "ok": false,
+      "ceiling_px": 2.0, "min_projections": 2,
+      "flagged": [{"id": 26, "resid_px_median": 4.7, "projection_count": 8, "reason": "resid_above_ceiling"}],
+      "flagged_ids": [26], "load_bearing_flagged": [26]
+    },
+    "c_consistency": {
+      "gate": "c_consistency", "ok": true,
+      "ratio": 1.091, "max_ratio": 1.25,
+      "n_bars": 3, "lengths": [0.123450, 0.124100, 0.123900]
+    },
+    "d_sufficiency": {
+      "gate": "d_sufficiency", "ok": false,
+      "n_validated_bars": 2, "min_validated_bars": 3
+    }
+  },
+  "suspect_ids": [26],
+  "thresholds": {
+    "resid_ceiling_px": 2.0,
+    "interbar_ratio_max": 1.25,
+    "min_validated_bars": 3,
+    "min_projections": 2
+  },
+  "provenance": "/data/edr_work/markers_provenance/T1_R2/markers_escalation.json"
+}
