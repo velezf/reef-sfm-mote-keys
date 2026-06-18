@@ -6,14 +6,11 @@ from pathlib import Path
 
 from reef_sfm_provenance.models import (
     ArtifactKind,
-    QCReport,
-    QCResult,
-    QCStatus,
     ReconciliationReport,
     ReconciliationResult,
     RunManifest,
-    Severity,
 )
+from reef_sfm_provenance.qc.validator import QCCriterion, QCReport
 from reef_sfm_provenance.reports import render_markdown, write_report
 
 
@@ -38,22 +35,21 @@ def test_render_markdown_no_qc_no_section(tmp_path):
 
 def test_render_markdown_qc_section_appears():
     qc = QCReport(
-        run_id="EDR_T1_test",
-        results=[
-            QCResult(
-                check_id="reprojection_error",
-                name="Reprojection error",
-                status=QCStatus.PASS,
-                severity=Severity.CRITICAL,
-                expected="0.3–0.5",
-                observed="0.35",
-                units="px",
+        manifest_id="EDR_T1_test",
+        criteria=[
+            QCCriterion(
+                name="reprojection_error",
+                category="conformance",
+                passed=True,
+                observed=0.35,
+                threshold=0.3,
+                source="Toth et al. 2025 ESM Table S2",
             )
         ],
     )
     text = render_markdown(_simple_manifest(), qc=qc)
     assert "QC Results" in text
-    assert "reprojection_error" in text or "Reprojection error" in text
+    assert "reprojection_error" in text
     assert "pass" in text
 
 

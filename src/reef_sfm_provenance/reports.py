@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from .models import QCReport, ReconciliationReport, RunManifest
+from .models import ReconciliationReport, RunManifest
+from .qc.validator import QCReport
 
 
 def render_markdown(
@@ -74,25 +75,32 @@ def render_markdown(
     # --- QC ---
     if qc is not None:
         lines += ["## QC Results", ""]
-        summary = qc.summary
-        verdict = "PASS" if qc.passed else "FAIL"
+        n_pass = sum(c.passed is True for c in qc.criteria)
+        n_fail = sum(c.passed is False for c in qc.criteria)
+        n_ne = sum(c.passed is None for c in qc.criteria)
+        if qc.passed is True:
+            verdict = "PASS"
+        elif qc.passed is False:
+            verdict = "FAIL"
+        else:
+            verdict = "NOT EVALUABLE"
         lines.append(
             f"**Overall:** {verdict}  |  "
-            f"pass={summary.get('pass', 0)}  "
-            f"fail={summary.get('fail', 0)}  "
-            f"not_evaluable={summary.get('not_evaluable', 0)}"
+            f"pass={n_pass}  fail={n_fail}  not_evaluable={n_ne}"
         )
         lines.append("")
-        lines += ["| Check | Status | Expected | Observed | Units | Message |",
-                  "| --- | --- | --- | --- | --- | --- |"]
-        for r in qc.results:
-            exp = r.expected or "—"
-            obs = r.observed or "—"
-            units = r.units or "—"
-            msg = r.message or r.skipped_reason or ""
-            lines.append(
-                f"| {r.name} | **{r.status.value}** | {exp} | {obs} | {units} | {msg} |"
-            )
+        lines += ["| Check | Category | Status | Expected | Observed |",
+                  "| --- | --- | --- | --- | --- |"]
+        for c in qc.criteria:
+            if c.passed is True:
+                status = "**pass**"
+            elif c.passed is False:
+                status = "**fail**"
+            else:
+                status = "not_evaluable"
+            exp = str(c.threshold) if c.threshold is not None else "—"
+            obs = str(c.observed) if c.observed is not None else "—"
+            lines.append(f"| {c.name} | {c.category} | {status} | {exp} | {obs} |")
         lines.append("")
 
     # --- reconciliation ---

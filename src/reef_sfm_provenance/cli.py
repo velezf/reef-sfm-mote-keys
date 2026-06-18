@@ -122,7 +122,8 @@ def cmd_report(
     out: Optional[Path] = typer.Option(None),
 ) -> None:
     """Assemble the human-readable Markdown report from manifest + QC + reconciliation."""
-    from .models import QCReport, ReconciliationReport
+    from .qc.validator import QCReport
+    from .models import ReconciliationReport
 
     manifest = load_manifest(run_dir)
     qc = _maybe_load_model(run_dir / "qc_report.json", QCReport)
