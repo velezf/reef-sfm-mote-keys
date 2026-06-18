@@ -179,7 +179,8 @@ class ProcessingManifest(BaseModel):
             else:
                 observed = c.get("v")
             # Threshold — max / min / target depending on check.
-            threshold: Any = c.get("max") or c.get("min") or c.get("target")
+            # Use key-presence test so a legitimate threshold of 0.0 is not dropped.
+            threshold: Any = next((c[k] for k in ("max", "min", "target") if k in c), None)
             checks.append(GateCheckResult(
                 check_id=check_id,
                 passed=passed,

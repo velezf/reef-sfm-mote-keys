@@ -36,10 +36,10 @@ def test_good_run_reprojection_passes():
     assert by_name["reprojection_error"].passed is True
 
 
-def test_good_run_scalebar_passes():
-    """0.0005 m < 0.001 m threshold."""
+def test_good_run_scalebar_not_evaluable():
+    """scalebar_error_m threshold is None (not calibrated) — always not-evaluable."""
     report = run_qc(_load("synthetic_manifest_good.json"))
-    assert criteria_by_name(report)["scalebar_error"].passed is True
+    assert criteria_by_name(report)["scalebar_error"].passed is None
 
 
 def test_good_run_registered_images_fails():
@@ -54,10 +54,10 @@ def test_fail_run_reprojection_fails():
     assert criteria_by_name(report)["reprojection_error"].passed is False
 
 
-def test_fail_run_scalebar_fails():
-    """0.005 m > 0.001 m threshold."""
+def test_fail_run_scalebar_not_evaluable():
+    """scalebar_error_m threshold is None (not calibrated) — not-evaluable regardless of observed."""
     report = run_qc(_load("synthetic_manifest_fail.json"))
-    assert criteria_by_name(report)["scalebar_error"].passed is False
+    assert criteria_by_name(report)["scalebar_error"].passed is None
 
 
 def test_fail_run_overall_fails():

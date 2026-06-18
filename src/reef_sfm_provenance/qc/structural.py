@@ -27,12 +27,20 @@ logger = logging.getLogger(__name__)
 _REQUIRED_ARTIFACTS = (ArtifactKind.DSM, ArtifactKind.ORTHOMOSAIC, ArtifactKind.DENSE_CLOUD)
 _SOURCE = "reef_sfm_provenance.qc.structural"
 
-# Quantitative targets — sourced, not magic numbers.
+# Quantitative targets.
+# reprojection_error_px: Toth Table S2 floor 0.3; 0.5 is a soft ceiling observed
+#   in practice (no S2 upper bound stated — treat as not-evaluable above 0.5).
+# registered_fraction: Toth Table S2 (ESM Step 8, ≥90% camera registration).
+# scalebar_error_m: None — the PIFSC 0.001 m value is explicitly NOT the Toth
+#   reference (see validator.py docstring); leave uncalibrated until ADR sets it.
+# recon_uncertainty: None — the PIFSC "RU ≤ 15" outcome gate fails every
+#   Toth-conformant run by construction (gradual-selection window 20–40);
+#   see validator.py lines 11–14.  Leave as not-evaluable here.
 _TARGETS: dict[str, Any] = {
     "reprojection_error_px": (0.3, 0.5),
-    "scalebar_error_m": 0.001,
+    "scalebar_error_m": None,
     "registered_fraction": 0.90,
-    "recon_uncertainty": 15.0,
+    "recon_uncertainty": None,
 }
 
 
@@ -66,6 +74,14 @@ class StructuralQCReport(BaseModel):
         if any(v is True for v in verdicts):
             return True
         return None
+
+    @property
+    def summary(self) -> str:
+        n_pass = sum(c.passed is True for c in self.criteria)
+        n_fail = sum(c.passed is False for c in self.criteria)
+        n_ne = len(self.criteria) - n_pass - n_fail
+        verdict = "PASS" if self.passed is True else "FAIL" if self.passed is False else "NOT_EVALUABLE"
+        return f"{verdict} ({n_pass} pass, {n_fail} fail, {n_ne} not_evaluable)"
 
     def to_json(self, **kwargs: Any) -> str:
         return self.model_dump_json(**kwargs)
@@ -104,9 +120,11 @@ class StructuralQCValidator:
     def _scalebar_error(m: RunManifest) -> StructuralCriterion:
         thr = _TARGETS["scalebar_error_m"]
         val = m.error_metrics.get("scalebar_error_m")
+        # thr is None until an ADR-calibrated value replaces it; emit not-evaluable.
+        passed = None if (val is None or thr is None) else (val <= thr)
         return StructuralCriterion(
             name="scalebar_error",
-            passed=None if val is None else (val <= thr),
+            passed=passed,
             observed=val,
             threshold=thr,
             source=_SOURCE,
@@ -117,8 +135,10 @@ class StructuralQCValidator:
         thr = _TARGETS["registered_fraction"]
         total = m.camera_alignment.get("images_total")
         aligned = m.camera_alignment.get("images_aligned")
-        if not total or aligned is None:
+        if total is None or aligned is None:
             frac = None
+        elif total == 0:
+            frac = 0.0
         else:
             frac = aligned / total
         return StructuralCriterion(
@@ -133,9 +153,12 @@ class StructuralQCValidator:
     def _reconstruction_uncertainty(m: RunManifest) -> StructuralCriterion:
         thr = _TARGETS["recon_uncertainty"]
         val = m.error_metrics.get("reconstruction_uncertainty")
+        # thr is None — the PIFSC 15.0 gate fails every Toth-conformant run;
+        # emit not-evaluable until an ADR-calibrated threshold replaces it.
+        passed = None if (val is None or thr is None) else (val <= thr)
         return StructuralCriterion(
             name="recon_uncertainty",
-            passed=None if val is None else (val <= thr),
+            passed=passed,
             observed=val,
             threshold=thr,
             source=_SOURCE,
@@ -154,15 +177,7 @@ class StructuralQCValidator:
 
     @staticmethod
     def _disk_integrity(manifest: RunManifest, root: Path | None) -> StructuralCriterion:
-        if not manifest.artifacts:
-            return StructuralCriterion(
-                name="artifact_disk_integrity",
-                passed=None,
-                observed=None,
-                threshold="all artifacts on disk with matching hashes",
-                source=_SOURCE,
-            )
-        if root is None:
+        if not manifest.artifacts or root is None:
             return StructuralCriterion(
                 name="artifact_disk_integrity",
                 passed=None,
@@ -172,7 +187,8 @@ class StructuralQCValidator:
             )
 
         bad: list[str] = []
-        checked = 0
+        hash_verified = 0
+        existence_only = 0
         for art in manifest.artifacts:
             full = root / art.path
             if not full.exists():
@@ -182,17 +198,33 @@ class StructuralQCValidator:
                 bad.append(f"{art.path}:empty")
                 continue
             if art.sha256:
-                actual = hashlib.sha256(full.read_bytes()).hexdigest()
-                if actual != art.sha256:
+                h = hashlib.sha256()
+                with full.open("rb") as fh:
+                    while chunk := fh.read(65536):
+                        h.update(chunk)
+                if h.hexdigest() != art.sha256:
                     bad.append(f"{art.path}:hash_mismatch")
                     continue
-            checked += 1
+                hash_verified += 1
+            else:
+                existence_only += 1
 
+        n_total = len(manifest.artifacts)
         passed = len(bad) == 0
+        if passed:
+            if existence_only > 0:
+                observed: Any = (
+                    f"{hash_verified}/{n_total} hash-verified "
+                    f"({existence_only} existence-only, no sha256 recorded)"
+                )
+            else:
+                observed = f"{n_total}/{n_total} hash-verified"
+        else:
+            observed = "; ".join(bad)
         return StructuralCriterion(
             name="artifact_disk_integrity",
             passed=passed,
-            observed=f"{checked}/{len(manifest.artifacts)} ok" if passed else "; ".join(bad),
+            observed=observed,
             threshold="all artifacts on disk with matching hashes",
             source=_SOURCE,
         )

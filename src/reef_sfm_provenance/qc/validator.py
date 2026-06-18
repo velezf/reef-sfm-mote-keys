@@ -170,10 +170,15 @@ class QCValidator:
     # -- the gate -----------------------------------------------------------
 
     def validate(self, manifest: ProcessingManifest) -> QCReport:
+        report = QCReport(manifest_id=manifest.manifest_id, criteria=self._toth_criteria(manifest))
+        self._log_summary(report)
+        return report
+
+    def _toth_criteria(self, manifest: ProcessingManifest) -> list[QCCriterion]:
+        """Build the 11 Toth Table S2 criteria without logging."""
         p = manifest.parameters
         o = manifest.outcome
-
-        criteria = [
+        return [
             # Conformance: did we run what Toth ran?
             self._eq("alignment_accuracy", p.alignment_accuracy, self.accuracy_expected),
             self._eq("key_point_limit", p.key_point_limit, self.key_point_limit_expected),
@@ -191,10 +196,6 @@ class QCValidator:
             self._scalebars(o.per_scalebar_errors_m),
             self._frame_retention(o.step4_images_analyzed, o.step4_images_disabled),
         ]
-
-        report = QCReport(manifest_id=manifest.manifest_id, criteria=criteria)
-        self._log_summary(report)
-        return report
 
     def _reprojection_error_conformance(self, observed: float | None) -> QCCriterion:
         expected = self.reprojection_error_expected
@@ -258,15 +259,14 @@ class QCValidator:
     def validate_full(self, manifest: ProcessingManifest) -> QCReport:
         """Run Toth Table S2 + pipeline gate + markers gate criteria together.
 
-        Extends ``validate()`` with criteria drawn from ``manifest.gate``
-        (esm.gate) and ``manifest.markers_gate`` (esm.markers_validation).
-        Criteria whose manifest blocks are empty are emitted as not-evaluable
-        (passed=None) following the same convention as ``validate()``.
+        Uses ``_toth_criteria()`` directly (no intermediate validate() call) so
+        only one log line is emitted for the combined report.
         """
-        base = self.validate(manifest)
-        gate_crits = self._gate_criteria(manifest.gate)
-        markers_crits = self._markers_gate_criteria(manifest.markers_gate)
-        all_criteria = base.criteria + gate_crits + markers_crits
+        all_criteria = (
+            self._toth_criteria(manifest)
+            + self._gate_criteria(manifest.gate)
+            + self._markers_gate_criteria(manifest.markers_gate)
+        )
         report = QCReport(manifest_id=manifest.manifest_id, criteria=all_criteria)
         self._log_summary(report)
         return report
@@ -311,7 +311,7 @@ class QCValidator:
 
         return [
             _crit("markers_gate_a_parity", mg.gate_a_parity,
-                  "ok" if mg.gate_a_parity else "orphans-present",
+                  "ok" if mg.gate_a_parity is True else "orphans-present" if mg.gate_a_parity is False else None,
                   "all markers paired (consecutive IDs)"),
             _crit("markers_gate_b_coherence", mg.gate_b_passed,
                   mg.gate_b_coherence_px,
@@ -327,9 +327,11 @@ class QCValidator:
     @staticmethod
     def _log_summary(report: QCReport) -> None:
         mid = report.manifest_id or "<unidentified>"
+        by_cat: dict[str, list[QCCriterion]] = {}
+        for c in report.criteria:
+            by_cat.setdefault(c.category, []).append(c)
         parts = []
-        for category in ("conformance", "outcome"):
-            crits = [c for c in report.criteria if c.category == category]
+        for category, crits in by_cat.items():
             n_pass = sum(c.passed is True for c in crits)
             n_eval = sum(c.passed is not None for c in crits)
             parts.append(f"{category} {n_pass}/{n_eval} passed ({len(crits) - n_eval} not evaluable)")
