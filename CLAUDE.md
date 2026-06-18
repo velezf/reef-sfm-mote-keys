@@ -164,35 +164,44 @@ Active branch: `main` (feat/zero-pitch-frame merged).
 - `fix/probe-topo-gates`: recalibrate `total_tilt` (8.71° fails 6.0° flat-belt threshold), camera-Z, and cameras-above-markers gates for topo transects. `footprint_explained_var` None-guard (`0bfb4c3` on `fix/level-camera-nadir`) is untested — split to this branch with a RED test before merging.
 - `feat/aoi-dsm-postdense`: untethered from production stages; reconcile or retire.
 - `buildDem` hang root cause open for full-area T1 DEM (3 confirmed hangs on 487M pts).
-- Suite: 265 passing on main (up from 159). CLI wired. Pending: QC module review, push, README, marker 25–26 item.
+- Suite: 293 passing on main. All pushed to origin (`cab1d7a`). Pending: README, marker 25–26 item.
 
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
 ## SESSION STATE
-Chat 12 IN PROGRESS. main at `f47d1d0` (4 commits ahead of origin, NOT YET PUSHED).
+Chat 12 COMPLETE. main at `cab1d7a` (pushed to origin).
 
 Zero-pitch + reconcile (SETTLED — Chat 10/11):
   Clipped 10×1 DSM sha dcec116b. mean_elevation +27.7% survey-unanchorable (ADR-0037).
   rugosity −3.0%, vrm −14.1% Python impl bias. All characterized and settled.
 
-reef_sfm_provenance package (Chat 12 — built this session):
-  265 tests passing (was 159). Unpushed commits: 396ae28 → 129a87c → 5a6db9a → f47d1d0.
-  One QCReport canonical: qc/validator.py (criteria/bool|None). QCStatus enum removed.
-  Three QC layers wired in validate_full(): Toth S2 + stage_gate + markers sub-gates.
-  Key files added: models.py, run_manifest.py, exceptions.py, logging_config.py,
-    intake.py, metashape_report.py, provenance.py, reports.py, cli.py (Typer),
-    qc/structural.py, qc/checker.py, reconcile/reconciler.py, reconcile/metrics_interface.py.
-  GateBlock + MarkersGateBlock added to manifest/schema.py (from esm.gate + esm.markers_validation).
-  pyproject.toml: typer/rich/orjson/prov added; reef-audit alias added.
+reef_sfm_provenance package (Chat 12 — QC review + handoff tests complete):
+  293 tests passing (was 159 at Chat 12 start). All pushed.
+  Two full review passes completed:
+    Pass 1 (8-angle, 10 findings): report.summary crash, PIFSC SOP thresholds in structural.py
+      (scalebar_error_m=0.001 / recon_uncertainty=15.0 both forbidden), gate_a_parity false
+      positive, falsy-or threshold chain, total=0 not-evaluable, disk integrity misleading,
+      _log_summary hardcoded categories, OOM hashing, double-log.
+    Pass 2 (wire-format, 3 bugs + 3 gaps): gate_c abstained→false-positive fixed; from_esm_report
+      now populates gate/markers blocks from stage_gate/stage_markers_validation; _gate_criteria
+      sentinel honours gate.passed. Gaps documented (check 5/7 threshold=None, gate B
+      observed=ceiling) — fix prompt written for pipeline changes (see below).
+  Pipeline handoff fixtures added: esm_gate_pass.json, esm_gate_fail_2_7.json (T1_R2 real case),
+    esm_markers_headless_pass.json, esm_markers_escalated.json, esm_markers_c_abstained.json.
+  29 new contract tests in test_pipeline_handoff.py.
 
 Binary bundle (Mac products/, gitignored): 25/25 sha256 OK (Chat 11).
   Canonical DSM: edr_t1_r2_q030_zeropitch_10x1_dsm.tif sha dcec116b.
 
-NEXT (Chat 12 continued):
-  1. Review QC module (qc/validator.py + qc/structural.py) in detail — next immediate task.
-  2. Push 4 commits to origin/main.
-  3. README pass.
-  4. Close ADR-0033 marker 25–26 label item (pending Frank).
+Open pipeline provenance gaps (prompt written — see next session):
+  - Check 5 (5_coreg_dx_dy_m): threshold=None; GATE_COREG_TOL_M not written to esm.gate dict
+  - Check 6 (6_footprint): threshold=None; GATE_FOOTPRINT_EVR_MIN/ASPECT_MIN not written
+  - Gate B (b_coherence): worst_resid_px not captured; observed==threshold tautology
+
+NEXT (Chat 13):
+  1. Apply pipeline provenance gap fixes (prompt from Chat 12 — in stage_gate + gate_coherence).
+  2. README pass.
+  3. Close ADR-0033 marker 25–26 label item (pending Frank).
 HARD CONSTRAINTS:
   - edr_r2.psx = q050 foil, NEVER WRITE OR OPEN. edr_r2_q030.psx = source, never write.
   - WORK copy for zero-pitch: edr_r2_q030_zeropitch_20260617.psx.
