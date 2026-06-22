@@ -204,6 +204,14 @@ def classify(t: AuditTarget) -> list[Liability]:
         f.append(Liability.UNTETHERED_THRESHOLD)
     if t.observed is None:
         f.append(Liability.UNCAPTURED_MEASUREMENT)
-    elif t.threshold is not None and t.observed == t.threshold:
+    elif (t.threshold is not None
+          # Bool equality is a pass, not a tautology: observed=True, expected=True
+          # means the gate fired correctly.  Limitation: int 0/1 passed as threshold
+          # escapes this guard (isinstance(True, int) is True in Python), but gate
+          # thresholds are either float/int numerics or explicit bool — the pipeline
+          # never mixes the two, so the isinstance check is sufficient in practice.
+          and not isinstance(t.observed, bool)
+          and not isinstance(t.threshold, bool)
+          and t.observed == t.threshold):
         f.append(Liability.SELF_CONFIRMING)
     return f

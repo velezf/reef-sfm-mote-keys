@@ -266,12 +266,12 @@ def _gate_only_manifest(fixture_name: str, fixtures_root: Path = FIXTURES) -> Pr
 #   - overall_conformant is False (truthful: at least one gap remains)
 # ---------------------------------------------------------------------------
 
-def test_audit_run_post_fix_checks5_and_6_are_retired():
-    """Regression guard: 0c65e2b fixes hold — checks 5/6 are RETIRED post-fix.
+def test_audit_run_post_fix_all_gate_checks_retired():
+    """Regression guard: all three provenance gaps resolved — all checks RETIRED.
 
-    Loads esm_gate_pass.json through the real parse path. check 7 is still
-    UNTETHERED_THRESHOLD (boolean gate, no threshold key). overall_conformant
-    is False while check 7 is unresolved.
+    Checks 5/6 fixed by 0c65e2b (threshold keys).
+    Check 7 fixed here: "expected": true in fixture -> threshold=True captured;
+    bool heuristic in classify -> True==True is NOT SELF_CONFIRMING -> RETIRED.
     """
     manifest = _gate_only_manifest("esm_gate_pass.json")
     qc_report = QCValidator().validate_full(manifest)
@@ -283,17 +283,14 @@ def test_audit_run_post_fix_checks5_and_6_are_retired():
     assert by_id["5_coreg_dx_dy_m"].target.threshold == pytest.approx(1e-6)
     assert by_id["6_footprint"].target.threshold == {"evr_min": pytest.approx(0.95),
                                                      "aspect_min": pytest.approx(5.0)}
-    assert by_id["7_orientation_plus_x"].target.threshold is None
+    assert by_id["7_orientation_plus_x"].target.threshold is True   # "expected" key
 
-    # Regression: checks 5 and 6 fixed by 0c65e2b.
+    # All three gaps resolved.
     assert by_id["5_coreg_dx_dy_m"].status is Liability.RETIRED
     assert by_id["6_footprint"].status is Liability.RETIRED
+    assert by_id["7_orientation_plus_x"].status is Liability.RETIRED
 
-    # Remaining gap: check 7 boolean gate has no threshold key.
-    assert Liability.UNTETHERED_THRESHOLD in by_id["7_orientation_plus_x"].liabilities
-
-    # Truthful overall verdict while check 7 is unresolved.
-    assert report.overall_conformant is False
+    assert report.overall_conformant is True
 
 
 # ---------------------------------------------------------------------------
@@ -325,3 +322,129 @@ def test_audit_run_pre_fix_gate_flags_checks5_and_6_untethered():
     assert Liability.UNTETHERED_THRESHOLD in by_id["6_footprint"].liabilities
 
     assert report.overall_conformant is False
+
+
+# ===========================================================================
+# Phase 4 — honest check-7 encoding (RED → GREEN)
+#
+# Problem: check 7 (7_orientation_plus_x) is a boolean assertion gate.
+# Its expected value (True = first-image cameras on +X half) is a real
+# configurable parameter, but the pipeline wrote no "expected" or "threshold"
+# key, leaving threshold=None → UNTETHERED_THRESHOLD.
+#
+# Wrong fix: "characterized=True" — that was an acceptance claim without the
+# threshold actually being captured in the record.
+#
+# Correct fix:
+#   - Pipeline writes "expected": True (the captured expectation).
+#   - schema.py from_esm_gate recognises "expected" as a threshold key.
+#   - classify: SELF_CONFIRMING fires only for numeric types; a bool
+#     equalling its expectation is a pass, not a tautology.
+#   - No "characterized" flag on check 7 (it isn't a documented gap).
+# ===========================================================================
+
+def test_bool_gate_pass_not_self_confirming():
+    """Boolean gate: observed=True, threshold=True -> RETIRED, NOT SELF_CONFIRMING.
+
+    Currently misfires: classify() treats True==True as a numeric tautology
+    and fires SELF_CONFIRMING.  After the fix the bool heuristic suppresses it.
+    """
+    t = AuditTarget(
+        id="7_orientation_plus_x",
+        observed=True,
+        threshold=True,
+        passed=True,
+        advisory=False,
+        characterized=False,
+        note=None,
+        source=None,
+        origin="gate_check",
+    )
+    liabilities = classify(t)
+    assert Liability.SELF_CONFIRMING not in liabilities   # must NOT misfire
+    assert liabilities == []                              # RETIRED
+
+
+def test_bool_gate_fail_retired():
+    """Boolean gate: observed=False, threshold=True -> RETIRED.
+
+    The verdict (passed=False) is fully reconstructable: threshold=True is
+    captured and observed=False != threshold.  No UNTETHERED, no SELF_CONFIRMING.
+    passed stays False — the gate genuinely failed.
+    """
+    t = AuditTarget(
+        id="7_orientation_plus_x",
+        observed=False,
+        threshold=True,
+        passed=False,
+        advisory=False,
+        characterized=False,
+        note=None,
+        source=None,
+        origin="gate_check",
+    )
+    liabilities = classify(t)
+    assert liabilities == []     # RETIRED
+    assert t.passed is False     # gate failure preserved
+
+
+def test_numeric_self_confirming_still_fires():
+    """Guard: numeric 2.0==2.0 must still fire SELF_CONFIRMING after the bool fix.
+
+    The bool heuristic must not silently suppress numeric tautologies.
+    """
+    t = AuditTarget(
+        id="markers_gate_b_coherence",
+        observed=2.0,
+        threshold=2.0,
+        passed=True,
+        advisory=False,
+        characterized=False,
+        note=None,
+        source="stage_markers (ADR-0022)",
+        origin="qc_criterion",
+    )
+    liabilities = classify(t)
+    assert Liability.SELF_CONFIRMING in liabilities
+
+
+def test_audit_run_pass_check7_retired_expected_key():
+    """audit_run over esm_gate_pass: check 7 is RETIRED, overall_conformant True.
+
+    Requires:
+      - fixture has "expected": true  -> threshold=True (from_esm_gate "expected" key)
+      - classify bool heuristic       -> True==True is NOT SELF_CONFIRMING -> RETIRED
+      - check 7 passed=True, characterized=False (no acceptance claim)
+    """
+    manifest = _gate_only_manifest("esm_gate_pass.json")
+    qc_report = QCValidator().validate_full(manifest)
+    report = audit_run(manifest, qc_report)
+
+    by_id = {r.target.id: r for r in report.results}
+
+    assert by_id["7_orientation_plus_x"].target.threshold is True
+    assert by_id["7_orientation_plus_x"].target.characterized is False
+    assert by_id["7_orientation_plus_x"].target.passed is True
+    assert by_id["7_orientation_plus_x"].status is Liability.RETIRED
+    assert report.overall_conformant is True
+
+
+def test_audit_run_fail_2_7_check7_retired_unconfigured():
+    """audit_run over esm_gate_fail_2_7: check 7 RETIRED, overall_conformant True.
+
+    T1_R2: check 7 v=false (orientation mismatch) — gate failed, but the
+    verdict is fully reconstructable (threshold=True captured via "expected":
+    true, observed=False != threshold).  No characterized flag.
+    overall_conformant=True: all provenance gaps resolved; QC fail is separate.
+    """
+    manifest = _gate_only_manifest("esm_gate_fail_2_7.json")
+    qc_report = QCValidator().validate_full(manifest)
+    report = audit_run(manifest, qc_report)
+
+    by_id = {r.target.id: r for r in report.results}
+
+    assert by_id["7_orientation_plus_x"].target.threshold is True
+    assert by_id["7_orientation_plus_x"].target.characterized is False
+    assert by_id["7_orientation_plus_x"].target.passed is False
+    assert by_id["7_orientation_plus_x"].status is Liability.RETIRED
+    assert report.overall_conformant is True

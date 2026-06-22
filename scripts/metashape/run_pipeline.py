@@ -2735,7 +2735,12 @@ def stage_gate(doc: Metashape.Document, ignore_sanity: bool,
                             "pass": (aoi["footprint_explained_var"] >= GATE_FOOTPRINT_EVR_MIN
                                      and (aoi["footprint_aspect"] or 0) >= GATE_FOOTPRINT_ASPECT_MIN)},
             "7_orientation_plus_x": {"v": aoi["orientation_plus_x_ok"],
-                                     "pass": bool(aoi["orientation_plus_x_ok"])},
+                                     "pass": bool(aoi["orientation_plus_x_ok"]),
+                                     "expected": True,
+                                     "note": ("Boolean sign-flip guard (ADR-0021): "
+                                              "coverage/co-reg/scale invariant under 180° yaw flip — "
+                                              "a PCA-sign bug ships a reversed product silently; "
+                                              "expected orientation_plus_x_ok=True.")},
         }
         # The hard ship/no-ship decision is the INTRINSIC, reference-free core
         # (checks 1-7). A reference-based hard gate would suppress legitimate

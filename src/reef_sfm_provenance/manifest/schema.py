@@ -186,7 +186,7 @@ class ProcessingManifest(BaseModel):
             if check_id.startswith("6_") and ("evr_min" in c or "aspect_min" in c):
                 threshold: Any = {"evr_min": c.get("evr_min"), "aspect_min": c.get("aspect_min")}
             else:
-                threshold = next((c[k] for k in ("max", "min", "target", "tol") if k in c), None)
+                threshold = next((c[k] for k in ("max", "min", "target", "tol", "expected") if k in c), None)
             checks.append(GateCheckResult(
                 check_id=check_id,
                 passed=passed,
