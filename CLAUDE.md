@@ -30,9 +30,9 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-22 — Chat 6 COMPLETE → Chat 7 entry)
+## Current state / resume pointer (2026-06-22 — Chat 7 COMPLETE → Chat 8 entry)
 
-EDR_T3 shipped. EDR_T1 products COMPLETE. **Reconcile settled. Reports committed. Full binary bundle staged on EC2. main at `a2710dc`.**
+EDR_T3 shipped. EDR_T1 products COMPLETE. **Reconcile settled. Figures committed. main at `bc41f51`.**
 
 Active branch: `main`.
 
@@ -140,9 +140,9 @@ P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pi
 
 ## Open
 
-### NEXT: CLI/README/docs (deferred to Chat 7)
+### NEXT: CLI/README/docs (deferred to Chat 8)
 
-Active branch: `main` (feat/capture-threshold-audit merged — Chat 6 CLOSED).
+Active branch: `main` (feature/chat7-figures merged — Chat 7 CLOSED).
 
 - [x] **frame_retention ✓** — Merged to main.
 - [x] **Blocker-1 ✓** — `esm.report` + `ProcessingManifest` + QC chain. Merged to main.
@@ -155,6 +155,7 @@ Active branch: `main` (feat/capture-threshold-audit merged — Chat 6 CLOSED).
 - [x] **Pipeline provenance gaps CLOSED** — checks 5/6 (`tol`/`evr_min`/`aspect_min` keys) and gate B (`worst_resid_px`) wired by `0c65e2b`. Check 7 retired via `"expected": True` capture. 427 tests on main.
 - [x] **Captured-threshold audit SHIPPED** — `capture_audit.py` + `CaptureAuditReport`; ADR-0038; `overall_conformant=True` on both T1 (pass) and T1\_R2 (captured failure). Merged to main.
 - [x] **Pull full binary bundle to Mac** — 25/25 sha256 OK; dense.ply (347 MB) verified on disk.
+- [x] **Chat 7 figures SHIPPED** — `figures/fig1_orientation_convention.png` (camera-nadir vs zero-pitch; along-axis +4.38° vs +0.17°) + `figures/fig2_reconciliation.png` (metrics vs published). Notebook cells 16/18 are canonical; standalone scripts deleted. `bc41f51`.
 - [ ] **CLI/README/docs** — CLI entry point + docs pass; close ADR-0033 marker 25–26 item (pending Frank).
 - [ ] **T1\_R2 orientation verification** — ⚠ UNVERIFIED; see docs/09-v2-roadmap.md item 1.
 
@@ -173,7 +174,7 @@ Active branch: `main` (feat/capture-threshold-audit merged — Chat 6 CLOSED).
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
 ## SESSION STATE
-Chat 6 COMPLETE. main pushed (feat/capture-threshold-audit merged --no-ff). 427 tests.
+Chat 7 COMPLETE. main pushed (feature/chat7-figures merged --no-ff). bc41f51.
 
 Zero-pitch + reconcile (SETTLED — Chat 10/11):
   Clipped 10×1 DSM sha dcec116b. mean_elevation +27.7% survey-unanchorable (ADR-0037).
@@ -190,7 +191,15 @@ reef_sfm_provenance package (Chat 6 — pipeline gaps + capture audit complete):
 Binary bundle (Mac products/, gitignored): 25/25 sha256 OK (Chat 11).
   Canonical DSM: edr_t1_r2_q030_zeropitch_10x1_dsm.tif sha dcec116b.
 
-NEXT (Chat 7):
+Chat 7 figures (feature/chat7-figures — SHIPPED, bc41f51):
+  fig1_orientation_convention.png: camera-nadir vs zero-pitch along-axis +4.38° vs +0.17°;
+    cross-axis residual 6.39° flagged open (ADR-0037). Notebook cell 16 = canonical.
+  fig2_reconciliation.png: metrics vs published, JSON-only (firewall preserved).
+    mean_elev +27.7% characterized, rugosity −3.0% reproduced, VRM −14.1% characterized.
+    Notebook cell 18 = canonical. Standalone scripts deleted.
+  .python-version 3.11.9→3.12: load-bearing uv env fix (requires-python >=3.12).
+
+NEXT (Chat 8):
   1. T1_R2 orientation verification — ⚠ OPEN; see docs/09-v2-roadmap.md item 1.
   2. CLI/README/docs pass.
   3. Close ADR-0033 marker 25–26 label item (pending Frank).
