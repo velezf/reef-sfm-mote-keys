@@ -11,6 +11,7 @@
     "b_coherence": {
       "gate": "b_coherence", "ok": false,
       "ceiling_px": 2.0, "min_projections": 2,
+      "worst_resid_px": 4.7,
       "flagged": [{"id": 26, "resid_px_median": 4.7, "projection_count": 8, "reason": "resid_above_ceiling"}],
       "flagged_ids": [26], "load_bearing_flagged": [26]
     },

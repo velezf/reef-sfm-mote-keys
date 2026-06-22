@@ -5,8 +5,8 @@
     "2_total_tilt_deg":      {"v": 3.12,  "max": 6.0,  "pass": true},
     "3_coverage_interp_off": {"v": 0.982, "min": 0.95, "pass": true},
     "4_long_extent_m":       {"v": 10.003,"target": 10.0, "pass": true},
-    "5_coreg_dx_dy_m":       {"v": [0.0, 0.0],            "pass": true},
-    "6_footprint":           {"evr": 0.991, "aspect": 11.2,"pass": true},
+    "5_coreg_dx_dy_m":       {"v": [0.0, 0.0], "tol": 1e-6, "pass": true},
+    "6_footprint":           {"evr": 0.991, "aspect": 11.2, "evr_min": 0.95, "aspect_min": 5.0, "pass": true},
     "7_orientation_plus_x":  {"v": true,                   "pass": true},
     "8_reference_dem_advisory": {
       "available": false, "path": null,

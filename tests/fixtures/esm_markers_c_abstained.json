@@ -12,6 +12,7 @@
     "b_coherence": {
       "gate": "b_coherence", "ok": true,
       "ceiling_px": 2.0, "min_projections": 2,
+      "worst_resid_px": 0.28,
       "flagged": [], "flagged_ids": [], "load_bearing_flagged": []
     },
     "c_consistency": {

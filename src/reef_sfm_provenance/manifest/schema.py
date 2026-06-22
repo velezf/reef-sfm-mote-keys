@@ -133,7 +133,9 @@ class MarkersGateBlock(BaseModel):
     overall_status: str | None = None
     gate_a_parity: bool | None = None
     gate_b_coherence_px: float | None = None
-    """Ceiling used for gate (b) — not the observed worst residual."""
+    """Ceiling used for gate (b) — the configured threshold, not the worst observed residual."""
+    gate_b_worst_resid_px: float | None = None
+    """Worst per-marker reprojection residual (median) seen across all markers in this run."""
     gate_b_passed: bool | None = None
     gate_c_ratio: float | None = None
     """Observed inter-bar max/min length ratio (None if < 2 bars)."""
@@ -178,9 +180,13 @@ class ProcessingManifest(BaseModel):
                 observed = {"available": c.get("available"), "flag": c.get("flag")}
             else:
                 observed = c.get("v")
-            # Threshold — max / min / target depending on check.
-            # Use key-presence test so a legitimate threshold of 0.0 is not dropped.
-            threshold: Any = next((c[k] for k in ("max", "min", "target") if k in c), None)
+            # Threshold — keyed differently per check.  Use key-presence so a
+            # legitimate threshold of 0.0 is not dropped.  Check 6 is composite
+            # (evr_min + aspect_min); check 5 uses "tol"; others use max/min/target.
+            if check_id.startswith("6_") and ("evr_min" in c or "aspect_min" in c):
+                threshold: Any = {"evr_min": c.get("evr_min"), "aspect_min": c.get("aspect_min")}
+            else:
+                threshold = next((c[k] for k in ("max", "min", "target", "tol") if k in c), None)
             checks.append(GateCheckResult(
                 check_id=check_id,
                 passed=passed,
@@ -210,6 +216,7 @@ class ProcessingManifest(BaseModel):
             overall_status=val_dict.get("status"),
             gate_a_parity=ga.get("ok"),
             gate_b_coherence_px=gb.get("ceiling_px"),
+            gate_b_worst_resid_px=gb.get("worst_resid_px"),
             gate_b_passed=gb.get("ok"),
             gate_c_ratio=gc.get("ratio"),
             # gate_c abstains when <2 bars (ok=True, abstained=True); map to None so

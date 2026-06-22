@@ -70,16 +70,11 @@ def test_from_esm_gate_check4_threshold_from_target():
     assert chk.passed is True
 
 
-def test_from_esm_gate_check5_threshold_none():
-    """Check 5 carries no max/min/target key in the pipeline output — threshold=None.
-
-    GATE_COREG_TOL_M = 1e-6 is baked into the pipeline but not written to the check
-    dict, so the QCReport for this check has no captured threshold. Known provenance
-    gap — documented here as a contract test.
-    """
+def test_from_esm_gate_check5_threshold_is_tol():
+    """Check 5 now carries a 'tol' key in the pipeline output — threshold == GATE_COREG_TOL_M."""
     gate = ProcessingManifest.from_esm_gate(_load("esm_gate_pass.json"))
     chk = next(c for c in gate.checks if c.check_id == "5_coreg_dx_dy_m")
-    assert chk.threshold is None
+    assert chk.threshold == pytest.approx(1e-6)
     assert chk.passed is True
     assert chk.observed == [0.0, 0.0]
 
@@ -88,7 +83,7 @@ def test_from_esm_gate_check6_observed_evr_aspect():
     gate = ProcessingManifest.from_esm_gate(_load("esm_gate_pass.json"))
     chk = next(c for c in gate.checks if c.check_id == "6_footprint")
     assert chk.observed == {"evr": pytest.approx(0.991), "aspect": pytest.approx(11.2)}
-    assert chk.threshold is None
+    assert chk.threshold == {"evr_min": pytest.approx(0.95), "aspect_min": pytest.approx(5.0)}
 
 
 def test_from_esm_gate_check7_bool_v():
@@ -141,6 +136,7 @@ def test_from_esm_markers_headless_pass_quantitative_fields():
         _load("esm_markers_headless_pass.json")
     )
     assert mg.gate_b_coherence_px == pytest.approx(2.0)
+    assert mg.gate_b_worst_resid_px == pytest.approx(0.35)
     assert mg.gate_c_ratio == pytest.approx(1.018)
     assert mg.gate_d_bars == 3
 
@@ -247,17 +243,17 @@ def test_validate_full_escalated_markers_fail():
     assert report.passed is False
 
 
-def test_validate_full_gate_b_criterion_observed_is_ceiling():
-    """Documents known gap: gate B observed = ceiling_px (the threshold), not the
-    worst observed residual. The actual worst residual is not in esm.markers_validation.
-    A consumer cannot distinguish 'barely passed (1.9 px)' from 'clean pass (0.3 px)'.
+def test_validate_full_gate_b_criterion_observed_is_worst_resid():
+    """Gate B criterion observed = worst_resid_px (actual worst marker residual),
+    threshold = ceiling_px. A consumer can now distinguish a clean pass from a marginal one.
     """
     manifest = _make_manifest_with_gate("esm_gate_pass.json", "esm_markers_headless_pass.json")
     report = QCValidator().validate_full(manifest)
     by_name = {c.name: c for c in report.criteria}
     crit = by_name["markers_gate_b_coherence"]
-    # observed == threshold — no per-run residual captured
-    assert crit.observed == crit.threshold
+    assert crit.observed == pytest.approx(0.35)   # worst_resid_px from fixture
+    assert crit.threshold == pytest.approx(2.0)   # ceiling_px
+    assert crit.observed != crit.threshold
 
 
 def test_validate_full_gate_c_abstained_passed_none():

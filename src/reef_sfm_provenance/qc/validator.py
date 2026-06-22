@@ -316,8 +316,9 @@ class QCValidator:
                   "ok" if mg.gate_a_parity is True else "orphans-present" if mg.gate_a_parity is False else None,
                   "all markers paired (consecutive IDs)"),
             _crit("markers_gate_b_coherence", mg.gate_b_passed,
-                  mg.gate_b_coherence_px,
-                  self.gate_marker_resid_ceiling_px),
+                  mg.gate_b_worst_resid_px,
+                  mg.gate_b_coherence_px if mg.gate_b_coherence_px is not None
+                  else self.gate_marker_resid_ceiling_px),
             _crit("markers_gate_c_consistency", mg.gate_c_passed,
                   mg.gate_c_ratio,
                   self.gate_interbar_ratio_max),

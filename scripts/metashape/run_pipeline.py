@@ -1034,10 +1034,17 @@ def gate_coherence(records: "list[dict]", pairs: "list", ceiling_px: float,
     flagged_ids = {f["id"] for f in flagged}
     bar_ids = {x for pair in pairs for x in pair}
     load_bearing = sorted(i for i in (flagged_ids & bar_ids) if i is not None)
+    finite_resids = [
+        r.get("resid_px_median") for r in records
+        if isinstance(r.get("resid_px_median"), (int, float))
+        and math.isfinite(r["resid_px_median"])
+    ]
+    worst_resid_px = max(finite_resids) if finite_resids else None
     return {
         "gate": "b_coherence",
         "ok": not load_bearing,
         "ceiling_px": ceiling_px,
+        "worst_resid_px": worst_resid_px,
         "min_projections": min_proj,
         "flagged": flagged,
         "flagged_ids": sorted(i for i in flagged_ids if i is not None),
@@ -2719,9 +2726,12 @@ def stage_gate(doc: Metashape.Document, ignore_sanity: bool,
             "4_long_extent_m": {"v": round(long_ext, 4), "target": PARAMS.aoi_length_m,
                                 "pass": abs(long_ext - PARAMS.aoi_length_m) <= GATE_SCALE_EXTENT_TOL_M},
             "5_coreg_dx_dy_m": {"v": [round(coreg_dx, 8), round(coreg_dy, 8)],
+                                "tol": GATE_COREG_TOL_M,
                                 "pass": coreg_dx <= GATE_COREG_TOL_M and coreg_dy <= GATE_COREG_TOL_M},
             "6_footprint": {"evr": aoi["footprint_explained_var"],
                             "aspect": aoi["footprint_aspect"],
+                            "evr_min": GATE_FOOTPRINT_EVR_MIN,
+                            "aspect_min": GATE_FOOTPRINT_ASPECT_MIN,
                             "pass": (aoi["footprint_explained_var"] >= GATE_FOOTPRINT_EVR_MIN
                                      and (aoi["footprint_aspect"] or 0) >= GATE_FOOTPRINT_ASPECT_MIN)},
             "7_orientation_plus_x": {"v": aoi["orientation_plus_x_ok"],
