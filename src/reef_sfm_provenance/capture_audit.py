@@ -11,8 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .manifest.schema import GateCheckResult
-from .qc.validator import QCCriterion
+from .manifest.schema import GateCheckResult, ProcessingManifest
+from .qc.validator import QCCriterion, QCReport
 
 
 class Liability(str, Enum):
@@ -123,6 +123,68 @@ def worst_liability(liabilities: list[Liability]) -> Liability:
 # ---------------------------------------------------------------------------
 # Classifier.
 # ---------------------------------------------------------------------------
+
+def audit_run(
+    manifest: "ProcessingManifest",
+    qc_report: "QCReport",
+    *,
+    run_id: str = "",
+) -> CaptureAuditReport:
+    """Classify every evaluable gate check and QC criterion in one run.
+
+    Traversal:
+      1. manifest.gate.checks (list[GateCheckResult]) via from_gate_check —
+         each GateCheckResult with passed is not None is a real evaluable check.
+         Advisory checks have passed=None and are skipped (they are exempt from
+         UNTETHERED_THRESHOLD anyway, and have no meaningful verdict to audit).
+      2. qc_report.criteria (list[QCCriterion]) via from_qc_criterion —
+         same filter: passed is not None drops the not-evaluable sentinels
+         (markers_gate_overall when no markers data, and all Toth conformance /
+         outcome criteria whose observed value could not be populated from the
+         manifest).
+
+    Both walks are independent; a gate check will appear twice in results —
+    once as origin="gate_check" (AuditTarget.id = check_id) and once as
+    origin="qc_criterion" (AuditTarget.id = "gate_<check_id>") — auditing
+    both the raw pipeline record and the QC criterion derived from it.
+
+    overall_conformant is True only when every result is RETIRED.
+    """
+    results: list[GateAuditResult] = []
+
+    for gc in manifest.gate.checks:
+        if gc.passed is None:
+            continue
+        t = from_gate_check(gc)
+        libs = classify(t)
+        results.append(GateAuditResult(
+            target=t,
+            liabilities=libs,
+            status=worst_liability(libs),
+        ))
+
+    for c in qc_report.criteria:
+        if c.passed is None:
+            continue
+        t = from_qc_criterion(c)
+        libs = classify(t)
+        results.append(GateAuditResult(
+            target=t,
+            liabilities=libs,
+            status=worst_liability(libs),
+        ))
+
+    status_counts: dict[str, int] = {}
+    for r in results:
+        status_counts[r.status.value] = status_counts.get(r.status.value, 0) + 1
+
+    return CaptureAuditReport(
+        run_id=run_id,
+        results=results,
+        summary=status_counts,
+        overall_conformant=all(r.status is Liability.RETIRED for r in results),
+    )
+
 
 def classify(t: AuditTarget) -> list[Liability]:
     """Return the list of Liabilities for this AuditTarget.

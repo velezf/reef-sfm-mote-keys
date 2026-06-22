@@ -27,6 +27,7 @@ from reef_sfm_provenance.capture_audit import (
     CaptureAuditReport,
     GateAuditResult,
     Liability,
+    audit_run,
     classify,
     from_gate_check,
     from_qc_criterion,
@@ -210,3 +211,90 @@ def test_characterized_exempts_untethered_threshold():
 
     liabilities = classify(t)            # NotImplementedError expected
     assert Liability.UNTETHERED_THRESHOLD not in liabilities
+
+
+# ===========================================================================
+# Phase 3 — CaptureAuditReport aggregation (audit_run)
+# ===========================================================================
+
+def _gate_only_manifest(fixture_name: str, fixtures_root: Path = FIXTURES) -> ProcessingManifest:
+    """Build a ProcessingManifest with only a GateBlock populated."""
+    raw = json.loads((fixtures_root / fixture_name).read_text())
+    manifest = ProcessingManifest()
+    manifest.gate = ProcessingManifest.from_esm_gate(raw)
+    return manifest
+
+
+# ---------------------------------------------------------------------------
+# a) Live regression guard — post-fix shared fixture (esm_gate_pass.json)
+#
+# FINDING: check 7 (7_orientation_plus_x) has threshold=None in both pre- and
+# post-fix fixtures.  Boolean gates carry no configurable threshold and no
+# "characterized" flag — classify() fires UNTETHERED_THRESHOLD.  The 0c65e2b
+# fix addressed checks 5 and 6 only; check 7 is the remaining gap.
+#
+# This test therefore asserts:
+#   - checks 5 and 6 are RETIRED (the 0c65e2b fixes hold)
+#   - check 7 is UNTETHERED_THRESHOLD (the remaining gap)
+#   - overall_conformant is False (truthful: at least one gap remains)
+# ---------------------------------------------------------------------------
+
+def test_audit_run_post_fix_checks5_and_6_are_retired():
+    """Regression guard: 0c65e2b fixes hold — checks 5/6 are RETIRED post-fix.
+
+    Loads esm_gate_pass.json through the real parse path. check 7 is still
+    UNTETHERED_THRESHOLD (boolean gate, no threshold key). overall_conformant
+    is False while check 7 is unresolved.
+    """
+    manifest = _gate_only_manifest("esm_gate_pass.json")
+    qc_report = QCValidator().validate_full(manifest)
+    report = audit_run(manifest, qc_report)
+
+    by_id = {r.target.id: r for r in report.results}
+
+    # Guard — verify the parse path populates what we expect.
+    assert by_id["5_coreg_dx_dy_m"].target.threshold == pytest.approx(1e-6)
+    assert by_id["6_footprint"].target.threshold == {"evr_min": pytest.approx(0.95),
+                                                     "aspect_min": pytest.approx(5.0)}
+    assert by_id["7_orientation_plus_x"].target.threshold is None
+
+    # Regression: checks 5 and 6 fixed by 0c65e2b.
+    assert by_id["5_coreg_dx_dy_m"].status is Liability.RETIRED
+    assert by_id["6_footprint"].status is Liability.RETIRED
+
+    # Remaining gap: check 7 boolean gate has no threshold key.
+    assert Liability.UNTETHERED_THRESHOLD in by_id["7_orientation_plus_x"].liabilities
+
+    # Truthful overall verdict while check 7 is unresolved.
+    assert report.overall_conformant is False
+
+
+# ---------------------------------------------------------------------------
+# b) Pre-fix evidence — frozen pre-0c65e2b fixture through real parse path
+#    Proves audit_run detects the historical gaps (checks 5 and 6) when
+#    reading old-format pipeline output.
+# ---------------------------------------------------------------------------
+
+def test_audit_run_pre_fix_gate_flags_checks5_and_6_untethered():
+    """Pre-0c65e2b fixture: checks 5 and 6 must be UNTETHERED_THRESHOLD.
+
+    The frozen fixture lacks 'tol'/'evr_min'/'aspect_min' keys — current
+    schema.py parses them with threshold=None, triggering UNTETHERED_THRESHOLD.
+    """
+    CAPTURE_FIXTURES = FIXTURES / "capture_audit"
+    manifest = _gate_only_manifest("esm_gate_pass_pre_0c65e2b.json",
+                                   fixtures_root=CAPTURE_FIXTURES)
+    qc_report = QCValidator().validate_full(manifest)
+    report = audit_run(manifest, qc_report)
+
+    by_id = {r.target.id: r for r in report.results}
+
+    # Guard — verify threshold=None for both checks in pre-fix parse.
+    assert by_id["5_coreg_dx_dy_m"].target.threshold is None
+    assert by_id["6_footprint"].target.threshold is None
+
+    # Both must be flagged.
+    assert Liability.UNTETHERED_THRESHOLD in by_id["5_coreg_dx_dy_m"].liabilities
+    assert Liability.UNTETHERED_THRESHOLD in by_id["6_footprint"].liabilities
+
+    assert report.overall_conformant is False
