@@ -190,11 +190,12 @@ def test_advisory_exempts_untethered_threshold():
 # Hand-built target; pure classifier unit test (prompt: "OK here").
 # ---------------------------------------------------------------------------
 
-def test_characterized_exempts_untethered_threshold():
-    """A characterized check with threshold=None must NOT be flagged UNTETHERED_THRESHOLD.
+def test_characterized_bare_flag_not_exempt():
+    """characterized=True with note=None is a bare flag — NOT a valid exemption.
 
-    'Characterized' means the gap is documented and intentional (e.g. the topo
-    transect total_tilt_deg that exceeds the flat-belt threshold — ADR-0031).
+    A bare flag provides no rationale; UNTETHERED_THRESHOLD must still fire.
+    This replaces the prior 'bare characterized exempts' test, which was too
+    permissive.
     """
     t = AuditTarget(
         id="2_total_tilt_deg",
@@ -203,14 +204,40 @@ def test_characterized_exempts_untethered_threshold():
         passed=False,
         advisory=False,
         characterized=True,
+        note=None,
         source=None,
         origin="gate_check",
     )
     assert t.characterized is True
+    assert t.note is None
     assert t.threshold is None
 
-    liabilities = classify(t)            # NotImplementedError expected
-    assert Liability.UNTETHERED_THRESHOLD not in liabilities
+    liabilities = classify(t)
+    assert Liability.UNTETHERED_THRESHOLD in liabilities     # bare flag = no exemption
+
+
+def test_characterized_with_note_exempts_untethered_threshold():
+    """characterized=True WITH a non-empty note is an honest characterization.
+
+    The note captures the rationale; UNTETHERED_THRESHOLD must NOT fire.
+    """
+    t = AuditTarget(
+        id="2_total_tilt_deg",
+        observed=8.71,
+        threshold=None,
+        passed=False,
+        advisory=False,
+        characterized=True,
+        note="reef-wall cross-axis slope documented in ADR-0031; "
+             "6.0° threshold sized for flat-belt, not topo transects",
+        source=None,
+        origin="gate_check",
+    )
+    assert t.characterized is True
+    assert t.note is not None
+
+    liabilities = classify(t)
+    assert Liability.UNTETHERED_THRESHOLD not in liabilities  # honest characterization
 
 
 # ===========================================================================

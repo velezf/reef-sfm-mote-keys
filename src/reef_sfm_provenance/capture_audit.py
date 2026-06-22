@@ -38,6 +38,9 @@ class AuditTarget(BaseModel):
     passed: bool | None
     advisory: bool = False
     characterized: bool = False
+    note: str | None = None
+    """Captured rationale for a characterized gap. Required for the characterized
+    exemption to apply — a bare characterized=True with note=None is not valid."""
     source: str | None = None
     origin: str
 
@@ -77,6 +80,7 @@ def from_gate_check(gc: GateCheckResult) -> AuditTarget:
         passed=gc.passed,
         advisory=gc.advisory,
         characterized=gc.characterized,
+        note=gc.note,
         source=None,
         origin="gate_check",
     )
@@ -195,7 +199,8 @@ def classify(t: AuditTarget) -> list[Liability]:
       with UNCAPTURED_MEASUREMENT — only checked when observed is not None).
     """
     f: list[Liability] = []
-    if t.threshold is None and not t.advisory and not t.characterized:
+    characterized_with_rationale = t.characterized and bool(t.note)
+    if t.threshold is None and not t.advisory and not characterized_with_rationale:
         f.append(Liability.UNTETHERED_THRESHOLD)
     if t.observed is None:
         f.append(Liability.UNCAPTURED_MEASUREMENT)
