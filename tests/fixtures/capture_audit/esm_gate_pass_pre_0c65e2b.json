@@ -1,14 +1,14 @@
 {
+  "_provenance": "frozen from git 16e237a (pre-0c65e2b); esm_gate_pass.json before the provenance gap fix; 5_coreg_dx_dy_m has no 'tol' key, 6_footprint has no 'evr_min'/'aspect_min' keys — threshold=None for both after schema parse",
   "chunk": "T1_area_survey",
   "checks": {
     "1_long_tilt_deg":       {"v": 0.086, "max": 0.5,  "pass": true},
     "2_total_tilt_deg":      {"v": 3.12,  "max": 6.0,  "pass": true},
     "3_coverage_interp_off": {"v": 0.982, "min": 0.95, "pass": true},
     "4_long_extent_m":       {"v": 10.003,"target": 10.0, "pass": true},
-    "5_coreg_dx_dy_m":       {"v": [0.0, 0.0], "tol": 1e-6, "pass": true},
-    "6_footprint":           {"evr": 0.991, "aspect": 11.2, "evr_min": 0.95, "aspect_min": 5.0, "pass": true},
-    "7_orientation_plus_x":  {"v": true, "pass": true, "expected": true,
-                              "note": "Boolean sign-flip guard (ADR-0021): coverage/co-reg/scale invariant under 180° yaw flip — a PCA-sign bug ships a reversed product silently; expected orientation_plus_x_ok=True."},
+    "5_coreg_dx_dy_m":       {"v": [0.0, 0.0],            "pass": true},
+    "6_footprint":           {"evr": 0.991, "aspect": 11.2,"pass": true},
+    "7_orientation_plus_x":  {"v": true,                   "pass": true},
     "8_reference_dem_advisory": {
       "available": false, "path": null,
       "advisory": true, "flag": null,

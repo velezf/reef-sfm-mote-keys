@@ -8,7 +8,8 @@
     "4_long_extent_m":       {"v": 9.998, "target": 10.0, "pass": true},
     "5_coreg_dx_dy_m":       {"v": [0.0, 0.0], "tol": 1e-6, "pass": true},
     "6_footprint":           {"evr": 0.982, "aspect": 9.8, "evr_min": 0.95, "aspect_min": 5.0, "pass": true},
-    "7_orientation_plus_x":  {"v": false,                   "pass": false},
+    "7_orientation_plus_x":  {"v": false, "pass": false, "expected": true,
+                              "note": "Boolean sign-flip guard (ADR-0021): coverage/co-reg/scale invariant under 180° yaw flip — a PCA-sign bug ships a reversed product silently; expected orientation_plus_x_ok=True."},
     "8_reference_dem_advisory": {
       "available": false, "path": null,
       "advisory": true, "flag": null,
