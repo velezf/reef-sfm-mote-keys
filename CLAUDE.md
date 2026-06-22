@@ -30,9 +30,9 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-22 — Chat 7 COMPLETE → Chat 8 entry)
+## Current state / resume pointer (2026-06-22 — Chat 8 COMPLETE → Chat 9 entry)
 
-EDR_T3 shipped. EDR_T1 products COMPLETE. **Reconcile settled. Figures committed. main at `bc41f51`.**
+EDR_T3 shipped. EDR_T1 products COMPLETE. **Reconcile settled. Figures committed. Quarto page shipped. main at `38e226c`.**
 
 Active branch: `main`.
 
@@ -140,9 +140,9 @@ P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pi
 
 ## Open
 
-### NEXT: CLI/README/docs (deferred to Chat 8)
+### NEXT: CLI/README/docs (deferred to Chat 9)
 
-Active branch: `main` (feature/chat7-figures merged — Chat 7 CLOSED).
+Active branch: `main` (feat/chat8-quarto-writeup on deck — Chat 8 CLOSED).
 
 - [x] **frame_retention ✓** — Merged to main.
 - [x] **Blocker-1 ✓** — `esm.report` + `ProcessingManifest` + QC chain. Merged to main.
@@ -156,6 +156,7 @@ Active branch: `main` (feature/chat7-figures merged — Chat 7 CLOSED).
 - [x] **Captured-threshold audit SHIPPED** — `capture_audit.py` + `CaptureAuditReport`; ADR-0038; `overall_conformant=True` on both T1 (pass) and T1\_R2 (captured failure). Merged to main.
 - [x] **Pull full binary bundle to Mac** — 25/25 sha256 OK; dense.ply (347 MB) verified on disk.
 - [x] **Chat 7 figures SHIPPED** — `figures/fig1_orientation_convention.png` (camera-nadir vs zero-pitch; along-axis +4.38° vs +0.17°) + `figures/fig2_reconciliation.png` (metrics vs published). Notebook cells 16/18 are canonical; standalone scripts deleted. `bc41f51`.
+- [x] **Chat 8 Quarto writeup SHIPPED** — `docs/reef-sfm-mote-keys.qmd` + `docs/references.bib`; full arc sessions 1–7; figures fig1/fig2 included. Copied to `velezf.github.io` (commit `410179a`); pushed.
 - [ ] **CLI/README/docs** — CLI entry point + docs pass; close ADR-0033 marker 25–26 item (pending Frank).
 - [ ] **T1\_R2 orientation verification** — ⚠ UNVERIFIED; see docs/09-v2-roadmap.md item 1.
 
@@ -174,7 +175,7 @@ Active branch: `main` (feature/chat7-figures merged — Chat 7 CLOSED).
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
 ## SESSION STATE
-Chat 7 COMPLETE. main pushed (feature/chat7-figures merged --no-ff). bc41f51.
+Chat 8 COMPLETE. Quarto page pushed to velezf.github.io (410179a). main at 38e226c.
 
 Zero-pitch + reconcile (SETTLED — Chat 10/11):
   Clipped 10×1 DSM sha dcec116b. mean_elevation +27.7% survey-unanchorable (ADR-0037).
@@ -199,7 +200,14 @@ Chat 7 figures (feature/chat7-figures — SHIPPED, bc41f51):
     Notebook cell 18 = canonical. Standalone scripts deleted.
   .python-version 3.11.9→3.12: load-bearing uv env fix (requires-python >=3.12).
 
-NEXT (Chat 8):
+Chat 8 Quarto writeup (feat/chat8-quarto-writeup — SHIPPED, velezf.github.io 410179a):
+  docs/reef-sfm-mote-keys.qmd: full arc sessions 1–7; first-person, site-canonical voice.
+  docs/references.bib: 9 reef-sfm entries (pruned from repo-root bib).
+  figures/fig1_orientation_convention.png + fig2_reconciliation.png included as real embeds.
+  Site: projects/reef-sfm-mote-keys.qmd + projects/figures/ + references.bib entries merged.
+  Branch feat/chat8-quarto-writeup open on reef-sfm-mote-keys (not yet merged to main).
+
+NEXT (Chat 9):
   1. T1_R2 orientation verification — ⚠ OPEN; see docs/09-v2-roadmap.md item 1.
   2. CLI/README/docs pass.
   3. Close ADR-0033 marker 25–26 label item (pending Frank).
