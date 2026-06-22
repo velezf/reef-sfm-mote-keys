@@ -164,7 +164,7 @@ Active branch: `main` (feat/zero-pitch-frame merged).
 - `fix/probe-topo-gates`: recalibrate `total_tilt` (8.71° fails 6.0° flat-belt threshold), camera-Z, and cameras-above-markers gates for topo transects. `footprint_explained_var` None-guard (`0bfb4c3` on `fix/level-camera-nadir`) is untested — split to this branch with a RED test before merging.
 - `feat/aoi-dsm-postdense`: untethered from production stages; reconcile or retire.
 - `buildDem` hang root cause open for full-area T1 DEM (3 confirmed hangs on 487M pts).
-- Suite: 293 passing on main. All pushed to origin (`cab1d7a`). Pending: README, marker 25–26 item.
+- Suite: 413 passing on main (0c65e2b). Pending: README, marker 25–26 item.
 
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
@@ -176,7 +176,7 @@ Zero-pitch + reconcile (SETTLED — Chat 10/11):
   rugosity −3.0%, vrm −14.1% Python impl bias. All characterized and settled.
 
 reef_sfm_provenance package (Chat 12 — QC review + handoff tests complete):
-  293 tests passing (was 159 at Chat 12 start). All pushed.
+  413 tests passing on main as of Chat 13 (was 293 at Chat 12 end, 159 at start). All pushed.
   Two full review passes completed:
     Pass 1 (8-angle, 10 findings): report.summary crash, PIFSC SOP thresholds in structural.py
       (scalebar_error_m=0.001 / recon_uncertainty=15.0 both forbidden), gate_a_parity false
