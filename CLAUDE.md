@@ -30,7 +30,7 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-17 — Chat 11 COMPLETE → Chat 12 entry)
+## Current state / resume pointer (2026-06-22 — Chat 6 COMPLETE → Chat 7 entry)
 
 EDR_T3 shipped. EDR_T1 products COMPLETE. **Reconcile settled. Reports committed. Full binary bundle staged on EC2. main at `a2710dc`.**
 
@@ -100,6 +100,7 @@ Active branch: `main`.
 | ADR-0035 | Falsified: lowering step4 quality threshold 0.50→0.30 does NOT recover R2 registration. 131 aligned at any threshold; registration ceiling is corpus geometry, not threshold artifact. frame_retention separates (0.485→0.993); registration_ratio flat (0.482 both runs). |
 | ADR-0036 | Zero-pitch frame reproduction (Alignment Helper Step 11). Midline: Marker 26 ↔ Marker 16 (9.805 m, 1.51° to X). `math.atan` ratio convention (not atan2). Right-multiply `chunk.transform.rotation *= euler2mat([yaw, pitch, 0])`. Geometry: along 4.11°→0.086°, cross 6.39° (unchanged), raw 1.275→0.680 m. FOOTPRINT: yaw −1.51° widened belt (self-introduced); clip 9/9 symmetric → true 10×1 m (sha `dcec116b`). Master CLEAN (pitch 4.1071°, chunk.zip `43547ec5`). Reconcile on clipped 10×1: mean_elevation +27.7% = survey-unanchorable cross convention (marker-plane tested + falsified ADR-0037; cross 6.39° vs published ~1°); rugosity −3.0% (characterized); VRM −14% Python (settled). |
 | ADR-0037 | Falsified: marker-plane leveling is NOT a better vertical reference than camera-nadir for T1\_R2. 6 markers collinear (spread\_ratio 0.00085 ≪ 0.25); `_compute_level_up` collinear guard correctly falls back to camera-nadir. Bypassing guard: cross 6.39°→12.15°, mean\_elev +27.7%→+55.4% — WORSE on all metrics. Cross-axis reference is survey-unanchorable; camera-nadir + Zero-pitch is the trustworthy bound. Sensitivity table: camera-nadir+ZP (+27.7%), marker-plane (+55.4%); spread = 27.7 ppt. |
+| ADR-0038 | Captured-threshold audit (extends ADR-0031): record defensibility is orthogonal to pass/fail; `overall_conformant=True` = capture-complete, NOT all-pass. Liability taxonomy: UNTETHERED/UNCAPTURED/SELF\_CONFIRMING (numeric-only; bool==expected is a pass; isinstance limit noted)/UNSOURCED (defined, unenforced). Hardened exemption: `characterized` needs a captured note. Checks 5/6 retired by 0c65e2b; check 7 retired via `"expected": True` capture — T1 PASS, T1\_R2 captured FAILURE (not characterized). ⚠ T1\_R2 orientation/reversal UNVERIFIED — see docs/09-v2-roadmap.md item 1. |
 
 ### Snapshots on disk (EC2 `/data/edr_work/`)
 
@@ -139,9 +140,9 @@ P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pi
 
 ## Open
 
-### NEXT: CLI/README/docs (deferred)
+### NEXT: CLI/README/docs (deferred to Chat 7)
 
-Active branch: `main` (feat/zero-pitch-frame merged).
+Active branch: `main` (feat/capture-threshold-audit merged — Chat 6 CLOSED).
 
 - [x] **frame_retention ✓** — Merged to main.
 - [x] **Blocker-1 ✓** — `esm.report` + `ProcessingManifest` + QC chain. Merged to main.
@@ -151,8 +152,11 @@ Active branch: `main` (feat/zero-pitch-frame merged).
 - [x] **ADR-0036 + ADR-0037 written; feat/zero-pitch-frame MERGED to main.**
 - [x] **Reports committed** — `reports/reconcile_edr_t1_r2.{json,md}`, `leveling_sensitivity.{csv,md}`, `qc_edr_t1_r2.{json,md}`, `manifest_edr_t1_r2.yaml` (25 artifact sha256s). `a2710dc`.
 - [x] **Binary bundle staged** — EC2 `/data/export/edr_t1_r2/` (25 artifacts, 362 MB). `sha256sum -c MANIFEST.sha256` all OK. `.gitignore` updated to exclude `products/`.
-- [ ] **CLI/README/docs** — CLI entry point + docs pass; close ADR-0033 marker 25–26 item (pending Frank).
+- [x] **Pipeline provenance gaps CLOSED** — checks 5/6 (`tol`/`evr_min`/`aspect_min` keys) and gate B (`worst_resid_px`) wired by `0c65e2b`. Check 7 retired via `"expected": True` capture. 427 tests on main.
+- [x] **Captured-threshold audit SHIPPED** — `capture_audit.py` + `CaptureAuditReport`; ADR-0038; `overall_conformant=True` on both T1 (pass) and T1\_R2 (captured failure). Merged to main.
 - [x] **Pull full binary bundle to Mac** — 25/25 sha256 OK; dense.ply (347 MB) verified on disk.
+- [ ] **CLI/README/docs** — CLI entry point + docs pass; close ADR-0033 marker 25–26 item (pending Frank).
+- [ ] **T1\_R2 orientation verification** — ⚠ UNVERIFIED; see docs/09-v2-roadmap.md item 1.
 
 ### Blockers (pipeline — remaining)
 
@@ -164,47 +168,34 @@ Active branch: `main` (feat/zero-pitch-frame merged).
 - `fix/probe-topo-gates`: recalibrate `total_tilt` (8.71° fails 6.0° flat-belt threshold), camera-Z, and cameras-above-markers gates for topo transects. `footprint_explained_var` None-guard (`0bfb4c3` on `fix/level-camera-nadir`) is untested — split to this branch with a RED test before merging.
 - `feat/aoi-dsm-postdense`: untethered from production stages; reconcile or retire.
 - `buildDem` hang root cause open for full-area T1 DEM (3 confirmed hangs on 487M pts).
-- Suite: 413 passing on main (0c65e2b). Pending: README, marker 25–26 item.
+- Suite: 427 passing on main. Pending: README, marker 25–26 item, T1_R2 orientation verification.
 
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
 ## SESSION STATE
-Chat 12 COMPLETE. main at `cab1d7a` (pushed to origin).
+Chat 6 COMPLETE. main pushed (feat/capture-threshold-audit merged --no-ff). 427 tests.
 
 Zero-pitch + reconcile (SETTLED — Chat 10/11):
   Clipped 10×1 DSM sha dcec116b. mean_elevation +27.7% survey-unanchorable (ADR-0037).
   rugosity −3.0%, vrm −14.1% Python impl bias. All characterized and settled.
 
-reef_sfm_provenance package (Chat 12 — QC review + handoff tests complete):
-  413 tests passing on main as of Chat 13 (was 293 at Chat 12 end, 159 at start). All pushed.
-  Two full review passes completed:
-    Pass 1 (8-angle, 10 findings): report.summary crash, PIFSC SOP thresholds in structural.py
-      (scalebar_error_m=0.001 / recon_uncertainty=15.0 both forbidden), gate_a_parity false
-      positive, falsy-or threshold chain, total=0 not-evaluable, disk integrity misleading,
-      _log_summary hardcoded categories, OOM hashing, double-log.
-    Pass 2 (wire-format, 3 bugs + 3 gaps): gate_c abstained→false-positive fixed; from_esm_report
-      now populates gate/markers blocks from stage_gate/stage_markers_validation; _gate_criteria
-      sentinel honours gate.passed. Gaps documented (check 5/7 threshold=None, gate B
-      observed=ceiling) — fix prompt written for pipeline changes (see below).
-  Pipeline handoff fixtures added: esm_gate_pass.json, esm_gate_fail_2_7.json (T1_R2 real case),
-    esm_markers_headless_pass.json, esm_markers_escalated.json, esm_markers_c_abstained.json.
-  29 new contract tests in test_pipeline_handoff.py.
+reef_sfm_provenance package (Chat 6 — pipeline gaps + capture audit complete):
+  427 tests passing on main. Pipeline handoff fixtures all wired.
+  Pipeline provenance gaps CLOSED (0c65e2b): checks 5/6 threshold keys + gate B worst_resid_px.
+  Captured-threshold audit SHIPPED: capture_audit.py, CaptureAuditReport, ADR-0038.
+    Check 7 retired via "expected": True — PASS on T1, captured FAILURE on T1_R2.
+    ⚠ T1_R2 orientation/reversal UNVERIFIED (no backing calc for "no flip" claim).
+    overall_conformant=True on both fixtures (capture-complete, orthogonal to QC pass/fail).
 
 Binary bundle (Mac products/, gitignored): 25/25 sha256 OK (Chat 11).
   Canonical DSM: edr_t1_r2_q030_zeropitch_10x1_dsm.tif sha dcec116b.
 
-Open pipeline provenance gaps (prompt written — see next session):
-  - Check 5 (5_coreg_dx_dy_m): threshold=None; GATE_COREG_TOL_M not written to esm.gate dict
-  - Check 6 (6_footprint): threshold=None; GATE_FOOTPRINT_EVR_MIN/ASPECT_MIN not written
-  - Gate B (b_coherence): worst_resid_px not captured; observed==threshold tautology
-
-NEXT (Chat 13):
-  1. Apply pipeline provenance gap fixes (prompt from Chat 12 — in stage_gate + gate_coherence).
-  2. README pass.
+NEXT (Chat 7):
+  1. T1_R2 orientation verification — ⚠ OPEN; see docs/09-v2-roadmap.md item 1.
+  2. CLI/README/docs pass.
   3. Close ADR-0033 marker 25–26 label item (pending Frank).
 HARD CONSTRAINTS:
   - edr_r2.psx = q050 foil, NEVER WRITE OR OPEN. edr_r2_q030.psx = source, never write.
   - WORK copy for zero-pitch: edr_r2_q030_zeropitch_20260617.psx.
   - P13HMEON = comparison-only firewall.
-  - QCpackage = untested design sketch — never copy verbatim; build from existing patterns.
   - Verify every artifact from disk; agent self-reports are hypotheses.
