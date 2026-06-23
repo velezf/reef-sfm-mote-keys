@@ -49,6 +49,16 @@ the pipeline with:
 The goal is a pipeline a third party can re-execute and audit, not just a set
 of figures.
 
+## The provenance package
+
+`reef_sfm_provenance` (`src/reef_sfm_provenance/`) is the reusable deliverable
+in this repository. It is a typed Python package with a CLI (`reef-sfm` /
+`reef-audit`) covering intake validation, manifest capture, structural QC,
+metric reconciliation, W3C PROV export, and a capture-audit that grades the
+record itself. The gate thresholds are overridable configuration, not
+EDR-specific constants, so the package can be pointed at any documented SfM
+workflow. See [`src/reef_sfm_provenance/README.md`](src/reef_sfm_provenance/README.md).
+
 ## Audience
 
 This repository is written for:
@@ -71,7 +81,7 @@ This repository is written for:
 │   └── processed/   # intermediates (gitignored)
 ├── notebooks/       # analysis notebooks (.ipynb)
 ├── scripts/         # fetchers and one-off helpers
-├── src/reef_sfm_qc/ # provenance + QC + reconciliation package
+├── src/reef_sfm_provenance/ # provenance + QC + reconciliation package
 ├── figures/         # generated figures
 ├── docs/            # design notes, parameter-choice rationale
 ├── references.bib   # working bibliography (Stage 1 — accumulates freely)
