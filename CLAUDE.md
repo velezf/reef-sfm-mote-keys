@@ -152,7 +152,7 @@ Active branch: `main` (feat/chat8-quarto-writeup on deck — Chat 8 CLOSED).
 - [x] **ADR-0036 + ADR-0037 written; feat/zero-pitch-frame MERGED to main.**
 - [x] **Reports committed** — `reports/reconcile_edr_t1_r2.{json,md}`, `leveling_sensitivity.{csv,md}`, `qc_edr_t1_r2.{json,md}`, `manifest_edr_t1_r2.yaml` (25 artifact sha256s). `a2710dc`.
 - [x] **Binary bundle staged** — EC2 `/data/export/edr_t1_r2/` (25 artifacts, 362 MB). `sha256sum -c MANIFEST.sha256` all OK. `.gitignore` updated to exclude `products/`.
-- [x] **Pipeline provenance gaps CLOSED** — checks 5/6 (`tol`/`evr_min`/`aspect_min` keys) and gate B (`worst_resid_px`) wired by `0c65e2b`. Check 7 retired via `"expected": True` capture. 427 tests on main.
+- [x] **Pipeline provenance gaps CLOSED** — checks 5/6 (`tol`/`evr_min`/`aspect_min` keys) and gate B (`worst_resid_px`) wired by `0c65e2b`. Check 7 retired via `"expected": True` capture. 427 tests on main (424 pass + 3 skip on a clean clone; 3 require a gitignored product DSM).
 - [x] **Captured-threshold audit SHIPPED** — `capture_audit.py` + `CaptureAuditReport`; ADR-0038; `overall_conformant=True` on both T1 (pass) and T1\_R2 (captured failure). Merged to main.
 - [x] **Pull full binary bundle to Mac** — 25/25 sha256 OK; dense.ply (347 MB) verified on disk.
 - [x] **Chat 7 figures SHIPPED** — `figures/fig1_orientation_convention.png` (camera-nadir vs zero-pitch; along-axis +4.38° vs +0.17°) + `figures/fig2_reconciliation.png` (metrics vs published). Notebook cells 16/18 are canonical; standalone scripts deleted. `bc41f51`.
@@ -170,7 +170,7 @@ Active branch: `main` (feat/chat8-quarto-writeup on deck — Chat 8 CLOSED).
 - `fix/probe-topo-gates`: recalibrate `total_tilt` (8.71° fails 6.0° flat-belt threshold), camera-Z, and cameras-above-markers gates for topo transects. `footprint_explained_var` None-guard (`0bfb4c3` on `fix/level-camera-nadir`) is untested — split to this branch with a RED test before merging.
 - `feat/aoi-dsm-postdense`: untethered from production stages; reconcile or retire.
 - `buildDem` hang root cause open for full-area T1 DEM (3 confirmed hangs on 487M pts).
-- Suite: 427 passing on main. Pending: README, marker 25–26 item, T1_R2 orientation verification.
+- Suite: 427 tests on main (424 pass + 3 skip on a clean clone; 3 require a gitignored product DSM). Pending: marker 25–26 item, T1_R2 orientation verification.
 
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
@@ -182,7 +182,7 @@ Zero-pitch + reconcile (SETTLED — Chat 10/11):
   rugosity −3.0%, vrm −14.1% Python impl bias. All characterized and settled.
 
 reef_sfm_provenance package (Chat 6 — pipeline gaps + capture audit complete):
-  427 tests passing on main. Pipeline handoff fixtures all wired.
+  427 tests on main (424 pass + 3 skip on clean clone; 3 require gitignored product DSM). Pipeline handoff fixtures all wired.
   Pipeline provenance gaps CLOSED (0c65e2b): checks 5/6 threshold keys + gate B worst_resid_px.
   Captured-threshold audit SHIPPED: capture_audit.py, CaptureAuditReport, ADR-0038.
     Check 7 retired via "expected": True — PASS on T1, captured FAILURE on T1_R2.

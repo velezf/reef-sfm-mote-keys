@@ -109,10 +109,10 @@ the Stage 2 site-publication step.
 
 ## Stage of the workflow
 
-This repository is at **Stage 1** of the [three-stage portfolio workflow](docs/):
-live analysis, lab-notebook polish standard. The public-facing writeup will
-live at `velezf.github.io/projects/reef-sfm-mote-keys.html` once the analysis
-is settled.
+This repository completed **Stage 1** (live analysis) and **Stage 2** (public
+writeup) of the three-stage portfolio workflow. The writeup is live at
+[velezf.github.io/projects/reef-sfm-mote-keys](https://velezf.github.io/projects/reef-sfm-mote-keys.html).
+The as-built state is tagged `v1.0-portfolio-frozen`.
 
 ## License
 
