@@ -30,9 +30,9 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-23 — Chat 10 COMPLETE → Chat 11 entry)
+## Current state / resume pointer (2026-06-24 — Chat 11 COMPLETE → Chat 12 entry)
 
-EDR_T3 shipped. EDR_T1 products COMPLETE. **EC2 decommissioned. R2 ortho captured. Site + docs finalized. main at `047d046`.**
+EDR_T3 shipped. EDR_T1 products COMPLETE. **EC2 decommissioned. R2 ortho captured. Site + docs finalized. CI live (green on main). main at `e142d6a`.**
 
 Active branch: `main`.
 
@@ -164,6 +164,7 @@ Active branch: `main`. All pipeline work and portfolio deliverables done. EC2 de
 - [x] **Chat 9 — EC2 decommissioned** — AMI `ami-0fb9ea7a0562084fc`; instance TERMINATED; all 5 snapshots verified; inventory committed `3eee712`.
 - [x] **Chat 9 — Utilization logs + sizing note** — 6 CSVs committed; `docs/utilization/README.md` (T1 dense uninstrumented caveat); teardown.sh updated. `cd663eb`.
 - [x] **Chat 10 — Snapshot cleanup plan** — `docs/aws-resources.md`: keep 3 as-built + 2 AMI-backing, prune ~10 intermediates post-benthic; AMI-backing constraint explicit. `047d046`.
+- [x] **Chat 11 — CI + badges** — `.github/workflows/ci.yml` (Python 3.12, `uv sync --frozen` + `uv run pytest`); CI + Zenodo DOI badges in README. PR #1 merged `e142d6a`. CI green on main: 424 passed + 3 skipped (32 s). Node-20→24 deprecation warning on checkout@v4/setup-python@v5 (informational; pin bump deferred).
 - [ ] **T1\_R2 orientation verification** — ⚠ UNVERIFIED; see docs/09-v2-roadmap.md item 1.
 - [ ] **ADR-0033 marker 25–26 label** — pending Frank's confirmation.
 
@@ -182,7 +183,14 @@ Active branch: `main`. All pipeline work and portfolio deliverables done. EC2 de
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
 ## SESSION STATE
-Chat 10 COMPLETE. main at 047d046. EC2 TERMINATED (AMI ami-0fb9ea7a0562084fc, 5 snapshots intact).
+Chat 11 COMPLETE. main at e142d6a. EC2 TERMINATED (AMI ami-0fb9ea7a0562084fc, 5 snapshots intact).
+
+CI (Chat 11 — live):
+  .github/workflows/ci.yml: push/PR on main + workflow_dispatch; Python 3.12;
+  pip install uv==0.11.24 → uv sync --frozen → uv run pytest. PR #1 merged e142d6a.
+  Green on main: 424 passed + 3 skipped (3 product-DSM tests skip on clean checkout).
+  README has CI + Zenodo DOI badges (DOI 10.5281/zenodo.20835765) under the H1.
+  Deferred: bump checkout@v4/setup-python@v5 (Node 20→24 deprecation warning, non-blocking).
 
 Zero-pitch + reconcile (SETTLED):
   Canonical DSM: edr_t1_r2_q030_zeropitch_10x1_dsm.tif sha dcec116b (1007×100, 10×1 m, 1 cm).
@@ -207,7 +215,7 @@ Utilization + AWS housekeeping (Chat 9–10):
   teardown.sh updated. Snapshot cleanup plan in docs/aws-resources.md: keep 3 as-built finals +
   2 AMI-backing snaps; prune ~10 intermediates post-benthic; do NOT delete AMI-backing while AMI exists.
 
-NEXT (Chat 11):
+NEXT (Chat 12):
   1. T1_R2 orientation verification — ⚠ OPEN; docs/09-v2-roadmap.md item 1.
   2. ADR-0033 marker 25–26 label item — pending Frank.
 HARD CONSTRAINTS:
