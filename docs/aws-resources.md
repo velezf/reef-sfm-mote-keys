@@ -57,7 +57,8 @@ IDs are not secret but are no longer active after teardown.
 
 | Field | Value |
 |-------|-------|
-| ami_id | (recorded in decommission step 2) |
+| ami_id | `ami-0fb9ea7a0562084fc` |
+| backing_snapshots | `snap-0693b7191f07ace11`, `snap-0ac3ef0f5420e76b1` |
 | name | reef-sfm-as-built-2026-06-23 |
 | note | Convenience insurance only; teardown safety rests on snapshots + Mac-verified sha256 |
 
