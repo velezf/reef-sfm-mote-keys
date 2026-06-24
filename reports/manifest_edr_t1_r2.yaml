@@ -102,6 +102,33 @@ dsm_products:
     canonical: false
     note: "Sensitivity measurement only; hypothesis falsified"
 
+ortho_products:
+  zeropitch_ortho_20260623:
+    file: edr_t1_r2_q030_zeropitch_ortho_20260623.tif
+    sha256: 32e971d37f68dce606ee73102de6d06dfcd8fb13e4f68874bc394db91405d0e8
+    dims: 1998x199
+    resolution_m: 0.005
+    bands: 4  # RGBA uint8
+    crs: LOCAL_CS (zeropitch frame — same as canonical DSM)
+    extent_x_m: "-8.1898→1.8002"   # footprint X: 9.99 m
+    extent_y_m: "-0.1191→0.8759"   # footprint Y: 0.995 m
+    blending: MosaicBlending
+    surface: "ElevationData (internal zeropitch DEM 999x100@1cm from edr_r2_q030_zeropitch_20260617.psx)"
+    fill_holes: true
+    build_note: "16.8 s / 128 cameras / 83 blended; trial live 2026-06-23"
+    source_lineage: >
+      Exported from work copy edr_r2_q030_zeropitch_20260617.psx (NEVER WRITTEN) ←
+      zero-pitch rotation applied to master edr_r2_q030.psx (DO NOT WRITE) ← ADR-0036.
+    data_ebs_snapshot: snap-01d7a140ed04a151e
+    footprint_note: >
+      Ortho footprint (9.99×0.995 m) ≠ canonical DSM footprint (10.07×1.00 m, sha dcec116b).
+      ~8 cm shorter along-track, ~5 mm narrower cross-track. Co-registered in zero-pitch
+      frame but NOT pixel-coincident. Downstream use must resample to canonical DSM grid
+      (1 cm, bilinear for ortho). See ADR-0039.
+    role: benthic_input
+    canonical: false
+    adr_ref: ADR-0039
+
 reconcile_summary:
   canonical_state: zeropitch_clipped_10x1
   published_ref: "Toth 2025 ESM Table S2"
@@ -122,14 +149,15 @@ adr_refs:
   - {id: ADR-0035, summary: "Falsified: step4 threshold does not recover registration"}
   - {id: ADR-0036, summary: "Zero-pitch frame reproduction; corrected attribution"}
   - {id: ADR-0037, summary: "Marker-plane sensitivity; hypothesis falsified"}
+  - {id: ADR-0039, summary: "R2 ortho 2026-06-23: benthic input; footprint offset vs canonical DSM; resampling required"}
 
 # Full insurance bundle — EC2 /data/export/edr_t1_r2/ (25 artifacts, 362 MB)
 # Pull:  rsync -av reef-ec2:/data/export/edr_t1_r2/ products/EDR_T1_R2/pulled/
 # Verify: cd products/EDR_T1_R2/pulled && sha256sum -c MANIFEST.sha256
 binary_export_bundle:
   export_path_ec2: /data/export/edr_t1_r2
-  artifact_count: 25
-  total_size: 362M
+  artifact_count: 26
+  total_size: ~364M  # +1.5M ortho added 2026-06-23
   artifacts:
     # DSMs
     - {file: edr_t1_r2_q030_zeropitch_10x1_dsm.tif,  sha256: dcec116be19a5c74d53f45e07454bdb0ee980ba3d40c9a5f142f5bdcfff8f369, role: canonical_dsm}
@@ -164,3 +192,5 @@ binary_export_bundle:
     - {file: metric_dsm_z_profile.png,    sha256: 2ac6c8f4a36b2417c5342c3edcf8ee2d9021d42769b25f1e742702a0ea71688f}
     # Source imagery provenance
     - {file: EDR_T1_R2_image_hashes.json, sha256: fe3ff9faf71d38103692489cbda1e65c46ba48eb60d3a6ed821a02e384d4833c, role: source_imagery_sha256s}
+    # Ortho (added 2026-06-23; benthic input — see ADR-0039)
+    - {file: edr_t1_r2_q030_zeropitch_ortho_20260623.tif, sha256: 32e971d37f68dce606ee73102de6d06dfcd8fb13e4f68874bc394db91405d0e8, role: ortho_benthic_input}
