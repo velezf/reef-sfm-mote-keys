@@ -24,16 +24,16 @@ IDs are not secret but are no longer active after teardown.
 
 | Field | Value |
 |-------|-------|
-| public_ip | `52.5.136.119` |
-| allocation_id | `eipalloc-0cfbcadb93a516508` |
-| association_id | `eipassoc-0d01ba51e7c8654f3` |
+| public_ip | `<elastic-ip>` |
+| allocation_id | `<eip-allocation-id>` |
+| association_id | `<eip-association-id>` |
 
 ## Secondary ENI (license fingerprint anchor)
 
 | Field | Value |
 |-------|-------|
-| eni_id | `eni-0f576095ae0c469ae` |
-| mac | `0a:ff:fc:67:89:8f` |
+| eni_id | `<eni-id>` |
+| mac | `<mac-address>` |
 | description | Stable MAC for Metashape Pro license fingerprint |
 
 ## Security Group

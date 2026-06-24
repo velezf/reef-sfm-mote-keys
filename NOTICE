@@ -1,0 +1,27 @@
+reef-sfm-mote-keys
+Copyright (c) 2026 Frank Velez
+
+This project is released under the MIT License (see LICENSE), with one
+exception noted below.
+
+-------------------------------------------------------------------------------
+Vendored third-party code — NOT covered by this repository's MIT license
+-------------------------------------------------------------------------------
+
+The directory `scripts/metashape/vendor/logan_usgs/` contains the USGS
+Metashape error-reduction automation script:
+
+    Logan, M.K., Stovall, J.M., and Smith, K.E.L., 2022,
+    Agisoft Metashape Alignment, Reduction, and Refinement (RuPaRe) script.
+    U.S. Geological Survey software release.
+    DOI: 10.5066/P9DGS5B9
+
+This is a work of the U.S. Geological Survey, an agency of the U.S. Department
+of the Interior. As a work of the United States federal government, it is in
+the public domain within the United States; the authors additionally waive
+copyright and related rights worldwide under the CC0 1.0 Universal public
+domain dedication. It is therefore NOT subject to this repository's MIT
+license and carries no warranty (see the upstream `LICENSE.md`, `DISCLAIMER.md`,
+and `PROVENANCE.md` preserved alongside the code).
+
+The vendored files are included unmodified for reproducibility (see ADR-0023).
