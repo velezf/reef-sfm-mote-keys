@@ -30,9 +30,9 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-23 — Chat 9 COMPLETE → Chat 10 entry)
+## Current state / resume pointer (2026-06-23 — Chat 10 COMPLETE → Chat 11 entry)
 
-EDR_T3 shipped. EDR_T1 products COMPLETE. **EC2 decommissioned. R2 ortho captured. Site + docs finalized. main at `cd663eb`.**
+EDR_T3 shipped. EDR_T1 products COMPLETE. **EC2 decommissioned. R2 ortho captured. Site + docs finalized. main at `047d046`.**
 
 Active branch: `main`.
 
@@ -163,6 +163,7 @@ Active branch: `main`. All pipeline work and portfolio deliverables done. EC2 de
 - [x] **Chat 9 — R2 ortho captured** — `32e971d3`; ADR-0039; manifest updated (26 artifacts). `b011e69`.
 - [x] **Chat 9 — EC2 decommissioned** — AMI `ami-0fb9ea7a0562084fc`; instance TERMINATED; all 5 snapshots verified; inventory committed `3eee712`.
 - [x] **Chat 9 — Utilization logs + sizing note** — 6 CSVs committed; `docs/utilization/README.md` (T1 dense uninstrumented caveat); teardown.sh updated. `cd663eb`.
+- [x] **Chat 10 — Snapshot cleanup plan** — `docs/aws-resources.md`: keep 3 as-built + 2 AMI-backing, prune ~10 intermediates post-benthic; AMI-backing constraint explicit. `047d046`.
 - [ ] **T1\_R2 orientation verification** — ⚠ UNVERIFIED; see docs/09-v2-roadmap.md item 1.
 - [ ] **ADR-0033 marker 25–26 label** — pending Frank's confirmation.
 
@@ -181,7 +182,7 @@ Active branch: `main`. All pipeline work and portfolio deliverables done. EC2 de
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
 ## SESSION STATE
-Chat 9 COMPLETE. main at cd663eb. EC2 TERMINATED (AMI ami-0fb9ea7a0562084fc, 5 snapshots intact).
+Chat 10 COMPLETE. main at 047d046. EC2 TERMINATED (AMI ami-0fb9ea7a0562084fc, 5 snapshots intact).
 
 Zero-pitch + reconcile (SETTLED):
   Canonical DSM: edr_t1_r2_q030_zeropitch_10x1_dsm.tif sha dcec116b (1007×100, 10×1 m, 1 cm).
@@ -200,12 +201,13 @@ Site (velezf.github.io — Chat 9):
   Provenance layer section live. Projects page full-width. Two stubs retired. Benthic re-scoped.
   v1.0-portfolio-frozen tag on origin. reef_sfm_qc stub removed. Provenance package README added.
 
-Utilization (Chat 9):
+Utilization + AWS housekeeping (Chat 9–10):
   6 CSVs in docs/utilization/. Sizing note: VRAM 1.6 GB / 23 GB (7.1%); RAM 11 GB (18%); zero swap.
-  T1 dense (2.8 h, 651M pts) UNINSTRUMENTED — transect ceiling does not bound it.
-  teardown.sh updated with preconditions, AMI step, explicit EIP disassociate, snapshot verification.
+  T1 dense UNINSTRUMENTED — transect ceiling does not bound it.
+  teardown.sh updated. Snapshot cleanup plan in docs/aws-resources.md: keep 3 as-built finals +
+  2 AMI-backing snaps; prune ~10 intermediates post-benthic; do NOT delete AMI-backing while AMI exists.
 
-NEXT (Chat 10):
+NEXT (Chat 11):
   1. T1_R2 orientation verification — ⚠ OPEN; docs/09-v2-roadmap.md item 1.
   2. ADR-0033 marker 25–26 label item — pending Frank.
 HARD CONSTRAINTS:
