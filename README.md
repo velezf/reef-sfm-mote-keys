@@ -1,5 +1,7 @@
 # reef-sfm-mote-keys
 
+[![CI](https://github.com/velezf/reef-sfm-mote-keys/actions/workflows/ci.yml/badge.svg)](https://github.com/velezf/reef-sfm-mote-keys/actions/workflows/ci.yml)
+
 Reproducible reimplementation of the USGS / Mote Marine Laboratory restoration
 Structure-from-Motion (SfM) pipeline ([Toth et al. 2025], Scientific Reports
 15:28353; data release [P1WHKTRD] and [P13HMEON]) at the Eastern Dry Rocks
