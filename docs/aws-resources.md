@@ -26,7 +26,7 @@ IDs are not secret but are no longer active after teardown.
 |-------|-------|
 | public_ip | `<elastic-ip>` |
 | allocation_id | `<eip-allocation-id>` |
-| association_id | `eipassoc-0d01ba51e7c8654f3` |
+| association_id | `<eip-association-id>` |
 
 ## Secondary ENI (license fingerprint anchor)
 
