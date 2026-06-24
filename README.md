@@ -1,6 +1,6 @@
 # reef-sfm-mote-keys
 
-[![CI](https://github.com/velezf/reef-sfm-mote-keys/actions/workflows/ci.yml/badge.svg)](https://github.com/velezf/reef-sfm-mote-keys/actions/workflows/ci.yml)
+[![CI](https://github.com/velezf/reef-sfm-mote-keys/actions/workflows/ci.yml/badge.svg)](https://github.com/velezf/reef-sfm-mote-keys/actions/workflows/ci.yml) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20835765.svg)](https://doi.org/10.5281/zenodo.20835765)
 
 Reproducible reimplementation of the USGS / Mote Marine Laboratory restoration
 Structure-from-Motion (SfM) pipeline ([Toth et al. 2025], Scientific Reports
