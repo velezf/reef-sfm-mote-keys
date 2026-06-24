@@ -43,6 +43,14 @@ IDs are not secret but are no longer active after teardown.
 | sg_id | `sg-0f252e1df4b0fd9af` |
 | name | `reef-sfm-mote-keys-sg` |
 
+## Snapshot cleanup plan
+
+15 snapshots total (5 listed below + 2 AMI-backing + ~8 intermediates created during processing).
+Keep the 3 as-built finals + 2 AMI-backing snaps permanently. Prune ~10 intermediates after
+benthic resolves. **Do NOT delete `snap-0693b7191f07ace11` or `snap-0ac3ef0f5420e76b1` while
+`ami-0fb9ea7a0562084fc` exists** — deleting AMI-backing snapshots deregisters the AMI silently.
+Teardown script prints the prune command when you're ready (`aws ec2 delete-snapshot --snapshot-id`).
+
 ## Snapshots (PRESERVED — do not delete)
 
 | Snapshot | Volume | Role | State |
