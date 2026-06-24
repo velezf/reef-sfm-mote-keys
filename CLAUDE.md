@@ -30,9 +30,9 @@ the AOI must be reference-free (markers / survey convention). **EDR_T3 is shippe
 — don't re-dense or touch the promoted `edr_t3.psx` (pristine copy-only). **Dense
 runs only on the user's explicit GO.**
 
-## Current state / resume pointer (2026-06-22 — Chat 8 COMPLETE → Chat 9 entry)
+## Current state / resume pointer (2026-06-23 — Chat 9 COMPLETE → Chat 10 entry)
 
-EDR_T3 shipped. EDR_T1 products COMPLETE. **Reconcile settled. Figures committed. Quarto page shipped. main at `38e226c`.**
+EDR_T3 shipped. EDR_T1 products COMPLETE. **EC2 decommissioned. R2 ortho captured. Site + docs finalized. main at `cd663eb`.**
 
 Active branch: `main`.
 
@@ -77,7 +77,7 @@ Active branch: `main`.
 | filter | PASS | moderate confidence; 47.1 M → retained |
 | aoi | PASS | manual override (ADR-0033); GATE#6 skipped (out-and-back geometry); GATE#3 93.7% < 95% bypassed (--ignore-sanity); 47.1M → 12,585,711 pts |
 | dsm | PASS | 1000×100 cells @ 1 cm; float32 T_z recentered (ADR-0033); interp-ON coverage 99.8%; sha `620bc3bc` (internal tile) |
-| ortho | — | not yet built |
+| ortho | PASS | 1998×199 px @ 5 mm (ADR-0039); sha `32e971d3`; footprint 9.99×0.995 m (8 cm short of canonical DSM — resample to dcec116b grid for benthic overlay) |
 | gate | — | not yet run |
 
 **Open item:** marker pair 25–26 label basis pending Frank's confirmation (physical-to-label correspondence for the far-end target).
@@ -101,18 +101,22 @@ Active branch: `main`.
 | ADR-0036 | Zero-pitch frame reproduction (Alignment Helper Step 11). Midline: Marker 26 ↔ Marker 16 (9.805 m, 1.51° to X). `math.atan` ratio convention (not atan2). Right-multiply `chunk.transform.rotation *= euler2mat([yaw, pitch, 0])`. Geometry: along 4.11°→0.086°, cross 6.39° (unchanged), raw 1.275→0.680 m. FOOTPRINT: yaw −1.51° widened belt (self-introduced); clip 9/9 symmetric → true 10×1 m (sha `dcec116b`). Master CLEAN (pitch 4.1071°, chunk.zip `43547ec5`). Reconcile on clipped 10×1: mean_elevation +27.7% = survey-unanchorable cross convention (marker-plane tested + falsified ADR-0037; cross 6.39° vs published ~1°); rugosity −3.0% (characterized); VRM −14% Python (settled). |
 | ADR-0037 | Falsified: marker-plane leveling is NOT a better vertical reference than camera-nadir for T1\_R2. 6 markers collinear (spread\_ratio 0.00085 ≪ 0.25); `_compute_level_up` collinear guard correctly falls back to camera-nadir. Bypassing guard: cross 6.39°→12.15°, mean\_elev +27.7%→+55.4% — WORSE on all metrics. Cross-axis reference is survey-unanchorable; camera-nadir + Zero-pitch is the trustworthy bound. Sensitivity table: camera-nadir+ZP (+27.7%), marker-plane (+55.4%); spread = 27.7 ppt. |
 | ADR-0038 | Captured-threshold audit (extends ADR-0031): record defensibility is orthogonal to pass/fail; `overall_conformant=True` = capture-complete, NOT all-pass. Liability taxonomy: UNTETHERED/UNCAPTURED/SELF\_CONFIRMING (numeric-only; bool==expected is a pass; isinstance limit noted)/UNSOURCED (defined, unenforced). Hardened exemption: `characterized` needs a captured note. Checks 5/6 retired by 0c65e2b; check 7 retired via `"expected": True` capture — T1 PASS, T1\_R2 captured FAILURE (not characterized). ⚠ T1\_R2 orientation/reversal UNVERIFIED — see docs/09-v2-roadmap.md item 1. |
+| ADR-0039 | R2 ortho captured 2026-06-23 as benthic input. Footprint offset: 9.99×0.995 m ortho vs 10.07×1.00 m canonical DSM (8 cm short along-track). Root cause: ortho projected on internal DEM; canonical DSM was clipped after export. Resampling required for overlay: bilinear, snap to dcec116b 1 cm grid. sha `32e971d3`. EBS snap-01d7a140ed04a151e. Orientation caveat inherited from ADR-0038. |
 
-### Snapshots on disk (EC2 `/data/edr_work/`)
+### EC2 decommissioned 2026-06-23 — EBS snapshots preserved
 
-- `edr_t1_postdense_20260610T181702Z.{psx,files}` — 27 GB; post-dense, pre-filter (pristine)
-- `edr_t1_postlevel_adr0025_20260609T220420Z.{psx,files}` — post-level, pre-region (pristine)
-- `edr_t1_truncated_adr0026v1_20260610T232809Z.{psx,files}` — post-truncated run (ADR-0026 v1)
-- Live T1 project: `edr_t1.psx` — post-products state
-- **T1 EBS snapshot:** `snap-034d45019a4e39c43` — tag `edr_t1_postproducts_20260610T235019Z`
-- Live R2 project: `edr_r2.psx` — post-DSM state (`feat/reconcile-r2-transect`) — FOIL Q050, NEVER WRITE
-- `edr_r2_q030.psx` — source q030 (chunk.zip sha `43547ec5`); do not write
-- `edr_r2_q030_zeropitch_20260617.psx` — WORK copy with Zero-pitch rotation applied (ADR-0036); DSM exported `edr_r2_q030_zeropitch_dsm_20260617.tif`
-- **R2 EBS snapshot:** `snap-0b10abc94d12b78e1` — post-dense/filter, pre-AOI/DSM
+**Instance `i-06fe7879a0e713c2f` TERMINATED. AMI `ami-0fb9ea7a0562084fc` (reef-sfm-as-built-2026-06-23).**
+Full inventory: `docs/aws-resources.md`.
+
+| Snapshot | Role | State |
+|----------|------|-------|
+| `snap-044e99b2343ea7a7c` | boot volume final as-built | completed |
+| `snap-01b844ca1259652fb` | data volume final as-built | completed |
+| `snap-01d7a140ed04a151e` | data post-ortho export | completed |
+| `snap-034d45019a4e39c43` | edr_t1_postproducts | completed |
+| `snap-0b10abc94d12b78e1` | edr_r2_postdense_filter_pre_aoi_dsm | completed |
+
+Files preserved in snapshots (restoreable): `edr_t1.psx`, `edr_r2.psx` (Q050 foil — NEVER WRITE), `edr_r2_q030.psx` (never write), `edr_r2_q030_zeropitch_20260617.psx` (WORK copy), all tarballs and exports.
 
 ### Local products (Mac `products/`, gitignored)
 
@@ -131,6 +135,7 @@ Active branch: `main`.
 | `EDR_T1_R2/edr_t1_r2_q030_zeropitch_dsm.tif` | `2c04b8a2…` | Zero-pitch DSM (feat/zero-pitch-frame); 1007×118, 10.07×1.18 m (yaw widened belt) |
 | `EDR_T1_R2/edr_t1_r2_q030_zeropitch_10x1_dsm.tif` | `dcec116b…` | Clipped 10×1 m (9/9 symmetric trim from zeropitch DSM); reconcile basis |
 | `EDR_T1_R2/edr_t1_r2_q030_markerplane_dsm.tif` | `8db23560…` | Marker-plane DSM (sensitivity only; ADR-0037); 1005×100 after clip |
+| `EDR_T1_R2/edr_t1_r2_q030_zeropitch_ortho_20260623.tif` | `32e971d3…` | R2 ortho (ADR-0039); 1998×199 @ 5 mm; benthic input; footprint offset vs DSM — resample to dcec116b for overlay |
 | `EDR_T3/dsm.tif` | — | T3 shipped product |
 | `EDR_T3/ortho.tif` | — | T3 shipped product |
 
@@ -140,25 +145,26 @@ P13HMEON reference TIFs: `data/comparison-only/P13HMEON/` (firewall — never pi
 
 ## Open
 
-### NEXT: CLI/README/docs (deferred to Chat 9)
+### Chat 9 COMPLETE — open items entering Chat 10
 
-Active branch: `main` (feat/chat8-quarto-writeup on deck — Chat 8 CLOSED).
+Active branch: `main`. All pipeline work and portfolio deliverables done. EC2 decommissioned.
 
 - [x] **frame_retention ✓** — Merged to main.
 - [x] **Blocker-1 ✓** — `esm.report` + `ProcessingManifest` + QC chain. Merged to main.
-- [x] **0.30 re-run + empirical QC ✓** — `edr_r2_q030.psx`. frame_retention PASS 0.993; registration/scale\_bar characterized.
-- [x] **Reconcile COMPLETE** — Zero-pitch reproduced; clipped 10×1 DSM (sha `dcec116b`); mean\_elevation +27.7% (survey-unanchorable, ADR-0037); rugosity −3.0%; VRM −14.1% Python. Settled.
-- [x] **Leveling-reference sensitivity COMPLETE** — marker-plane hypothesis falsified (ADR-0037). Camera-nadir + Zero-pitch is the trustworthy bound.
-- [x] **ADR-0036 + ADR-0037 written; feat/zero-pitch-frame MERGED to main.**
-- [x] **Reports committed** — `reports/reconcile_edr_t1_r2.{json,md}`, `leveling_sensitivity.{csv,md}`, `qc_edr_t1_r2.{json,md}`, `manifest_edr_t1_r2.yaml` (25 artifact sha256s). `a2710dc`.
-- [x] **Binary bundle staged** — EC2 `/data/export/edr_t1_r2/` (25 artifacts, 362 MB). `sha256sum -c MANIFEST.sha256` all OK. `.gitignore` updated to exclude `products/`.
-- [x] **Pipeline provenance gaps CLOSED** — checks 5/6 (`tol`/`evr_min`/`aspect_min` keys) and gate B (`worst_resid_px`) wired by `0c65e2b`. Check 7 retired via `"expected": True` capture. 427 tests on main (424 pass + 3 skip on a clean clone; 3 require a gitignored product DSM).
-- [x] **Captured-threshold audit SHIPPED** — `capture_audit.py` + `CaptureAuditReport`; ADR-0038; `overall_conformant=True` on both T1 (pass) and T1\_R2 (captured failure). Merged to main.
-- [x] **Pull full binary bundle to Mac** — 25/25 sha256 OK; dense.ply (347 MB) verified on disk.
-- [x] **Chat 7 figures SHIPPED** — `figures/fig1_orientation_convention.png` (camera-nadir vs zero-pitch; along-axis +4.38° vs +0.17°) + `figures/fig2_reconciliation.png` (metrics vs published). Notebook cells 16/18 are canonical; standalone scripts deleted. `bc41f51`.
-- [x] **Chat 8 Quarto writeup SHIPPED** — `docs/reef-sfm-mote-keys.qmd` + `docs/references.bib`; full arc sessions 1–7; figures fig1/fig2 included. Copied to `velezf.github.io` (commit `410179a`); pushed.
-- [ ] **CLI/README/docs** — CLI entry point + docs pass; close ADR-0033 marker 25–26 item (pending Frank).
+- [x] **0.30 re-run + empirical QC ✓** — `edr_r2_q030.psx`. frame_retention PASS 0.993.
+- [x] **Reconcile COMPLETE** — Zero-pitch reproduced; clipped 10×1 DSM (sha `dcec116b`); metrics settled. ADR-0036/0037.
+- [x] **Pipeline provenance gaps CLOSED** — checks 5/6, gate B, check 7. 427 tests (424+3skip clean clone). `0c65e2b`.
+- [x] **Captured-threshold audit SHIPPED** — ADR-0038; `overall_conformant=True` on both fixtures.
+- [x] **Binary bundle on Mac** — 25/25 sha256 OK (now 26 with ortho). dense.ply (347 MB) verified.
+- [x] **Chat 7 figures SHIPPED** — fig1/fig2 canonical notebooks (cells 16/18). `bc41f51`.
+- [x] **Chat 8 Quarto writeup SHIPPED** — `docs/reef-sfm-mote-keys.qmd`; velezf.github.io `410179a`.
+- [x] **Chat 9 — Provenance layer section** — inserted in writeup + site; velezf.github.io `887d3cc`.
+- [x] **Chat 9 — README/docs/stage-3 cleanup** — README drift fixed; `reef_sfm_qc` stub removed; provenance package README; `v1.0-portfolio-frozen` tag. `ca7eb60`.
+- [x] **Chat 9 — R2 ortho captured** — `32e971d3`; ADR-0039; manifest updated (26 artifacts). `b011e69`.
+- [x] **Chat 9 — EC2 decommissioned** — AMI `ami-0fb9ea7a0562084fc`; instance TERMINATED; all 5 snapshots verified; inventory committed `3eee712`.
+- [x] **Chat 9 — Utilization logs + sizing note** — 6 CSVs committed; `docs/utilization/README.md` (T1 dense uninstrumented caveat); teardown.sh updated. `cd663eb`.
 - [ ] **T1\_R2 orientation verification** — ⚠ UNVERIFIED; see docs/09-v2-roadmap.md item 1.
+- [ ] **ADR-0033 marker 25–26 label** — pending Frank's confirmation.
 
 ### Blockers (pipeline — remaining)
 
@@ -175,44 +181,36 @@ Active branch: `main` (feat/chat8-quarto-writeup on deck — Chat 8 CLOSED).
 **FIREWALL P13HMEON comparison-only. Dense runs only on explicit GO.**
 
 ## SESSION STATE
-Chat 8 COMPLETE. Quarto page pushed to velezf.github.io (410179a). main at 38e226c.
+Chat 9 COMPLETE. main at cd663eb. EC2 TERMINATED (AMI ami-0fb9ea7a0562084fc, 5 snapshots intact).
 
-Zero-pitch + reconcile (SETTLED — Chat 10/11):
-  Clipped 10×1 DSM sha dcec116b. mean_elevation +27.7% survey-unanchorable (ADR-0037).
-  rugosity −3.0%, vrm −14.1% Python impl bias. All characterized and settled.
+Zero-pitch + reconcile (SETTLED):
+  Canonical DSM: edr_t1_r2_q030_zeropitch_10x1_dsm.tif sha dcec116b (1007×100, 10×1 m, 1 cm).
+  mean_elevation +27.7% survey-unanchorable (ADR-0037). rugosity −3.0%, vrm −14.1% characterized.
 
-reef_sfm_provenance package (Chat 6 — pipeline gaps + capture audit complete):
-  427 tests on main (424 pass + 3 skip on clean clone; 3 require gitignored product DSM). Pipeline handoff fixtures all wired.
-  Pipeline provenance gaps CLOSED (0c65e2b): checks 5/6 threshold keys + gate B worst_resid_px.
-  Captured-threshold audit SHIPPED: capture_audit.py, CaptureAuditReport, ADR-0038.
-    Check 7 retired via "expected": True — PASS on T1, captured FAILURE on T1_R2.
-    ⚠ T1_R2 orientation/reversal UNVERIFIED (no backing calc for "no flip" claim).
-    overall_conformant=True on both fixtures (capture-complete, orthogonal to QC pass/fail).
+R2 ortho (ADR-0039 — Chat 9):
+  edr_t1_r2_q030_zeropitch_ortho_20260623.tif sha 32e971d3. 1998×199 @ 5 mm, 4-band RGBA.
+  Footprint 9.99×0.995 m ≠ canonical DSM 10.07×1.00 m. Resample to dcec116b grid before overlay.
 
-Binary bundle (Mac products/, gitignored): 25/25 sha256 OK (Chat 11).
-  Canonical DSM: edr_t1_r2_q030_zeropitch_10x1_dsm.tif sha dcec116b.
+reef_sfm_provenance package:
+  427 tests (424 pass + 3 skip on clean clone; 3 require gitignored product DSM).
+  Captured-threshold audit SHIPPED. overall_conformant=True on both fixtures.
+  ⚠ T1_R2 orientation/reversal UNVERIFIED — docs/09-v2-roadmap.md item 1.
 
-Chat 7 figures (feature/chat7-figures — SHIPPED, bc41f51):
-  fig1_orientation_convention.png: camera-nadir vs zero-pitch along-axis +4.38° vs +0.17°;
-    cross-axis residual 6.39° flagged open (ADR-0037). Notebook cell 16 = canonical.
-  fig2_reconciliation.png: metrics vs published, JSON-only (firewall preserved).
-    mean_elev +27.7% characterized, rugosity −3.0% reproduced, VRM −14.1% characterized.
-    Notebook cell 18 = canonical. Standalone scripts deleted.
-  .python-version 3.11.9→3.12: load-bearing uv env fix (requires-python >=3.12).
+Site (velezf.github.io — Chat 9):
+  Provenance layer section live. Projects page full-width. Two stubs retired. Benthic re-scoped.
+  v1.0-portfolio-frozen tag on origin. reef_sfm_qc stub removed. Provenance package README added.
 
-Chat 8 Quarto writeup (feat/chat8-quarto-writeup — SHIPPED, velezf.github.io 410179a):
-  docs/reef-sfm-mote-keys.qmd: full arc sessions 1–7; first-person, site-canonical voice.
-  docs/references.bib: 9 reef-sfm entries (pruned from repo-root bib).
-  figures/fig1_orientation_convention.png + fig2_reconciliation.png included as real embeds.
-  Site: projects/reef-sfm-mote-keys.qmd + projects/figures/ + references.bib entries merged.
-  Branch feat/chat8-quarto-writeup open on reef-sfm-mote-keys (not yet merged to main).
+Utilization (Chat 9):
+  6 CSVs in docs/utilization/. Sizing note: VRAM 1.6 GB / 23 GB (7.1%); RAM 11 GB (18%); zero swap.
+  T1 dense (2.8 h, 651M pts) UNINSTRUMENTED — transect ceiling does not bound it.
+  teardown.sh updated with preconditions, AMI step, explicit EIP disassociate, snapshot verification.
 
-NEXT (Chat 9):
-  1. T1_R2 orientation verification — ⚠ OPEN; see docs/09-v2-roadmap.md item 1.
-  2. CLI/README/docs pass.
-  3. Close ADR-0033 marker 25–26 label item (pending Frank).
+NEXT (Chat 10):
+  1. T1_R2 orientation verification — ⚠ OPEN; docs/09-v2-roadmap.md item 1.
+  2. ADR-0033 marker 25–26 label item — pending Frank.
 HARD CONSTRAINTS:
-  - edr_r2.psx = q050 foil, NEVER WRITE OR OPEN. edr_r2_q030.psx = source, never write.
-  - WORK copy for zero-pitch: edr_r2_q030_zeropitch_20260617.psx.
+  - edr_r2.psx = q050 foil (in EBS snapshot) — NEVER WRITE OR OPEN.
+  - edr_r2_q030.psx = source (in EBS snapshot) — never write.
   - P13HMEON = comparison-only firewall.
+  - EC2 decommissioned — no live instance. All compute restores from EBS snapshots + AMI.
   - Verify every artifact from disk; agent self-reports are hypotheses.
